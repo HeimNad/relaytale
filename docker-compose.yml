@@ -25,6 +25,8 @@ services:
       SMTP_TLS_CERT: /data/tls/smtp.crt
       SMTP_TLS_KEY: /data/tls/smtp.key
       MAX_MESSAGE_BYTES: 26214400
+      WORKER_COUNT: ${WORKER_COUNT:-0}
+      MAILGATEWAY_MASTER_KEY: ${MAILGATEWAY_MASTER_KEY:-}
     ports:
       - '${SMTP_BIND:-127.0.0.1}:1587:587'
     volumes:
@@ -38,7 +40,7 @@ services:
       timeout: 5s
       start_period: 30s
       retries: 3
-    stop_grace_period: 40s
+    stop_grace_period: 50s
     restart: unless-stopped
   caddy:
     image: caddy:2-alpine

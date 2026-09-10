@@ -35,3 +35,25 @@ func TestInvalidConfig(t *testing.T) {
 		t.Fatal("zero timeout accepted")
 	}
 }
+
+func TestWorkerConfiguration(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://localhost/test")
+	t.Setenv("WORKER_COUNT", "4")
+	t.Setenv("MAILGATEWAY_MASTER_KEY", "")
+	if _, err := Load(nil); err == nil {
+		t.Fatal("workers enabled without encryption key")
+	}
+	t.Setenv("MAILGATEWAY_MASTER_KEY", "abababababababababababababababababababababababababababababababab")
+	cfg, err := Load(nil)
+	if err != nil || cfg.WorkerCount != 4 {
+		t.Fatalf("valid worker config: %v", err)
+	}
+	cfg, err = Load([]string{"--workers", "0"})
+	if err != nil || cfg.WorkerCount != 0 {
+		t.Fatal("CLI worker override ignored")
+	}
+	t.Setenv("WORKER_COUNT", "33")
+	if _, err := Load(nil); err == nil {
+		t.Fatal("unbounded worker count accepted")
+	}
+}

@@ -19,6 +19,8 @@ import (
 
 func manage(args []string) error {
 	switch args[0] {
+	case "create-provider":
+		return createProvider(args[1:])
 	case "init-dev-tls":
 		fs := flag.NewFlagSet(args[0], flag.ContinueOnError)
 		dir := fs.String("dir", "/data/tls", "output directory (localhost only)")

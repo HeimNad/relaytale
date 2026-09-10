@@ -11,9 +11,19 @@
 
 SMTP STARTTLS + AUTH、发件人限制、原始 EML 原子存档、UUIDv7、message / recipients / event 事务。默认拒绝匿名中继。以 Fake SMTP 客户端和故障注入验证“持久化完成才返回 250”。
 
-## Phase 2–4 · 可靠投递与 Flight Recorder
+## Phase 2 · Provider 投递与队列（已完成，含集成测试）
 
-先建设 Fake SMTP Server。实现单 Provider，再增加 PostgreSQL SKIP LOCKED、lease、逐收件人 attempt、阶段时间与错误分类。完整记录状态和事件后，再接 retry、priority failover 和 DELIVERY_UNKNOWN。必须覆盖并发领取、崩溃恢复、final response 丢失、多收件人部分失败。
+Generic SMTP（STARTTLS / implicit TLS）、Provider 凭证加密、priority 与并发容量选择、SKIP LOCKED 领取、一次投递、逐收件人结果、基础阶段事件与安全租约恢复。Fake SMTP 和 PostgreSQL 集成测试验证完整链路。默认关闭 worker，没有真实外部发件测试。
+
+为避免不安全的过渡版本，提前实现 DELIVERY_UNKNOWN 的保守判定与禁止自动重发。暂时失败停留 TEMP_FAILED，自动重试尚未开启。
+
+## Phase 3 · 完整 Flight Recorder
+
+细化协议阶段与耗时、DNS/TLS/RCPT 错误分类、过程事件持续写入、Provider 查询与连接诊断。保留原始响应但过滤认证信息。
+
+## Phase 4 · 重试与安全切换
+
+实现指数退避与 jitter、24 小时窗口、逐收件人重试、明确可安全切换阶段的 failover，以及不确定结果的人工处理流程。保留 Message-ID 与原始 EML，增加重复投递风险测试。
 
 ## Phase 5–6 · 管理界面
 

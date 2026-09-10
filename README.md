@@ -10,13 +10,15 @@ Your Apps → SMTP ingress → Durable queue + EML archive → Provider router
                             Event ledger         Your existing SMTP providers
 ```
 
-## 当前进度：Phase 1
+## 当前进度：Phase 2
 
 已实现 Go 服务入口、配置优先级、PostgreSQL 连接、内嵌 Goose 迁移、核心数据库表、存储可写检查、健康接口、JSON 日志、优雅退出和 Docker Compose。
 
 已支持 SMTP STARTTLS、AUTH PLAIN / LOGIN、逐账号发件地址限制、原始 EML 持久化、收件人记录和事务入队。只在文件同步与数据库提交完成后回复 SMTP 250。
 
-**尚未实现下游投递与管理 UI。** 已接收邮件保留为 QUEUED，不会发送到外部 Provider。上方架构中的 Provider router 属于下一阶段。
+已实现 Generic SMTP Provider 投递、加密凭证、PostgreSQL 队列 worker、逐收件人投递结果和租约恢复。支持 STARTTLS 与隐式 TLS，严格验证 Provider 证书。
+
+**默认 `WORKER_COUNT=0`，只接收不投递。** 配置主密钥、Provider 并显式启用 worker 后才开始发送。当前没有管理 UI、自动重试或故障切换；失败与不确定邮件会暂停。
 
 ## 启动
 
@@ -70,6 +72,7 @@ go run ./cmd/gateway --config config.example.yaml
 | `--smtp-cert` | `SMTP_TLS_CERT` | 启用 SMTP 时必填 |
 | `--smtp-key` | `SMTP_TLS_KEY` | 启用 SMTP 时必填 |
 | `--max-message-bytes` | `MAX_MESSAGE_BYTES` | `26214400` |
+| `--workers` | `WORKER_COUNT` | `0`（关闭投递） |
 | `--shutdown-timeout` | `SHUTDOWN_TIMEOUT` | `30s` |
 
 敏感配置优先使用环境变量，避免在命令行历史中保存密码。
@@ -86,6 +89,11 @@ internal/smtpserver/ STARTTLS、认证、SMTP 会话和错误映射
 internal/auth/     Argon2id 凭证与发件地址授权
 internal/message/  接收用例和原子数据库入队
 internal/devtls/   显式生成 localhost 开发证书
+internal/provider/ SMTP Provider 配置与加密凭证创建
+internal/encryption/ AES-256-GCM，绑定 Provider ID
+internal/smtpclient/ SMTP 阶段、原文传输与结果分类
+internal/queue/    并发领取、租约、投递和事务完成
+internal/testsmtp/ 本地 Fake Provider，用于失败注入
 tests/integration/ 真实 SMTP 与 PostgreSQL 故障注入测试
 migrations/        内嵌、版本化数据库迁移
 docker/            Caddy 配置
@@ -150,4 +158,47 @@ docker compose --profile test stop postgres-test
 
 ## Git 阶段检查点
 
-每个阶段验证完成后提交代码并创建里程碑标签。当前基线为 `phase-1`；具体约定见 [Git 工作流程](docs/git-workflow.md)。Git 不包含数据库、EML、密码或证书，这些数据需要单独备份。
+每个阶段验证完成后提交代码并创建里程碑标签。阶段基线以 `phase-1`、`phase-2` 等标签保存；具体约定见 [Git 工作流程](docs/git-workflow.md)。Git 不包含数据库、EML、密码或证书，这些数据需要单独备份。
+
+
+## 启用 Provider 投递（Phase 2）
+
+1. 生成主密钥：`openssl rand -hex 32`。将结果保存到 `.env` 的 `MAILGATEWAY_MASTER_KEY`。该值用于加密 Provider 密码，需要独立备份；更换或丢失会导致已有凭证无法解密。
+2. 保持 `WORKER_COUNT=0`，运行 `docker compose up -d --build`，让容器载入主密钥并应用迁移。
+3. 使用仅本地可读的密码文件创建 Provider，例如：
+
+```sh
+docker compose exec -T gateway create-provider \
+  --name primary \
+  --host smtp.your-provider.example --port 587 --security starttls \
+  --username your-smtp-username --from-domains example.com \
+  --priority 10 --max-connections 1 --timeout 30s \
+  --password-stdin < /path/to/provider-password.txt
+```
+
+隐式 TLS 使用 `--security implicit_tls --port 465`。上面的 hostname 是占位符，须替换为真实 Provider。密码文件不要放入仓库。创建命令不连接 Provider、不发送测试邮件。
+
+4. 在 `.env` 设置 `WORKER_COUNT=4`，再运行 `docker compose up -d`。符合 Provider 发件域规则的已有 QUEUED 邮件也会开始投递。
+
+Provider 优先选择较小的 priority；连接额度耗尽或配置了本阶段尚不支持的 hourly/daily limit 时跳过该 Provider。未匹配到 Provider 的邮件保持 QUEUED。低优先级 Provider 可承接领取时的可用容量，但单次尝试失败后不会自动换 Provider。
+
+### 结果语义
+
+| 状态 | 含义与本阶段行为 |
+| --- | --- |
+| SMTP_ACCEPTED | Provider 返回最终 2xx；不代表最终送达 |
+| PARTIAL_ACCEPTED | 部分收件人被接受，其他收件人失败；逐人保留结果 |
+| TEMP_FAILED | 暂时失败，本阶段暂停，不自动重试 |
+| PERM_FAILED | 明确永久失败，本阶段暂停 |
+| DELIVERY_UNKNOWN | DATA 后缺少确定结果，或持久化的 DATA 许可后 worker 租约过期；不自动重发 |
+
+查看投递记录：
+
+```sh
+docker compose exec postgres psql -U mailgateway -d mailgateway \
+  -c 'SELECT message_id, attempt_number, result, smtp_code, error_class FROM delivery_attempts ORDER BY started_at DESC LIMIT 20;'
+```
+
+消息结果、收件人结果、attempt 和事件在同一事务完成。发送前校验存档大小和 SHA-256；不重新生成 MIME，不改 Message-ID。当前仅传输 CRLF 格式且以 CRLF 结束的 EML，非规范原文会保留并暂停，避免静默改写。
+
+Phase 2 集成测试另外覆盖：SMTP ingress → 存档 → PostgreSQL 队列 → Fake Provider 全链路、并发领取与容量限制、过期领取标识拒绝、崩溃恢复、错误主密钥、存档损坏、最终结果提交失败以及 worker 退出。测试只使用本地 Fake Provider，尚未连接真实外部邮箱服务。

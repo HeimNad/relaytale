@@ -9,9 +9,12 @@ import (
 	"time"
 
 	"go.yaml.in/yaml/v3"
+	"mailgateway/internal/encryption"
 )
 
 type Config struct {
+	WorkerCount     int    `yaml:"worker_count"`
+	MasterKey       string `yaml:"-"`
 	SMTPAddr        string `yaml:"smtp_listen_addr"`
 	SMTPDomain      string `yaml:"smtp_domain"`
 	SMTPCert        string `yaml:"smtp_tls_cert"`
@@ -30,6 +33,7 @@ func Load(args []string) (Config, error) {
 	var file string
 	pre := flag.NewFlagSet("gateway", flag.ContinueOnError)
 	pre.StringVar(&file, "config", "", "optional YAML configuration file")
+	pre.Int("workers", 0, "delivery workers; 0 disables outbound delivery")
 	pre.String("smtp-addr", "", "SMTP listen address; empty disables SMTP")
 	pre.String("smtp-domain", "", "SMTP greeting domain")
 	pre.String("smtp-cert", "", "SMTP TLS certificate file")
@@ -76,8 +80,18 @@ func Load(args []string) (Config, error) {
 		}
 		c.MaxMessageBytes = n
 	}
+	if v, ok := os.LookupEnv("WORKER_COUNT"); ok {
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			return c, errors.New("invalid WORKER_COUNT")
+		}
+		c.WorkerCount = n
+	}
+	c.MasterKey = os.Getenv("MAILGATEWAY_MASTER_KEY")
 	pre.Visit(func(f *flag.Flag) {
 		switch f.Name {
+		case "workers":
+			c.WorkerCount, _ = strconv.Atoi(f.Value.String())
 		case "smtp-addr":
 			c.SMTPAddr = f.Value.String()
 		case "smtp-domain":
@@ -110,6 +124,14 @@ func Load(args []string) (Config, error) {
 	}
 	if c.SMTPDomain == "" {
 		return c, errors.New("SMTP domain is required")
+	}
+	if c.WorkerCount < 0 || c.WorkerCount > 32 {
+		return c, errors.New("WORKER_COUNT must be between 0 and 32")
+	}
+	if c.WorkerCount > 0 {
+		if _, err := encryption.New(c.MasterKey); err != nil {
+			return c, err
+		}
 	}
 	return c, nil
 }
