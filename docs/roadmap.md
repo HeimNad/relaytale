@@ -17,9 +17,11 @@ Generic SMTP（STARTTLS / implicit TLS）、Provider 凭证加密、priority 与
 
 为避免不安全的过渡版本，提前实现 DELIVERY_UNKNOWN 的保守判定与禁止自动重发。暂时失败停留 TEMP_FAILED，自动重试尚未开启。
 
-## Phase 3 · 完整 Flight Recorder
+## Phase 3 · Flight Recorder 与运维基础（已完成，含集成测试）
 
-细化协议阶段与耗时、DNS/TLS/RCPT 错误分类、过程事件持续写入、Provider 查询与连接诊断。保留原始响应但过滤认证信息。
+增加 DNS、SMTP greeting/EHLO/AUTH/QUIT 等阶段事件、实际网络耗时与错误分类，过程事件持续写入并幂等补齐。提供 Provider 列表和不发信的连接诊断。
+
+按用户要求采用 AGPL-3.0-only，提前实现运行日志轮转、压缩导出、可预览的 EML/debug 保留期清理、可恢复删除、定时维护和追加式审计；默认关闭自动清理。元数据/事件期限删除、完整 debug transcript 和完善错误枚举仍待后续实现。见 [运维说明](operations.md) 和 [规格对照](phase-1-3-spec-review.md)。
 
 ## Phase 4 · 重试与安全切换
 
@@ -31,7 +33,7 @@ Generic SMTP（STARTTLS / implicit TLS）、Provider 凭证加密、priority 与
 
 ## Phase 7 · Provider 运维
 
-连接测试、基础健康统计、限流；区分 Provider 故障和收件人错误。成熟后接入 circuit breaker。
+连接测试已提前实现；后续增加基础健康统计、限流；区分 Provider 故障和收件人错误。成熟后接入 circuit breaker。
 
 ## Phase 8–9 · Bounce 与 HTTP API
 
@@ -39,6 +41,6 @@ DSN、suppression、受认证的 bounce ingestion；随后 HTTP 发件、API key
 
 ## Phase 10 · 生产加固
 
-HTTPS / SMTP TLS 部署指引、指标、备份恢复演练、保留期清理、独立数据库权限、限流与安全测试。
+HTTPS / SMTP TLS 部署指引、指标、备份恢复演练、元数据/事件期限删除、完整删除流程、独立数据库权限、限流与安全测试。EML/debug 清理与备份流程文档已提前实现，不等于生产加固完成。
 
 真实 Provider 验证需要用户提供测试账号与明确收件人；默认开发测试不向外部发送邮件。

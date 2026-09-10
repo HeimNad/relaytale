@@ -17,12 +17,16 @@ type RecipientResult struct {
 	Enhanced, Response string
 }
 type Event struct {
+	Sequence          int
 	Type, RecipientID string
 	At                time.Time
 	Code              int
 	Response          string
 }
 type Result struct {
+	DNSStartedAt, DNSCompletedAt                                                                                                    time.Time
+	Timings                                                                                                                         map[string]int64
+	RecorderError                                                                                                                   bool
 	Status, ErrorClass, ErrorMessage                                                                                                string
 	Code                                                                                                                            int
 	Enhanced, Response, RemoteIP                                                                                                    string

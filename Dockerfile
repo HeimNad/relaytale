@@ -10,8 +10,10 @@ RUN apk add --no-cache gcc musl-dev
 CMD ["go", "test", "-race", "-count=1", "./..."]
 
 FROM alpine:3.21 AS runtime
+LABEL org.opencontainers.image.licenses="AGPL-3.0-only"
 RUN apk add --no-cache ca-certificates && addgroup -g 10001 gateway && adduser -D -u 10001 -G gateway gateway && mkdir -p /data/eml && chown -R gateway:gateway /data
 COPY --from=build /gateway /usr/local/bin/gateway
+COPY LICENSE /usr/share/licenses/mailgateway/LICENSE
 USER gateway
 EXPOSE 8080 587
 ENTRYPOINT ["gateway"]

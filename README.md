@@ -10,7 +10,7 @@ Your Apps → SMTP ingress → Durable queue + EML archive → Provider router
                             Event ledger         Your existing SMTP providers
 ```
 
-## 当前进度：Phase 2
+## 当前进度：Phase 3
 
 已实现 Go 服务入口、配置优先级、PostgreSQL 连接、内嵌 Goose 迁移、核心数据库表、存储可写检查、健康接口、JSON 日志、优雅退出和 Docker Compose。
 
@@ -106,7 +106,7 @@ docs/              架构决策与分阶段计划
 
 PostgreSQL 和 `/data/eml` 必须成对备份。邮件接收后，原始 EML 存储在 `/data/eml/YYYY/MM/DD/<uuid>.eml`，数据库保存路径、大小与 SHA-256。事件表禁止普通 UPDATE/DELETE；后续保留期清理必须通过专门维护流程实现。生产环境还需分离迁移账号和运行账号，当前开发环境使用同一账号。
 
-许可证尚未选择。
+采用 **AGPL-3.0-only**，完整文本见 [LICENSE](LICENSE)。项目原创代码按此许可证发布；第三方依赖保留各自许可证。可通过 `gateway license` 或 `GET /license` 查看正文。发布或部署修改版时，请按许可证提供对应源代码；仅展示许可证正文不能代替源代码提供安排。
 
 ## 创建 SMTP 账号
 
@@ -168,7 +168,7 @@ docker compose --profile test stop postgres-test
 3. 使用仅本地可读的密码文件创建 Provider，例如：
 
 ```sh
-docker compose exec -T gateway create-provider \
+docker compose exec -T gateway gateway create-provider \
   --name primary \
   --host smtp.your-provider.example --port 587 --security starttls \
   --username your-smtp-username --from-domains example.com \
@@ -202,3 +202,12 @@ docker compose exec postgres psql -U mailgateway -d mailgateway \
 消息结果、收件人结果、attempt 和事件在同一事务完成。发送前校验存档大小和 SHA-256；不重新生成 MIME，不改 Message-ID。当前仅传输 CRLF 格式且以 CRLF 结束的 EML，非规范原文会保留并暂停，避免静默改写。
 
 Phase 2 集成测试另外覆盖：SMTP ingress → 存档 → PostgreSQL 队列 → Fake Provider 全链路、并发领取与容量限制、过期领取标识拒绝、崩溃恢复、错误主密钥、存档损坏、最终结果提交失败以及 worker 退出。测试只使用本地 Fake Provider，尚未连接真实外部邮箱服务。
+
+
+## Flight Recorder 与运维（Phase 3）
+
+新增 DNS / SMTP 阶段持续记录、阶段耗时、错误分类、Provider 列表与不发信的连接诊断。运行日志按大小轮转；支持压缩 JSONL 记录导出、运行日志导出、EML 与已有 debug 内容保留期清理，以及追加式维护审计。
+
+**自动清理默认关闭。** 手动 `cleanup` 默认只预览；邮件元数据和事件长期保留，待处理和结果不确定的邮件不会被 EML 保留策略删除。完整命令、保留边界与备份恢复流程见 [运维说明](docs/operations.md)。
+
+Phase 3 测试覆盖导出原子发布/不覆盖、过滤与敏感字段排除、清理预览、安全状态筛选、受限路径、删除中断恢复、审计不可修改，以及发送完成前事件已落库。规格遵循情况、设计取舍和剩余工作见 [前三阶段规格对照](docs/phase-1-3-spec-review.md)。

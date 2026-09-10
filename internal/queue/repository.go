@@ -66,7 +66,7 @@ func (r Repository) Claim(ctx context.Context) (Job, error) {
 	defer tx.Rollback()
 	j := Job{Token: uuid.NewString(), AttemptID: uuid.Must(uuid.NewV7()).String()}
 	err = tx.QueryRowContext(ctx, `SELECT m.id,m.envelope_from,m.eml_path,m.eml_size,m.eml_sha256 FROM messages m
- WHERE m.status='QUEUED' AND m.next_attempt_at<=now()
+ WHERE m.status='QUEUED' AND m.archive_state='AVAILABLE' AND m.next_attempt_at<=now()
  AND EXISTS(SELECT 1 FROM recipients rc WHERE rc.message_id=m.id AND rc.status='QUEUED')
  AND EXISTS(SELECT 1 FROM providers p WHERE `+eligibleProvider+`)
  ORDER BY m.priority DESC,m.created_at,m.id LIMIT 1 FOR UPDATE OF m SKIP LOCKED`).Scan(&j.ID, &j.From, &j.Path, &j.Size, &j.SHA256)
@@ -195,8 +195,18 @@ func (r Repository) Finish(ctx context.Context, j Job, out smtpclient.Result) er
 	}
 	_, err = tx.ExecContext(ctx, `UPDATE delivery_attempts SET result=$2,finished_at=$3,connected_at=$4,tls_at=$5,authenticated_at=$6,mail_from_at=$7,rcpt_at=$8,data_started_at=$9,data_completed_at=$10,final_response_at=$11,
  smtp_code=$12,smtp_enhanced_code=$13,smtp_response=$14,error_class=$15,error_message=$16,bytes_sent=$17,remote_ip=$18,total_duration_ms=$19,connection_duration_ms=$20,tls_duration_ms=$21,auth_duration_ms=$22,data_duration_ms=$23 WHERE id=$1`,
-		j.AttemptID, out.Status, out.FinishedAt, nullable(out.ConnectedAt), nullable(out.TLSAt), nullable(out.AuthenticatedAt), nullable(out.MailFromAt), nullable(out.RcptAt), nullable(out.DataStartedAt), nullable(out.DataCompletedAt), nullable(out.FinalResponseAt), out.Code, out.Enhanced, out.Response, out.ErrorClass, out.ErrorMessage, out.BytesSent, ip, duration(out.StartedAt, out.FinishedAt), duration(out.StartedAt, out.ConnectedAt), duration(out.ConnectedAt, out.TLSAt), duration(out.TLSAt, out.AuthenticatedAt), duration(out.DataStartedAt, out.DataCompletedAt))
+		j.AttemptID, out.Status, out.FinishedAt, nullable(out.ConnectedAt), nullable(out.TLSAt), nullable(out.AuthenticatedAt), nullable(out.MailFromAt), nullable(out.RcptAt), nullable(out.DataStartedAt), nullable(out.DataCompletedAt), nullable(out.FinalResponseAt), out.Code, out.Enhanced, out.Response, out.ErrorClass, out.ErrorMessage, out.BytesSent, ip, duration(out.StartedAt, out.FinishedAt), timing(out, "connect_ms"), timing(out, "tls_ms"), timing(out, "auth_ms"), timing(out, "data_transfer_ms"))
 	if err != nil {
+		return err
+	}
+	if out.Timings == nil {
+		out.Timings = map[string]int64{}
+	}
+	timings, err := json.Marshal(out.Timings)
+	if err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, `UPDATE delivery_attempts SET dns_started_at=$2,dns_completed_at=$3,timings=$4 WHERE id=$1`, j.AttemptID, nullable(out.DNSStartedAt), nullable(out.DNSCompletedAt), string(timings)); err != nil {
 		return err
 	}
 	if len(out.Recipients) != len(j.Recipients) {
@@ -226,7 +236,7 @@ func (r Repository) Finish(ctx context.Context, j Job, out smtpclient.Result) er
 		}
 	}
 	for _, e := range out.Events {
-		if err = event(ctx, tx, j, e.Type, e.RecipientID, e.At, map[string]any{"smtp_code": e.Code, "response": e.Response}); err != nil {
+		if err = recordEvent(ctx, tx, j, e); err != nil {
 			return err
 		}
 	}
@@ -314,4 +324,47 @@ func ErrorClass(err error) string {
 		return "DATABASE_ERROR"
 	}
 	return "WORKER_ERROR"
+}
+
+func recordEvent(ctx context.Context, tx *sql.Tx, j Job, e smtpclient.Event) error {
+	if e.Sequence <= 0 {
+		return errors.New("event sequence must be positive")
+	}
+	id, err := uuid.NewV7()
+	if err != nil {
+		return err
+	}
+	raw, err := json.Marshal(map[string]any{"smtp_code": e.Code, "response": e.Response})
+	if err != nil {
+		return err
+	}
+	var rid any
+	if e.RecipientID != "" {
+		rid = e.RecipientID
+	}
+	_, err = tx.ExecContext(ctx, `INSERT INTO events(id,message_id,attempt_id,recipient_id,event_type,event_time,source,data,attempt_sequence) VALUES($1,$2,$3,$4,$5,$6,'worker',$7,$8) ON CONFLICT(attempt_id,attempt_sequence) WHERE attempt_sequence IS NOT NULL DO NOTHING`, id.String(), j.ID, j.AttemptID, rid, e.Type, e.At, string(raw), e.Sequence)
+	return err
+}
+func (r Repository) Record(ctx context.Context, j Job, e smtpclient.Event) error {
+	bounded, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	tx, err := r.begin(bounded)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err = fence(bounded, tx, j, true); err != nil {
+		return err
+	}
+	if err = recordEvent(bounded, tx, j, e); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func timing(out smtpclient.Result, key string) any {
+	if value, ok := out.Timings[key]; ok {
+		return value
+	}
+	return nil
 }

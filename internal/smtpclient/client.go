@@ -13,6 +13,7 @@ import (
 	"net/textproto"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/emersion/go-sasl"
@@ -20,27 +21,35 @@ import (
 )
 
 type Client struct {
+	probe   bool
 	Domain  string
 	RootCAs *x509.CertPool
 }
 
 // Send uses a single bounded SMTP conversation. beforeData is a durable fence:
 // no DATA command or body may be transmitted unless it commits successfully.
-func (c Client) Send(ctx context.Context, p provider.Provider, password, from string, recipients []Recipient, payload []byte, beforeData func(context.Context) error) (out Result) {
+func (c Client) Send(ctx context.Context, p provider.Provider, password, from string, recipients []Recipient, payload []byte, beforeData func(context.Context) error, records ...func(context.Context, Event) error) (out Result) {
 	out.StartedAt = time.Now().UTC()
+	out.Timings = map[string]int64{}
 	for _, r := range recipients {
 		out.Recipients = append(out.Recipients, RecipientResult{ID: r.ID, Status: Temporary})
 	}
-	defer func() { out.FinishedAt = time.Now().UTC(); out.Aggregate() }()
+	defer func() {
+		out.FinishedAt = time.Now().UTC()
+		out.Timings["total_ms"] = out.FinishedAt.Sub(out.StartedAt).Milliseconds()
+		if !c.probe {
+			out.Aggregate()
+		}
+	}()
 	stage := "CONNECT_ERROR"
 	fail := func(err error, uncertain bool) {
-		out.ErrorClass = stage
+		out.ErrorClass = classify(stage, err)
 		out.ErrorMessage = "SMTP operation failed"
 		status := Temporary
 		var reply *textproto.Error
 		if errors.As(err, &reply) {
 			out.Code = reply.Code
-			out.Response = safeResponse(reply.Msg, password)
+			out.Response = safeResponse(redactAuth(reply.Msg, p.Username, password), password)
 			if reply.Code >= 500 && reply.Code <= 599 {
 				status = Permanent
 			} else if uncertain && (reply.Code < 400 || reply.Code > 599) {
@@ -49,10 +58,13 @@ func (c Client) Send(ctx context.Context, p provider.Provider, password, from st
 			out.Enhanced = enhanced(reply.Msg)
 		} else if uncertain {
 			status = Unknown
-			out.ErrorClass = "FINAL_RESPONSE_UNKNOWN"
+			out.ErrorClass = classify("FINAL_RESPONSE_UNKNOWN", err)
 		}
 		if stage == "AUTH_ERROR" {
 			out.Response = "authentication rejected (redacted)"
+		}
+		if c.probe {
+			out.Status = status
 		}
 		for i := range out.Recipients {
 			if out.Recipients[i].Status == "RCPT_ACCEPTED" || out.Recipients[i].Status == Temporary && out.Recipients[i].Code == 0 {
@@ -63,9 +75,22 @@ func (c Client) Send(ctx context.Context, p provider.Provider, password, from st
 			}
 		}
 	}
-	event := func(kind, rid string, code int, response string) {
-		out.Events = append(out.Events, Event{Type: kind, RecipientID: rid, At: time.Now().UTC(), Code: code, Response: safeResponse(response, password)})
+	event := func(kind, rid string, code int, response string) bool {
+		e := Event{Sequence: len(out.Events) + 1, Type: kind, RecipientID: rid, At: time.Now().UTC(), Code: code, Response: safeResponse(redactAuth(response, p.Username, password), password)}
+		out.Events = append(out.Events, e)
+		if len(records) > 0 && records[0] != nil {
+			if err := records[0](ctx, e); err != nil {
+				out.RecorderError = true
+				if out.DataStartedAt.IsZero() {
+					stage = "RECORDER_ERROR"
+					fail(err, false)
+					return false
+				}
+			}
+		}
+		return true
 	}
+
 	if p.Security != "starttls" && p.Security != "implicit_tls" {
 		stage = "TLS_ERROR"
 		fail(errors.New("TLS required"), false)
@@ -84,16 +109,51 @@ func (c Client) Send(ctx context.Context, p provider.Provider, password, from st
 		}
 	}
 	// Refuse a non-canonical snapshot rather than silently reserialize MIME.
-	if !bytes.HasSuffix(payload, []byte("\r\n")) || bytes.Contains(bytes.ReplaceAll(payload, []byte("\r\n"), nil), []byte("\n")) {
+	if !c.probe && (!bytes.HasSuffix(payload, []byte("\r\n")) || bytes.Contains(bytes.ReplaceAll(payload, []byte("\r\n"), nil), []byte("\n"))) {
 		stage = "INVALID_EML"
 		fail(errors.New("EML must use CRLF"), false)
 		return
 	}
-	conn, err := (&net.Dialer{}).DialContext(ctx, "tcp", net.JoinHostPort(p.Host, strconv.Itoa(p.Port)))
+	stage = "DNS_ERROR"
+	out.DNSStartedAt = time.Now().UTC()
+	if !event("DNS_STARTED", "", 0, "") {
+		return
+	}
+	dnsStart := time.Now()
+	addresses, err := net.DefaultResolver.LookupIPAddr(ctx, p.Host)
+	out.DNSCompletedAt = time.Now().UTC()
+	out.Timings["dns_ms"] = time.Since(dnsStart).Milliseconds()
+	if err != nil || len(addresses) == 0 {
+		if err == nil {
+			err = errors.New("no addresses")
+		}
+		fail(err, false)
+		return
+	}
+	if !event("DNS_RESOLVED", "", 0, "") {
+		return
+	}
+	stage = "CONNECT_ERROR"
+	connectStart := time.Now()
+	var conn net.Conn
+	for _, address := range addresses {
+		conn, err = (&net.Dialer{Timeout: 5 * time.Second}).DialContext(ctx, "tcp", net.JoinHostPort(address.String(), strconv.Itoa(p.Port)))
+		if err == nil {
+			break
+		}
+	}
+	out.Timings["connect_ms"] = time.Since(connectStart).Milliseconds()
 	if err != nil {
 		fail(err, false)
 		return
 	}
+	handshake := func(tc *tls.Conn) error {
+		start := time.Now()
+		err := tc.HandshakeContext(ctx)
+		out.Timings["tls_ms"] += time.Since(start).Milliseconds()
+		return err
+	}
+
 	defer conn.Close()
 	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
 	defer stop()
@@ -103,19 +163,23 @@ func (c Client) Send(ctx context.Context, p provider.Provider, password, from st
 	out.ConnectedAt = time.Now().UTC()
 	host, _, _ := net.SplitHostPort(conn.RemoteAddr().String())
 	out.RemoteIP = host
-	event("TCP_CONNECTED", "", 0, "")
+	if !event("TCP_CONNECTED", "", 0, "") {
+		return
+	}
 	tlsConfig := &tls.Config{ServerName: p.Host, MinVersion: tls.VersionTLS12, RootCAs: c.RootCAs}
 	var transport net.Conn = conn
 	if p.Security == "implicit_tls" {
 		stage = "TLS_ERROR"
 		secure := tls.Client(conn, tlsConfig)
-		if err := secure.HandshakeContext(ctx); err != nil {
+		if err := handshake(secure); err != nil {
 			fail(err, false)
 			return
 		}
 		transport = secure
 		out.TLSAt = time.Now().UTC()
-		event("TLS_ESTABLISHED", "", 0, "")
+		if !event("TLS_ESTABLISHED", "", 0, "") {
+			return
+		}
 	}
 	wire := textproto.NewConn(transport)
 	defer func() { _ = wire.Close() }()
@@ -124,7 +188,13 @@ func (c Client) Send(ctx context.Context, p provider.Provider, password, from st
 		fail(err, false)
 		return
 	}
+	if !event("SMTP_GREETING", "", 220, "") {
+		return
+	}
 	command := func(expected int, format string, args ...any) (int, string, error) {
+		start := time.Now()
+		key := strings.ToLower(strings.TrimSuffix(strings.TrimSuffix(stage, "_ERROR"), "_REJECTED")) + "_ms"
+		defer func() { out.Timings[key] += time.Since(start).Milliseconds() }()
 		if err := wire.PrintfLine(format, args...); err != nil {
 			return 0, "", err
 		}
@@ -140,30 +210,43 @@ func (c Client) Send(ctx context.Context, p provider.Provider, password, from st
 		fail(err, false)
 		return
 	}
+	if !event("EHLO_COMPLETED", "", 250, caps) {
+		return
+	}
 	if p.Security == "starttls" {
 		stage = "TLS_ERROR"
 		if !hasCapability(caps, "STARTTLS") {
 			fail(errors.New("STARTTLS missing"), false)
 			return
 		}
+		stage = "STARTTLS_ERROR"
 		if _, _, err = command(220, "STARTTLS"); err != nil {
 			fail(err, false)
 			return
 		}
+		stage = "TLS_ERROR"
 		secure := tls.Client(conn, tlsConfig)
-		if err = secure.HandshakeContext(ctx); err != nil {
+		if err = handshake(secure); err != nil {
 			fail(err, false)
 			return
 		}
 		wire = textproto.NewConn(secure)
 		out.TLSAt = time.Now().UTC()
-		event("TLS_ESTABLISHED", "", 0, "")
+		if !event("TLS_ESTABLISHED", "", 0, "") {
+			return
+		}
 		stage = "EHLO_ERROR"
 		_, caps, err = command(250, "EHLO %s", domain)
 		if err != nil {
 			fail(err, false)
 			return
 		}
+		if !event("EHLO_COMPLETED", "", 250, caps) {
+			return
+		}
+	}
+	if !event("AUTH_STARTED", "", 0, "") {
+		return
 	}
 	stage = "AUTH_ERROR"
 	var auth sasl.Client
@@ -208,14 +291,25 @@ func (c Client) Send(ctx context.Context, p provider.Provider, password, from st
 		return
 	}
 	out.AuthenticatedAt = time.Now().UTC()
-	event("AUTH_SUCCEEDED", "", 235, "")
+	if !event("AUTH_SUCCEEDED", "", 235, "") {
+		return
+	}
+	if c.probe {
+		out.Status = "READY"
+		if wire.PrintfLine("QUIT") == nil {
+			event("QUIT_SENT", "", 0, "")
+		}
+		return
+	}
 	stage = "MAIL_FROM_REJECTED"
 	if _, _, err = command(250, "MAIL FROM:<%s>", from); err != nil {
 		fail(err, false)
 		return
 	}
 	out.MailFromAt = time.Now().UTC()
-	event("MAIL_FROM_ACCEPTED", "", 250, "")
+	if !event("MAIL_FROM_ACCEPTED", "", 250, "") {
+		return
+	}
 	accepted := 0
 	for i, r := range recipients {
 		stage = "RCPT_REJECTED"
@@ -230,13 +324,17 @@ func (c Client) Send(ctx context.Context, p provider.Provider, password, from st
 			if code >= 500 {
 				status = Permanent
 			}
-			out.Recipients[i] = RecipientResult{ID: r.ID, Status: status, Code: code, Enhanced: enhanced(response), Response: safeResponse(response, password)}
-			event("RCPT_REJECTED", r.ID, code, response)
+			out.Recipients[i] = RecipientResult{ID: r.ID, Status: status, Code: code, Enhanced: enhanced(response), Response: safeResponse(redactAuth(response, p.Username, password), password)}
+			if !event("RCPT_REJECTED", r.ID, code, response) {
+				return
+			}
 			continue
 		}
 		accepted++
-		out.Recipients[i] = RecipientResult{ID: r.ID, Status: "RCPT_ACCEPTED", Code: code, Enhanced: enhanced(response), Response: safeResponse(response, password)}
-		event("RCPT_ACCEPTED", r.ID, code, response)
+		out.Recipients[i] = RecipientResult{ID: r.ID, Status: "RCPT_ACCEPTED", Code: code, Enhanced: enhanced(response), Response: safeResponse(redactAuth(response, p.Username, password), password)}
+		if !event("RCPT_ACCEPTED", r.ID, code, response) {
+			return
+		}
 	}
 	out.RcptAt = time.Now().UTC()
 	if accepted == 0 {
@@ -253,23 +351,31 @@ func (c Client) Send(ctx context.Context, p provider.Provider, password, from st
 		return
 	}
 	out.DataStartedAt = time.Now().UTC()
-	event("DATA_STARTED", "", 354, "")
+	if !event("DATA_STARTED", "", 354, "") {
+		return
+	}
 	stage = "DATA_WRITE_ERROR"
 	// Dot-stuff only; payload bytes (including CRLF and headers) stay unchanged.
 	stuffed := dotStuff(payload)
-	if _, err = io.Copy(wire.W, bytes.NewReader(stuffed)); err != nil {
-		fail(err, true)
-		return
+	transferStart := time.Now()
+	_, err = io.Copy(wire.W, bytes.NewReader(stuffed))
+	if err == nil {
+		err = wire.W.Flush()
 	}
-	if err = wire.W.Flush(); err != nil {
+	out.Timings["data_transfer_ms"] = time.Since(transferStart).Milliseconds()
+	if err != nil {
 		fail(err, true)
 		return
 	}
 	out.BytesSent = int64(len(payload))
 	out.DataCompletedAt = time.Now().UTC()
-	event("DATA_COMPLETED", "", 0, "")
+	if !event("DATA_COMPLETED", "", 0, "") {
+		return
+	}
 	stage = "FINAL_RESPONSE_ERROR"
+	finalStart := time.Now()
 	code, response, err := wire.ReadResponse(2)
+	out.Timings["final_response_ms"] = time.Since(finalStart).Milliseconds()
 	if code != 0 {
 		out.FinalResponseAt = time.Now().UTC()
 	}
@@ -279,16 +385,20 @@ func (c Client) Send(ctx context.Context, p provider.Provider, password, from st
 	}
 	out.FinalResponseAt = time.Now().UTC()
 	out.Code = code
-	out.Response = safeResponse(response, password)
+	out.Response = safeResponse(redactAuth(response, p.Username, password), password)
 	out.Enhanced = enhanced(response)
 	for i := range out.Recipients {
 		if out.Recipients[i].Status == "RCPT_ACCEPTED" {
 			out.Recipients[i].Status = Accepted
 		}
 	}
-	event("SMTP_ACCEPTED", "", code, response)
+	if !event("SMTP_ACCEPTED", "", code, response) {
+		return
+	}
 	// No QUIT reply can change a known final acceptance.
-	_ = wire.PrintfLine("QUIT")
+	if wire.PrintfLine("QUIT") == nil {
+		event("QUIT_SENT", "", 0, "")
+	}
 	return
 }
 func capability(caps, name string) string {
@@ -340,4 +450,47 @@ func dotStuff(raw []byte) []byte {
 	}
 	b.WriteString(".\r\n")
 	return b.Bytes()
+}
+
+// Probe authenticates and disconnects without MAIL, RCPT or DATA.
+func (c Client) Probe(ctx context.Context, p provider.Provider, password string) Result {
+	c.probe = true
+	timeout := p.Timeout
+	if timeout <= 0 {
+		timeout = 30 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	return c.Send(ctx, p, password, "", nil, nil, nil)
+}
+func classify(stage string, err error) string {
+	if stage == "AUTH_ERROR" || stage == "TLS_ERROR" || stage == "RECORDER_ERROR" {
+		return stage
+	}
+	var dns *net.DNSError
+	if errors.As(err, &dns) {
+		return "DNS_ERROR"
+	}
+	if errors.Is(err, syscall.ECONNREFUSED) {
+		return "CONNECT_REFUSED"
+	}
+	var ne net.Error
+	if errors.As(err, &ne) && ne.Timeout() || errors.Is(err, context.DeadlineExceeded) {
+		if strings.HasPrefix(stage, "FINAL_RESPONSE") {
+			return "FINAL_RESPONSE_TIMEOUT"
+		}
+		if stage == "CONNECT_ERROR" {
+			return "CONNECT_TIMEOUT"
+		}
+		return stage + "_TIMEOUT"
+	}
+	if errors.Is(err, syscall.ECONNRESET) {
+		return "CONNECTION_RESET"
+	}
+	return stage
+}
+
+func redactAuth(value, username, password string) string {
+	blob := base64.StdEncoding.EncodeToString([]byte("\x00" + username + "\x00" + password))
+	return strings.ReplaceAll(value, blob, "[REDACTED]")
 }

@@ -18,7 +18,7 @@ import (
 )
 
 type Sender interface {
-	Send(context.Context, provider.Provider, string, string, []smtpclient.Recipient, []byte, func(context.Context) error) smtpclient.Result
+	Send(context.Context, provider.Provider, string, string, []smtpclient.Recipient, []byte, func(context.Context) error, ...func(context.Context, smtpclient.Event) error) smtpclient.Result
 }
 type Worker struct {
 	Repo        Repository
@@ -70,7 +70,7 @@ func (w Worker) deliver(ctx context.Context, j Job) (err error) {
 		if readErr != nil {
 			out = failure("LOCAL_STORAGE_ERROR")
 		} else {
-			out = w.Sender.Send(operation, j.Provider, password, j.From, j.Recipients, raw, func(c context.Context) error { return w.Repo.ArmData(c, j) })
+			out = w.Sender.Send(operation, j.Provider, password, j.From, j.Recipients, raw, func(c context.Context) error { return w.Repo.ArmData(c, j) }, func(c context.Context, e smtpclient.Event) error { return w.Repo.Record(c, j, e) })
 		}
 	}
 	// Persist an outcome even after network cancellation. If this fails, leave the

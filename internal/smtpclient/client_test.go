@@ -103,3 +103,30 @@ func TestUntrustedProviderCertificateRejected(t *testing.T) {
 		t.Fatalf("untrusted certificate accepted: %+v", out)
 	}
 }
+
+func TestProbeAndRecorderFailure(t *testing.T) {
+	fake := testsmtp.Start(t, testsmtp.Options{})
+	host, port, _ := net.SplitHostPort(fake.Addr)
+	number, _ := strconv.Atoi(port)
+	p := provider.Provider{Host: host, Port: number, Username: "provider-user", Security: "starttls", Timeout: 3 * time.Second}
+	c := Client{Domain: "gateway.test", RootCAs: fake.Roots}
+	out := c.Probe(context.Background(), p, "provider-password")
+	if out.Status != "READY" || out.DNSCompletedAt.IsZero() {
+		t.Fatalf("probe: %+v", out)
+	}
+	for _, key := range []string{"dns_ms", "connect_ms", "tls_ms", "auth_ms", "total_ms"} {
+		if _, ok := out.Timings[key]; !ok {
+			t.Fatalf("missing timing %s", key)
+		}
+	}
+	select {
+	case <-fake.Payloads:
+		t.Fatal("probe sent mail")
+	default:
+	}
+	armed := false
+	out = c.Send(context.Background(), p, "provider-password", "sender@example.test", []Recipient{{"one", "one@example.test"}}, []byte(raw), func(context.Context) error { armed = true; return nil }, func(context.Context, Event) error { return errors.New("recorder unavailable") })
+	if !out.RecorderError || armed || out.Status != Temporary {
+		t.Fatalf("unsafe recorder failure: %+v", out)
+	}
+}

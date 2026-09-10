@@ -1,5 +1,13 @@
+x-runtime-logging: &runtime-logging
+  driver: local
+  options:
+    max-size: '10m'
+    max-file: '5'
+    compress: 'true'
+
 services:
   postgres:
+    logging: *runtime-logging
     image: postgres:17-alpine
     environment:
       POSTGRES_USER: mailgateway
@@ -14,6 +22,7 @@ services:
       retries: 12
     restart: unless-stopped
   gateway:
+    logging: *runtime-logging
     build: .
     environment:
       DATABASE_URL: postgres://mailgateway:${POSTGRES_PASSWORD}@postgres:5432/mailgateway?sslmode=disable
@@ -27,6 +36,10 @@ services:
       MAX_MESSAGE_BYTES: 26214400
       WORKER_COUNT: ${WORKER_COUNT:-0}
       MAILGATEWAY_MASTER_KEY: ${MAILGATEWAY_MASTER_KEY:-}
+      MAINTENANCE_INTERVAL: ${MAINTENANCE_INTERVAL:-0s}
+      EML_RETENTION_DAYS: ${EML_RETENTION_DAYS:-180}
+      DEBUG_RETENTION_DAYS: ${DEBUG_RETENTION_DAYS:-30}
+      CLEANUP_BATCH: ${CLEANUP_BATCH:-100}
     ports:
       - '${SMTP_BIND:-127.0.0.1}:1587:587'
     volumes:
@@ -43,6 +56,7 @@ services:
     stop_grace_period: 50s
     restart: unless-stopped
   caddy:
+    logging: *runtime-logging
     image: caddy:2-alpine
     environment:
       SITE_ADDRESS: ${SITE_ADDRESS:-http://localhost}
