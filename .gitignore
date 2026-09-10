@@ -1,0 +1,20 @@
+.env
+config.yaml
+/bin/
+/data/
+/coverage.out
+.codegraph/
+.DS_Store
+
+# Local secrets and certificates
+.env.*
+!.env.example
+*.key
+*.pem
+*.crt
+*.p12
+*.pfx
+
+# Local build and test output
+*.test
+/coverage/

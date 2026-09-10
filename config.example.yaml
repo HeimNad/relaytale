@@ -1,0 +1,10 @@
+http_listen_addr: ':8080'
+# Prefer DATABASE_URL in the environment for credentials.
+database_url: ''
+storage_dir: data/eml
+shutdown_timeout: 30s
+smtp_listen_addr: ':587'
+smtp_domain: localhost
+smtp_tls_cert: ''
+smtp_tls_key: ''
+max_message_bytes: 26214400

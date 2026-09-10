@@ -1,0 +1,86 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: mailgateway
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Copy .env.example to .env and set POSTGRES_PASSWORD}
+      POSTGRES_DB: mailgateway
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U mailgateway -d mailgateway']
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    restart: unless-stopped
+  gateway:
+    build: .
+    environment:
+      DATABASE_URL: postgres://mailgateway:${POSTGRES_PASSWORD}@postgres:5432/mailgateway?sslmode=disable
+      HTTP_LISTEN_ADDR: ':8080'
+      EML_STORAGE_DIR: /data/eml
+      SHUTDOWN_TIMEOUT: 30s
+      SMTP_LISTEN_ADDR: ':587'
+      SMTP_DOMAIN: localhost
+      SMTP_TLS_CERT: /data/tls/smtp.crt
+      SMTP_TLS_KEY: /data/tls/smtp.key
+      MAX_MESSAGE_BYTES: 26214400
+    ports:
+      - '${SMTP_BIND:-127.0.0.1}:1587:587'
+    volumes:
+      - mail_data:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, wget, -q, --spider, http://127.0.0.1:8080/health/ready]
+      interval: 10s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+    stop_grace_period: 40s
+    restart: unless-stopped
+  caddy:
+    image: caddy:2-alpine
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:-http://localhost}
+    ports:
+      - '${HTTP_BIND:-127.0.0.1}:8080:80'
+      - '${HTTP_BIND:-127.0.0.1}:8443:443'
+    volumes:
+      - ./docker/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      gateway:
+        condition: service_healthy
+    restart: unless-stopped
+  postgres-test:
+    image: postgres:17-alpine
+    profiles: [test]
+    environment:
+      POSTGRES_USER: mailgateway_test
+      POSTGRES_PASSWORD: isolated-test-only
+      POSTGRES_DB: mailgateway_test
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U mailgateway_test -d mailgateway_test']
+      interval: 2s
+      timeout: 3s
+      retries: 15
+  test:
+    profiles: [test]
+    build:
+      context: .
+      target: test
+    environment:
+      TEST_DATABASE_URL: postgres://mailgateway_test:isolated-test-only@postgres-test:5432/mailgateway_test?sslmode=disable
+    depends_on:
+      postgres-test:
+        condition: service_healthy
+volumes:
+  postgres_data:
+  mail_data:
+  caddy_data:
+  caddy_config:

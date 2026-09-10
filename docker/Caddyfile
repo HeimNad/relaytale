@@ -1,0 +1,4 @@
+{$SITE_ADDRESS:http://localhost} {
+ encode gzip
+ reverse_proxy gateway:8080
+}
