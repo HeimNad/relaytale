@@ -4,3 +4,10 @@ config.yaml
 .codegraph
 bin
 data
+
+exports
+*.log
+*.jsonl
+*.jsonl.gz
+*.log.gz
+__pycache__

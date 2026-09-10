@@ -18,3 +18,11 @@ config.yaml
 # Local build and test output
 *.test
 /coverage/
+
+# Operator exports may contain personal email metadata.
+/exports/
+*.log
+*.jsonl
+*.jsonl.gz
+*.log.gz
+__pycache__/

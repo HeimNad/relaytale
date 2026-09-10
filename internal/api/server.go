@@ -3,6 +3,8 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"io"
+	project "mailgateway"
 	"net/http"
 	"time"
 )
@@ -11,6 +13,10 @@ type Pinger interface{ PingContext(context.Context) error }
 
 func Handler(db Pinger, storageCheck func() error) http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /license", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		_, _ = io.WriteString(w, project.LicenseText)
+	})
 	mux.HandleFunc("GET /health/live", func(w http.ResponseWriter, r *http.Request) { respond(w, 200, "alive") })
 	mux.HandleFunc("GET /health/ready", func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)

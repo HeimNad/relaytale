@@ -14,11 +14,16 @@ import (
 	"syscall"
 	"time"
 
+	project "mailgateway"
 	"mailgateway/internal/api"
 	"mailgateway/internal/auth"
 	"mailgateway/internal/config"
 	"mailgateway/internal/database"
+	"mailgateway/internal/encryption"
 	"mailgateway/internal/message"
+	"mailgateway/internal/operations"
+	"mailgateway/internal/queue"
+	"mailgateway/internal/smtpclient"
 	"mailgateway/internal/smtpserver"
 	"mailgateway/internal/storage"
 )
@@ -33,7 +38,17 @@ func main() {
 }
 
 func run(log *slog.Logger) error {
-	if len(os.Args) > 1 && (os.Args[1] == "init-dev-tls" || os.Args[1] == "create-smtp-account") {
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "license":
+			fmt.Print(project.LicenseText)
+			return nil
+		case "export-records", "cleanup", "list-providers", "test-provider", "doctor":
+			return runOperation(os.Args[1], os.Args[2:])
+		}
+	}
+
+	if len(os.Args) > 1 && (os.Args[1] == "init-dev-tls" || os.Args[1] == "create-smtp-account" || os.Args[1] == "create-provider") {
 		return manage(os.Args[1:])
 	}
 	cfg, err := config.Load(os.Args[1:])
@@ -90,12 +105,36 @@ func run(log *slog.Logger) error {
 		go func() { result <- smtp.Serve(listener) }()
 	}
 	go func() { result <- srv.Serve(httpListener) }()
-	log.Info("gateway started", "http_address", cfg.HTTPAddr, "smtp_address", cfg.SMTPAddr, "phase", 1)
+	claimCtx, stopClaims := context.WithCancel(context.Background())
+	defer stopClaims()
+	operationCtx, stopOperations := context.WithCancel(context.Background())
+	defer stopOperations()
+	maintenanceCtx, stopMaintenance := context.WithCancel(context.Background())
+	defer stopMaintenance()
+	maintenanceDone := make(chan struct{})
+	go func() {
+		defer close(maintenanceDone)
+		operations.Run(maintenanceCtx, db, cfg.StorageDir, cfg.MaintenanceInterval, operations.Retention{EMLDays: cfg.EMLRetentionDays, DebugDays: cfg.DebugRetentionDays, Batch: cfg.CleanupBatch}, log)
+	}()
+	workersDone := make(chan struct{})
+	if cfg.WorkerCount > 0 {
+		box, err := encryption.New(cfg.MasterKey)
+		if err != nil {
+			return err
+		}
+		worker := queue.Worker{Repo: queue.Repository{DB: db}, Box: box, Sender: smtpclient.Client{Domain: cfg.SMTPDomain}, StorageRoot: cfg.StorageDir, MaxBytes: cfg.MaxMessageBytes, Log: log}
+		go func() { defer close(workersDone); worker.Run(claimCtx, operationCtx, cfg.WorkerCount) }()
+	} else {
+		close(workersDone)
+	}
+	log.Info("gateway started", "http_address", cfg.HTTPAddr, "smtp_address", cfg.SMTPAddr, "workers", cfg.WorkerCount, "phase", 3)
 	var serveErr error
 	select {
 	case serveErr = <-result:
 	case <-ctx.Done():
 	}
+	stopClaims()
+	stopMaintenance()
 	log.Info("gateway shutting down")
 	shutdown, cancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
 	defer cancel()
@@ -116,6 +155,23 @@ func run(log *slog.Logger) error {
 		_ = srv.Close()
 	}
 	wg.Wait()
+	select {
+	case <-maintenanceDone:
+	case <-shutdown.Done():
+		return errors.New("maintenance shutdown timed out")
+	}
+	select {
+	case <-workersDone:
+	case <-shutdown.Done():
+		stopOperations()
+		// Each worker has one final bounded DB write after network cancellation.
+		select {
+		case <-workersDone:
+		case <-time.After(12 * time.Second):
+			return errors.New("workers exceeded shutdown deadline")
+		}
+	}
+
 	if serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
 		return fmt.Errorf("listener stopped: %w", serveErr)
 	}
