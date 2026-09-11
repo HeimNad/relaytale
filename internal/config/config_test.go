@@ -95,3 +95,20 @@ func TestFailoverOptIn(t *testing.T) {
 		t.Fatal("invalid flag")
 	}
 }
+
+func TestHealthOptIn(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://localhost/test")
+	t.Setenv("HEALTH_ENABLED", "false")
+	c, err := Load(nil)
+	if err != nil || c.HealthEnabled {
+		t.Fatal(err)
+	}
+	c, err = Load([]string{"--health-enabled"})
+	if err != nil || !c.HealthEnabled {
+		t.Fatal(err)
+	}
+	t.Setenv("HEALTH_ENABLED", "invalid")
+	if _, err = Load(nil); err == nil {
+		t.Fatal("invalid health flag accepted")
+	}
+}

@@ -27,6 +27,7 @@ type Repository struct {
 	DB              *sql.DB
 	RetryEnabled    bool
 	FailoverEnabled bool
+	HealthEnabled   bool
 }
 
 func (r Repository) begin(ctx context.Context) (*sql.Tx, error) {
@@ -58,7 +59,7 @@ func event(ctx context.Context, tx *sql.Tx, j Job, kind, rid string, at time.Tim
 }
 
 const providerRequirements = `p.enabled AND p.security IN ('starttls','implicit_tls') AND p.timeout_seconds BETWEEN 1 AND 300 AND p.max_connections BETWEEN 1 AND 32
- AND p.hourly_limit IS NULL AND p.daily_limit IS NULL
+
  AND lower(split_part(m.envelope_from,'@',2))=ANY(p.from_domains)
  AND lower(split_part(m.header_from,'@',2))=ANY(p.from_domains)
  AND (SELECT count(*) FROM delivery_attempts a JOIN messages active ON active.id=a.message_id WHERE a.provider_id=p.id AND a.result='IN_PROGRESS' AND active.lease_expires_at>clock_timestamp())<p.max_connections`
@@ -99,6 +100,10 @@ func (r Repository) Claim(ctx context.Context) (Job, error) {
 	if active >= j.Provider.MaxConnections {
 		return Job{}, ErrNoJob
 	}
+	allowance, err := r.admission(ctx, tx, j.Provider.ID)
+	if err != nil {
+		return Job{}, err
+	}
 	var previous string
 	if err = tx.QueryRowContext(ctx, `SELECT coalesce(route_provider_id::text,'') FROM messages WHERE id=$1`, j.ID).Scan(&previous); err != nil {
 		return Job{}, err
@@ -112,7 +117,7 @@ func (r Repository) Claim(ctx context.Context) (Job, error) {
 	if err != nil {
 		return Job{}, err
 	}
-	rows, err := tx.QueryContext(ctx, `UPDATE recipients rc SET status='SENDING',provider_id=$2,attempt_count=attempt_count+1,retry_started_at=coalesce(retry_started_at,now()),retry_at=NULL WHERE message_id=$1 AND `+r.claimRecipient("rc")+` RETURNING id,address`, j.ID, j.Provider.ID)
+	rows, err := tx.QueryContext(ctx, `UPDATE recipients rc SET status='SENDING',provider_id=$2,attempt_count=attempt_count+1,retry_started_at=coalesce(retry_started_at,now()),retry_at=NULL WHERE rc.id IN (SELECT pending.id FROM recipients pending WHERE pending.message_id=$1 AND `+r.claimRecipient("pending")+` ORDER BY pending.id LIMIT $3) RETURNING id,address`, j.ID, j.Provider.ID, allowance)
 	if err != nil {
 		return Job{}, err
 	}
@@ -136,6 +141,9 @@ func (r Repository) Claim(ctx context.Context) (Job, error) {
 		if _, err = tx.ExecContext(ctx, `INSERT INTO attempt_recipients(attempt_id,recipient_id,status) VALUES($1,$2,'SENDING')`, j.AttemptID, rc.ID); err != nil {
 			return Job{}, err
 		}
+	}
+	if err = r.reserveControls(ctx, tx, j); err != nil {
+		return Job{}, err
 	}
 	if err = recordFailover(ctx, tx, j, previous); err != nil {
 		return Job{}, err
@@ -274,6 +282,9 @@ func (r Repository) Finish(ctx context.Context, j Job, out smtpclient.Result) er
 	if err != nil {
 		return err
 	}
+	if err = r.finishHealth(ctx, tx, j, out); err != nil {
+		return err
+	}
 	if err = refresh(ctx, tx, j.ID); err != nil {
 		return err
 	}
@@ -285,7 +296,7 @@ func (r Repository) Recover(ctx context.Context) error {
 		return err
 	}
 	defer tx.Rollback()
-	rows, err := tx.QueryContext(ctx, `SELECT m.id,m.locked_by,a.id,a.data_armed_at IS NOT NULL FROM messages m JOIN delivery_attempts a ON a.message_id=m.id AND a.result='IN_PROGRESS' WHERE m.status='SENDING' AND m.lease_expires_at<=clock_timestamp() ORDER BY m.lease_expires_at LIMIT 20 FOR UPDATE OF m SKIP LOCKED`)
+	rows, err := tx.QueryContext(ctx, `SELECT m.id,m.locked_by,a.id,a.data_armed_at IS NOT NULL FROM messages m JOIN delivery_attempts a ON a.message_id=m.id AND a.result='IN_PROGRESS' WHERE m.status='SENDING' AND m.lease_expires_at<=clock_timestamp() ORDER BY a.provider_id,m.lease_expires_at LIMIT 20 FOR UPDATE OF m SKIP LOCKED`)
 	if err != nil {
 		return err
 	}
@@ -326,6 +337,9 @@ func (r Repository) Recover(ctx context.Context) error {
 			return err
 		}
 		if _, err = tx.ExecContext(ctx, `UPDATE messages SET status=$2,last_error='WORKER_LEASE_EXPIRED',next_attempt_at=$3,locked_at=NULL,locked_by=NULL,lease_expires_at=NULL WHERE id=$1`, e.j.ID, status, next); err != nil {
+			return err
+		}
+		if err = recoverProbe(ctx, tx, e.j); err != nil {
 			return err
 		}
 		if !e.armed {

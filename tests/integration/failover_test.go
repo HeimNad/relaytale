@@ -122,6 +122,11 @@ func TestFailoverEligibilityAndOptIn(t *testing.T) {
 				mustExec(t, f, `UPDATE messages SET header_from='other@other.test' WHERE id=$1`, id)
 			case "quota":
 				mustExec(t, f, `UPDATE providers SET hourly_limit=1 WHERE id=$1`, bid)
+				busy := f.seed(t)
+				mustExec(t, f, `UPDATE messages SET route_provider_id=$2 WHERE id=$1`, busy, bid)
+				if _, err := f.worker.Repo.Claim(context.Background()); err != nil {
+					t.Fatal(err)
+				}
 			case "providerDisabled":
 				mustExec(t, f, `UPDATE providers SET enabled=false WHERE id=$1`, bid)
 			case "budget":

@@ -32,31 +32,29 @@ func (r Repository) eligibleProvider() string {
 		route = `(m.route_provider_id IS NULL OR p.id=m.route_provider_id OR (` + safeFailover + `
  AND NOT EXISTS(SELECT 1 FROM delivery_attempts visited WHERE visited.message_id=m.id AND visited.provider_id=p.id)))`
 	}
-	return providerRequirements + ` AND ` + route
+	return providerRequirements + r.controlRequirements() + ` AND ` + route
 }
 
 // The selected route and its audit evidence commit together with the new claim.
 // An unavailable backup falls back to a bounded retry on the pinned provider.
 func recordFailover(ctx context.Context, tx *sql.Tx, j Job, previous string) error {
-	if previous == "" || previous == j.Provider.ID {
-		return nil
-	}
-	rows, err := tx.QueryContext(ctx, `SELECT rc.id,ar.attempt_id,ar.decision FROM recipients rc
+
+	rows, err := tx.QueryContext(ctx, `SELECT rc.id,ar.attempt_id,ar.decision,a.provider_id FROM recipients rc
  JOIN attempt_recipients ar ON ar.recipient_id=rc.id JOIN delivery_attempts a ON a.id=ar.attempt_id
- WHERE rc.message_id=$1 AND rc.status='SENDING' AND a.attempt_number=(
+ WHERE rc.message_id=$1 AND rc.status='SENDING' AND a.provider_id<>$3 AND a.attempt_number=(
  SELECT max(old.attempt_number) FROM delivery_attempts old JOIN attempt_recipients old_rc ON old_rc.attempt_id=old.id
- WHERE old_rc.recipient_id=rc.id AND old.id<>$2)`, j.ID, j.AttemptID)
+ WHERE old_rc.recipient_id=rc.id AND old.id<>$2)`, j.ID, j.AttemptID, j.Provider.ID)
 	if err != nil {
 		return err
 	}
 	type evidence struct {
-		id, attempt string
-		decision    []byte
+		id, attempt, provider string
+		decision              []byte
 	}
 	var all []evidence
 	for rows.Next() {
 		var e evidence
-		if err = rows.Scan(&e.id, &e.attempt, &e.decision); err != nil {
+		if err = rows.Scan(&e.id, &e.attempt, &e.decision, &e.provider); err != nil {
 			rows.Close()
 			return err
 		}
@@ -67,12 +65,12 @@ func recordFailover(ctx context.Context, tx *sql.Tx, j Job, previous string) err
 	if err != nil {
 		return err
 	}
-	if len(all) != len(j.Recipients) {
+	if previous != "" && previous != j.Provider.ID && len(all) != len(j.Recipients) {
 		return errors.New("incomplete failover evidence")
 	}
 	for _, e := range all {
 		if err = event(ctx, tx, j, "PROVIDER_FAILOVER", e.id, time.Now().UTC(), map[string]any{
-			"from_provider_id": previous, "to_provider_id": j.Provider.ID, "previous_attempt_id": e.attempt,
+			"from_provider_id": e.provider, "to_provider_id": j.Provider.ID, "previous_attempt_id": e.attempt,
 			"reason": "SAFE_PRE_DATA_FAILURE", "previous_decision": json.RawMessage(e.decision), "max_distinct_providers": 3,
 		}); err != nil {
 			return err

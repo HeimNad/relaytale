@@ -19,3 +19,5 @@ cleanup_batch: 100
 retry_enabled: false
 
 failover_enabled: false
+
+health_enabled: false

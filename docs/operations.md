@@ -159,8 +159,21 @@ docker compose exec -T gateway gateway resolve-unknown \
 
 切换等待已持久化的重试时间，不立即重发。所有未完成收件人都必须已到期排队、预算有效，且最新尝试证明正文前失败、允许切换。DNS / TCP / TLS 失败与正文前 DATA 4xx 可触发；AUTH 错误、RCPT 4xx、正文后明确 4xx 不触发切换，UNKNOWN 必须人工处置。混合收件人策略不同则继续原路由；不会为了切换重发已接受收件人。
 
-备用 Provider 必须同时授权 Envelope From 与 Header From 域，启用 TLS，满足并发容量，且没有配置尚不支持的 hourly/daily limit。`from_domains` 是操作者对该服务发件能力的声明，系统不自动验证服务商是否允许域内每个地址；应先完成相应身份验收。不会改写发件地址或 MIME 来迁就备用账号。不同发件域的两套账号通常不能直接互备。
+备用 Provider 必须同时授权 Envelope From 与 Header From 域，启用 TLS，满足并发容量，剩余配额足够，并通过已启用的熔断检查。`from_domains` 是操作者对该服务发件能力的声明，系统不自动验证服务商是否允许域内每个地址；应先完成相应身份验收。不会改写发件地址或 MIME 来迁就备用账号。不同发件域的两套账号通常不能直接互备。
 
-一次消息最多使用三个不同 Provider，且不会返回已离开的 Provider；逐人 7 次 / 24 小时预算跨 Provider 累计。没有合格备用时仍可在预算内重试当前 Provider；当前 Provider 也不可用则等待。滚动健康与熔断在 4C 实现，当前不宣称备用有历史健康保证。
+一次消息最多使用三个不同 Provider，且不会返回已离开的 Provider；逐人 7 次 / 24 小时预算跨 Provider 累计。没有合格备用时仍可在预算内重试当前 Provider；当前 Provider 也不可用则等待。4C 提供可选熔断；关闭时仅记录样本，不能把备用可连接当作稳定性保证。
 
 导出时间线中的 `PROVIDER_FAILOVER` 事件包含每个收件人的前后 Provider、前一次 attempt 和决策。事件与路由/新尝试一起提交；审计写入失败不启动投递。切换后的 DATA 仍需持久化授权，已发出正文却无法提交最终结果时保持 UNKNOWN，不尝试第三个 Provider。
+
+
+## 健康与收件人配额（Phase 4C）
+
+熔断执行由 `HEALTH_ENABLED` 控制（默认 false），并受 Provider 的 `health_check_enabled` 限制。该开关不控制配额；只要 Provider 配置了 hourly/daily limit，就会强制执行。可在创建时指定 `--hourly-limit 100 --daily-limit 1000`，单位是收件人投递尝试，0 表示无限制。现有 Provider 的管理修改入口仍待后续管理 API；不要把单位当作逻辑邮件封数。
+
+额度按领取时刻计算滚动窗口，预留与 attempt/审计一同提交，不依赖进程内计数。配额满时等待窗口释放；少于收件人数时自动分批。连接失败、UNKNOWN、进程崩溃和重试均计费，不退款。服务商外部发送及多个配置共享账号的限额不能自动合并，需要操作者配置保守的独立额度池。
+
+健康窗口 10 分钟，至少 5 个有效尝试、失败比例 >=50% 打开熔断，60 秒后领取一个半开尝试。半开成功关闭并开启新统计周期；失败或无法证明成功再次冷却。进程崩溃由租约恢复释放半开名额，保持 DATA 后 UNKNOWN。连接诊断不会消耗额度或强行关闭熔断；熔断开启也不扩大 failover 的安全许可。
+
+`list-providers` 可查看 `hourly_reserved`、`daily_reserved`、`health_successes`、`health_failures`、`circuit_state`、`open_until` 和 `probe_attempt_id`。这些健康计数排除 IGNORED 样本，熔断恢复后从新周期起点统计；历史完整证据仍在 attempts。事件 `QUOTA_RESERVED` 与 `PROVIDER_CIRCUIT_OPEN/HALF_OPEN/CLOSED` 可随消息记录导出。
+
+升级迁移 6 会为最近 24 小时历史尝试补记配额，不恢复暂停邮件。回退代码前应关闭投递并评估数据库版本兼容，不能只切换 Git 标签后直接连接新数据库。配额 ledger 的长期清理策略待后续生命周期阶段。

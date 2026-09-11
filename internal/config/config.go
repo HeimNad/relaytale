@@ -13,6 +13,7 @@ import (
 )
 
 type Config struct {
+	HealthEnabled       bool          `yaml:"health_enabled"`
 	FailoverEnabled     bool          `yaml:"failover_enabled"`
 	RetryEnabled        bool          `yaml:"retry_enabled"`
 	MaintenanceInterval time.Duration `yaml:"maintenance_interval"`
@@ -44,6 +45,7 @@ func Load(args []string) (Config, error) {
 	pre.Int("eml-retention-days", 180, "completed EML retention; 0 disables")
 	pre.Int("debug-retention-days", 30, "SMTP debug retention; 0 disables")
 	pre.Int("cleanup-batch", 100, "maximum cleanup items per category")
+	pre.Bool("health-enabled", false, "enforce provider circuit breaker")
 	pre.Bool("failover-enabled", false, "enable safe provider failover; requires retry-enabled")
 	pre.Bool("retry-enabled", false, "enable automatic retries (requires validation)")
 	pre.Int("workers", 0, "delivery workers; 0 disables outbound delivery")
@@ -108,6 +110,13 @@ func Load(args []string) (Config, error) {
 		}
 		c.RetryEnabled = value
 	}
+	if raw, ok := os.LookupEnv("HEALTH_ENABLED"); ok {
+		value, err := strconv.ParseBool(raw)
+		if err != nil {
+			return c, errors.New("invalid HEALTH_ENABLED")
+		}
+		c.HealthEnabled = value
+	}
 	if raw, ok := os.LookupEnv("FAILOVER_ENABLED"); ok {
 		value, err := strconv.ParseBool(raw)
 		if err != nil {
@@ -134,6 +143,8 @@ func Load(args []string) (Config, error) {
 
 	pre.Visit(func(f *flag.Flag) {
 		switch f.Name {
+		case "health-enabled":
+			c.HealthEnabled, _ = strconv.ParseBool(f.Value.String())
 		case "failover-enabled":
 			c.FailoverEnabled, _ = strconv.ParseBool(f.Value.String())
 		case "retry-enabled":

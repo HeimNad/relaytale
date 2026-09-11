@@ -23,6 +23,8 @@ func createProvider(args []string) error {
 	security := fs.String("security", "starttls", "starttls or implicit_tls")
 	username := fs.String("username", "", "provider SMTP username")
 	domains := fs.String("from-domains", "", "comma-separated sender domains")
+	hourly := fs.Int("hourly-limit", 0, "rolling hour recipient attempts; 0 unlimited")
+	daily := fs.Int("daily-limit", 0, "rolling 24h recipient attempts; 0 unlimited")
 	priority := fs.Int("priority", 10, "lower is preferred")
 	connections := fs.Int("max-connections", 1, "maximum concurrent submissions")
 	timeout := fs.Duration("timeout", 30*time.Second, "total SMTP operation timeout")
@@ -53,7 +55,7 @@ func createProvider(args []string) error {
 		return errors.New("database connection failed")
 	}
 	defer db.Close()
-	id, err := provider.Create(ctx, db, box, provider.Provider{Name: *name, Host: *host, Port: *port, Security: *security, Username: *username, Priority: *priority, MaxConnections: *connections, Timeout: *timeout}, password, strings.Split(*domains, ","))
+	id, err := provider.Create(ctx, db, box, provider.Provider{Name: *name, Host: *host, Port: *port, Security: *security, Username: *username, Priority: *priority, MaxConnections: *connections, Timeout: *timeout, HourlyLimit: *hourly, DailyLimit: *daily}, password, strings.Split(*domains, ","))
 	if err != nil {
 		return err
 	}

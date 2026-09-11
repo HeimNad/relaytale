@@ -128,7 +128,14 @@ func runOperation(command string, args []string) error {
 		if len(args) > 0 {
 			return errors.New("list-providers takes no arguments")
 		}
-		rows, err := db.QueryContext(ctx, `SELECT jsonb_build_object('id',id,'name',name,'enabled',enabled,'host',host,'port',port,'security',security,'priority',priority,'max_connections',max_connections,'from_domains',from_domains) FROM providers ORDER BY priority,id`)
+		rows, err := db.QueryContext(ctx, `SELECT jsonb_build_object('id',p.id,'name',p.name,'enabled',p.enabled,'host',p.host,'port',p.port,'security',p.security,'priority',p.priority,'max_connections',p.max_connections,'from_domains',p.from_domains,
+ 'hourly_limit',p.hourly_limit,'daily_limit',p.daily_limit,'hourly_reserved',q.hourly,'daily_reserved',q.daily,'quota_unit','recipient_attempt',
+ 'health_check_enabled',p.health_check_enabled,'circuit_state',coalesce(h.circuit_state,'CLOSED'),'open_until',h.open_until,'probe_attempt_id',h.probe_attempt_id,
+ 'last_success_at',h.last_success_at,'last_failure_at',h.last_failure_at,'last_error',h.last_error,'health_window_seconds',600,'health_successes',s.successes,'health_failures',s.failures)
+ FROM providers p LEFT JOIN provider_health h ON h.provider_id=p.id
+ CROSS JOIN LATERAL (SELECT coalesce(sum(units) FILTER(WHERE reserved_at>clock_timestamp()-interval '1 hour'),0) hourly,coalesce(sum(units),0) daily FROM provider_quota WHERE provider_id=p.id AND reserved_at>clock_timestamp()-interval '24 hours') q
+ CROSS JOIN LATERAL (SELECT count(*) FILTER(WHERE health_outcome='SUCCESS') successes,count(*) FILTER(WHERE health_outcome='FAILURE') failures FROM delivery_attempts WHERE provider_id=p.id AND health_observed_at>clock_timestamp()-interval '10 minutes' AND started_at>=coalesce(h.samples_since,'epoch')) s
+ ORDER BY p.priority,p.id`)
 		if err != nil {
 			return err
 		}

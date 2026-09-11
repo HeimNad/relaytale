@@ -33,11 +33,11 @@ Generic SMTP（STARTTLS / implicit TLS）、Provider 凭证加密、priority 与
 
 ## Phase 4B · 安全 Provider 切换（已完成本地验收，默认关闭）
 
-在全部未完成收件人的最新决策许可且重试到期时选择备用，检查 Envelope/Header From 域、配置、并发容量，排除不支持的配额配置。最多三个不同 Provider，不回切，保留逐人重试预算；切换事件与新尝试原子提交。混合 RCPT 错误保留原路由，UNKNOWN 不切换。滚动健康与真正配额记账仍属于 4C。
+在全部未完成收件人的最新决策许可且重试到期时选择备用，检查 Envelope/Header From 域、配置、并发容量，检查剩余配额。最多三个不同 Provider，不回切，保留逐人重试预算；切换事件与新尝试原子提交。混合 RCPT 错误保留原路由，UNKNOWN 不切换。4C 已进一步加入健康与配额控制。
 
-## Phase 4C · Provider Health、熔断与配额
+## Phase 4C · Provider Health、熔断与配额（已完成本地验收，熔断默认关闭）
 
-滚动健康、故障归属、熔断/半开、hourly/daily limit 记账；连接诊断已实现。取代原 Phase 7 的排期，优先于管理界面。
+最近 10 分钟的 Provider 可用性样本、故障归属、60 秒熔断与单半开尝试；滚动 1h / 24h 收件人尝试配额、分批、原子预留和崩溃不退款。list-providers 输出健康/用量，熔断执行默认关闭。见 [4C 方案](phase-4c-plan.md)。管理界面与指标面板仍未实现。
 
 ## 后续 · 管理界面与 HTTP API
 
