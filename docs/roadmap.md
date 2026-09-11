@@ -23,21 +23,29 @@ Generic SMTP（STARTTLS / implicit TLS）、Provider 凭证加密、priority 与
 
 按用户要求采用 AGPL-3.0-only，提前实现运行日志轮转、压缩导出、可预览的 EML/debug 保留期清理、可恢复删除、定时维护和追加式审计；默认关闭自动清理。元数据/事件期限删除、完整 debug transcript 和完善错误枚举仍待后续实现。见 [运维说明](operations.md) 和 [规格对照](phase-1-3-spec-review.md)。
 
-## Phase 4 · 重试与安全切换
+## Phase 3.5 · 真实 Provider 验收（待账号与收件人）
 
-实现指数退避与 jitter、24 小时窗口、逐收件人重试、明确可安全切换阶段的 failover，以及不确定结果的人工处理流程。保留 Message-ID 与原始 EML，增加重复投递风险测试。
+SpaceMail / PurelyMail × 465 / 587 × Gmail / Outlook / iCloud。明确 SMTP 接受、实际收信、原文保持和 DKIM 验证的不同证据。见 [验收矩阵](real-world-validation.md)。本地 Fake SMTP 不能替代真实结果。
 
-## Phase 5–6 · 管理界面
+## Phase 4A · Delivery Decision Engine（已完成本地验收，自动重试默认关闭）
 
-单管理员认证、SMTP 凭证和 Provider 管理、Dashboard、Messages、邮件详情与时间线。随后实现 raw EML / headers / MIME 和 sandbox HTML 预览。使用真实数据，不以演示数据冒充发送结果。
+集中、可解释的逐收件人决策，持久化同 Provider 重试、退避/jitter、24 小时与 7 次上限，以及有审计和并发保护的 UNKNOWN 人工处置。自动重试默认关闭，历史暂停邮件不自动启动。计划和验收边界见 [Phase 4 实施计划](phase-4-plan.md)。
 
-## Phase 7 · Provider 运维
+## Phase 4B · 安全 Provider 切换
 
-连接测试已提前实现；后续增加基础健康统计、限流；区分 Provider 故障和收件人错误。成熟后接入 circuit breaker。
+在可证明安全的协议阶段判断候选 Provider，检查发件域、配置、配额与健康；切换单独记录事件。增加跨 Provider 故障注入与重复投递测试。4A 的 FailoverAllowed 仅表达协议许可，不执行切换。
 
-## Phase 8–9 · Bounce 与 HTTP API
+## Phase 4C · Provider Health、熔断与配额
 
-DSN、suppression、受认证的 bounce ingestion；随后 HTTP 发件、API key 和并发幂等性测试。
+滚动健康、故障归属、熔断/半开、hourly/daily limit 记账；连接诊断已实现。取代原 Phase 7 的排期，优先于管理界面。
+
+## 后续 · 管理界面与 HTTP API
+
+在状态模型稳定后实现管理员认证、Provider/凭证管理、Dashboard、Messages 与时间线，以及受控的 UNKNOWN 操作；随后增加隔离 HTML、EML/headers/MIME 预览。HTTP 发件包含 API key 和并发幂等性测试。对应原 Phase 5–6/9。
+
+## 后续 · DSN / Bounce / Suppression
+
+真实反馈关联、受认证 ingestion、suppression 执行。对应原 Phase 8，安排在投递决策与管理入口稳定之后。
 
 ## Phase 10 · 生产加固
 

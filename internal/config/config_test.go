@@ -57,3 +57,20 @@ func TestWorkerConfiguration(t *testing.T) {
 		t.Fatal("unbounded worker count accepted")
 	}
 }
+
+func TestRetryOptIn(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://localhost/test")
+	t.Setenv("RETRY_ENABLED", "false")
+	c, err := Load(nil)
+	if err != nil || c.RetryEnabled {
+		t.Fatal("retry should be disabled", err)
+	}
+	c, err = Load([]string{"--retry-enabled"})
+	if err != nil || !c.RetryEnabled {
+		t.Fatal("CLI opt-in ignored", err)
+	}
+	t.Setenv("RETRY_ENABLED", "invalid")
+	if _, err := Load(nil); err == nil {
+		t.Fatal("invalid retry flag accepted")
+	}
+}

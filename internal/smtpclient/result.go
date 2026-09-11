@@ -12,7 +12,7 @@ const (
 
 type Recipient struct{ ID, Address string }
 type RecipientResult struct {
-	ID, Status         string
+	ID, Status, Stage  string
 	Code               int
 	Enhanced, Response string
 }
@@ -24,6 +24,7 @@ type Event struct {
 	Response          string
 }
 type Result struct {
+	Stage                                                                                                                           string
 	DNSStartedAt, DNSCompletedAt                                                                                                    time.Time
 	Timings                                                                                                                         map[string]int64
 	RecorderError                                                                                                                   bool

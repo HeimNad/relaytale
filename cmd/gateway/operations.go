@@ -17,6 +17,7 @@ import (
 	"mailgateway/internal/encryption"
 	"mailgateway/internal/operations"
 	"mailgateway/internal/provider"
+	"mailgateway/internal/queue"
 	"mailgateway/internal/smtpclient"
 )
 
@@ -40,6 +41,27 @@ func runOperation(command string, args []string) error {
 	}
 	defer db.Close()
 	switch command {
+	case "resolve-unknown":
+		fs := flag.NewFlagSet(command, flag.ContinueOnError)
+		v := queue.Resolution{}
+		fs.StringVar(&v.RecipientID, "recipient-id", "", "recipient UUID")
+		fs.StringVar(&v.ExpectedAttempt, "expected-attempt", "", "latest attempt UUID")
+		fs.StringVar(&v.Action, "action", "", "retry, mark-delivered, mark-failed")
+		fs.StringVar(&v.Actor, "actor", "", "operator identity (audit label)")
+		fs.StringVar(&v.Reason, "reason", "", "required audit reason")
+		fs.BoolVar(&v.AcknowledgeDuplicate, "acknowledge-duplicate-risk", false, "explicitly accept duplicate delivery risk")
+		if err := fs.Parse(args); err != nil {
+			return err
+		}
+		if fs.NArg() != 0 {
+			return errors.New("unexpected arguments")
+		}
+		id, err := (queue.Repository{DB: db}).ResolveUnknown(ctx, v)
+		if err != nil {
+			return err
+		}
+		return json.NewEncoder(os.Stdout).Encode(map[string]string{"audit_id": id, "action": v.Action})
+
 	case "export-records":
 		fs := flag.NewFlagSet(command, flag.ContinueOnError)
 		id := fs.String("message-id", "", "optional Gateway UUID")

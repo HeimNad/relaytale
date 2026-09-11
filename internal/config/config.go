@@ -13,6 +13,7 @@ import (
 )
 
 type Config struct {
+	RetryEnabled        bool          `yaml:"retry_enabled"`
 	MaintenanceInterval time.Duration `yaml:"maintenance_interval"`
 	EMLRetentionDays    int           `yaml:"eml_retention_days"`
 	DebugRetentionDays  int           `yaml:"debug_retention_days"`
@@ -42,6 +43,7 @@ func Load(args []string) (Config, error) {
 	pre.Int("eml-retention-days", 180, "completed EML retention; 0 disables")
 	pre.Int("debug-retention-days", 30, "SMTP debug retention; 0 disables")
 	pre.Int("cleanup-batch", 100, "maximum cleanup items per category")
+	pre.Bool("retry-enabled", false, "enable same-provider automatic retries (requires validation)")
 	pre.Int("workers", 0, "delivery workers; 0 disables outbound delivery")
 	pre.String("smtp-addr", "", "SMTP listen address; empty disables SMTP")
 	pre.String("smtp-domain", "", "SMTP greeting domain")
@@ -97,6 +99,13 @@ func Load(args []string) (Config, error) {
 		c.WorkerCount = n
 	}
 	c.MasterKey = os.Getenv("MAILGATEWAY_MASTER_KEY")
+	if raw, ok := os.LookupEnv("RETRY_ENABLED"); ok {
+		value, err := strconv.ParseBool(raw)
+		if err != nil {
+			return c, errors.New("invalid RETRY_ENABLED")
+		}
+		c.RetryEnabled = value
+	}
 	for key, target := range map[string]*int{"EML_RETENTION_DAYS": &c.EMLRetentionDays, "DEBUG_RETENTION_DAYS": &c.DebugRetentionDays, "CLEANUP_BATCH": &c.CleanupBatch} {
 		if raw, ok := os.LookupEnv(key); ok {
 			value, err := strconv.Atoi(raw)
@@ -116,6 +125,8 @@ func Load(args []string) (Config, error) {
 
 	pre.Visit(func(f *flag.Flag) {
 		switch f.Name {
+		case "retry-enabled":
+			c.RetryEnabled, _ = strconv.ParseBool(f.Value.String())
 		case "maintenance-interval":
 			c.MaintenanceInterval, _ = time.ParseDuration(f.Value.String())
 		case "eml-retention-days":

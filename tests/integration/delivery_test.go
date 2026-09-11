@@ -348,7 +348,7 @@ func TestNoAutomaticProviderFailover(t *testing.T) {
 	f.addProvider(t, backup, 20, 1)
 	id := f.seed(t)
 	runOne(t, f.worker)
-	if f.status(t, id) != smtpclient.Permanent || backup.Connections.Load() != 0 {
+	if f.status(t, id) != smtpclient.Temporary || backup.Connections.Load() != 0 {
 		t.Fatal("unexpected automatic failover")
 	}
 }

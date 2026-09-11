@@ -29,19 +29,20 @@ type Client struct {
 // Send uses a single bounded SMTP conversation. beforeData is a durable fence:
 // no DATA command or body may be transmitted unless it commits successfully.
 func (c Client) Send(ctx context.Context, p provider.Provider, password, from string, recipients []Recipient, payload []byte, beforeData func(context.Context) error, records ...func(context.Context, Event) error) (out Result) {
+	stage := "CONNECT_ERROR"
 	out.StartedAt = time.Now().UTC()
 	out.Timings = map[string]int64{}
 	for _, r := range recipients {
 		out.Recipients = append(out.Recipients, RecipientResult{ID: r.ID, Status: Temporary})
 	}
 	defer func() {
+		out.Stage = stage
 		out.FinishedAt = time.Now().UTC()
 		out.Timings["total_ms"] = out.FinishedAt.Sub(out.StartedAt).Milliseconds()
 		if !c.probe {
 			out.Aggregate()
 		}
 	}()
-	stage := "CONNECT_ERROR"
 	fail := func(err error, uncertain bool) {
 		out.ErrorClass = classify(stage, err)
 		out.ErrorMessage = "SMTP operation failed"
@@ -69,6 +70,7 @@ func (c Client) Send(ctx context.Context, p provider.Provider, password, from st
 		for i := range out.Recipients {
 			if out.Recipients[i].Status == "RCPT_ACCEPTED" || out.Recipients[i].Status == Temporary && out.Recipients[i].Code == 0 {
 				out.Recipients[i].Status = status
+				out.Recipients[i].Stage = stage
 				out.Recipients[i].Code = out.Code
 				out.Recipients[i].Response = out.Response
 				out.Recipients[i].Enhanced = out.Enhanced
@@ -324,14 +326,14 @@ func (c Client) Send(ctx context.Context, p provider.Provider, password, from st
 			if code >= 500 {
 				status = Permanent
 			}
-			out.Recipients[i] = RecipientResult{ID: r.ID, Status: status, Code: code, Enhanced: enhanced(response), Response: safeResponse(redactAuth(response, p.Username, password), password)}
+			out.Recipients[i] = RecipientResult{ID: r.ID, Status: status, Stage: "RCPT_REJECTED", Code: code, Enhanced: enhanced(response), Response: safeResponse(redactAuth(response, p.Username, password), password)}
 			if !event("RCPT_REJECTED", r.ID, code, response) {
 				return
 			}
 			continue
 		}
 		accepted++
-		out.Recipients[i] = RecipientResult{ID: r.ID, Status: "RCPT_ACCEPTED", Code: code, Enhanced: enhanced(response), Response: safeResponse(redactAuth(response, p.Username, password), password)}
+		out.Recipients[i] = RecipientResult{ID: r.ID, Status: "RCPT_ACCEPTED", Stage: "RCPT_ACCEPTED", Code: code, Enhanced: enhanced(response), Response: safeResponse(redactAuth(response, p.Username, password), password)}
 		if !event("RCPT_ACCEPTED", r.ID, code, response) {
 			return
 		}
@@ -390,6 +392,7 @@ func (c Client) Send(ctx context.Context, p provider.Provider, password, from st
 	for i := range out.Recipients {
 		if out.Recipients[i].Status == "RCPT_ACCEPTED" {
 			out.Recipients[i].Status = Accepted
+			out.Recipients[i].Stage = "FINAL_RESPONSE"
 		}
 	}
 	if !event("SMTP_ACCEPTED", "", code, response) {
@@ -464,6 +467,12 @@ func (c Client) Probe(ctx context.Context, p provider.Provider, password string)
 	return c.Send(ctx, p, password, "", nil, nil, nil)
 }
 func classify(stage string, err error) string {
+	if stage == "AUTH_ERROR" {
+		var ne net.Error
+		if errors.As(err, &ne) || errors.Is(err, io.EOF) || errors.Is(err, syscall.ECONNRESET) {
+			return "AUTH_CONNECTION_ERROR"
+		}
+	}
 	if stage == "AUTH_ERROR" || stage == "TLS_ERROR" || stage == "RECORDER_ERROR" {
 		return stage
 	}

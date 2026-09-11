@@ -82,3 +82,10 @@ SMTP 使用 go-smtp v0.25.0，认证使用 go-sasl 的 PLAIN 实现和兼容 LOG
 attempt 的 `timings` 保存实际网络操作耗时；原有 duration 列同步采用对应网络测量值。总时长包含记录数据库等开销，不能把各网络阶段相加视为完整总时长。旧 Phase 2 历史行保持原统计口径，未回填。
 
 维护模块独立于投递队列，默认关闭定时执行。清理先提交 PURGE_PENDING，再删除受限根目录中的文件，最后记录 PURGED 与审计。任务领取只允许 AVAILABLE 原文。该状态机是归档生命周期，不改变投递状态，也不等于整封邮件删除。详细边界见 [运维说明](operations.md)。
+
+
+## Phase 4A 决策与重试
+
+新增纯函数 `internal/delivery`，输入逐收件人 SMTP 事实和重试预算，输出版本化动作/原因/故障归属与安全标志。queue 完成事务分别保存 attempt 事实、逐人决策、DELIVERY_DECIDED 事件与下一次计划，并根据全部收件人重建 message 投影。人工处置只追加新证据，不重写旧 attempt。
+
+`route_provider_id` 从首次领取固定，迁移对历史邮件回填最后 Provider；4A 不支持自动切换。逐人计数与首次领取时间覆盖正常尝试和崩溃恢复。自动调度由 worker 的低频轮询推进，锁定 message，与领取/完成/人工处置互斥；不额外引入消息中间件或内存延迟队列。后续 LISTEN/NOTIFY 只改变唤醒方式，不改变持久化决策模型。

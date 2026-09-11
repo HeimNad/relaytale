@@ -23,7 +23,10 @@ type Job struct {
 	Provider                                 provider.Provider
 	Recipients                               []smtpclient.Recipient
 }
-type Repository struct{ DB *sql.DB }
+type Repository struct {
+	DB           *sql.DB
+	RetryEnabled bool
+}
 
 func (r Repository) begin(ctx context.Context) (*sql.Tx, error) {
 	tx, err := r.DB.BeginTx(ctx, nil)
@@ -49,11 +52,12 @@ func event(ctx context.Context, tx *sql.Tx, j Job, kind, rid string, at time.Tim
 	if rid != "" {
 		recipient = rid
 	}
-	_, err = tx.ExecContext(ctx, `INSERT INTO events(id,message_id,attempt_id,recipient_id,event_type,event_time,source,data) VALUES($1,$2,$3,$4,$5,$6,'worker',$7)`, id.String(), j.ID, j.AttemptID, recipient, kind, at, string(raw))
+	_, err = tx.ExecContext(ctx, `INSERT INTO events(id,message_id,attempt_id,recipient_id,event_type,event_time,source,data) VALUES($1,$2,$3,$4,$5,$6,'worker',$7)`, id.String(), j.ID, optionalID(j.AttemptID), recipient, kind, at, string(raw))
 	return err
 }
 
 const eligibleProvider = `p.enabled AND p.security IN ('starttls','implicit_tls') AND p.timeout_seconds BETWEEN 1 AND 300 AND p.max_connections BETWEEN 1 AND 32
+ AND (m.route_provider_id IS NULL OR p.id=m.route_provider_id)
  AND p.hourly_limit IS NULL AND p.daily_limit IS NULL
  AND lower(split_part(m.envelope_from,'@',2))=ANY(p.from_domains)
  AND (SELECT count(*) FROM delivery_attempts a JOIN messages active ON active.id=a.message_id WHERE a.provider_id=p.id AND a.result='IN_PROGRESS' AND active.lease_expires_at>clock_timestamp())<p.max_connections`
@@ -67,7 +71,7 @@ func (r Repository) Claim(ctx context.Context) (Job, error) {
 	j := Job{Token: uuid.NewString(), AttemptID: uuid.Must(uuid.NewV7()).String()}
 	err = tx.QueryRowContext(ctx, `SELECT m.id,m.envelope_from,m.eml_path,m.eml_size,m.eml_sha256 FROM messages m
  WHERE m.status='QUEUED' AND m.archive_state='AVAILABLE' AND m.next_attempt_at<=now()
- AND EXISTS(SELECT 1 FROM recipients rc WHERE rc.message_id=m.id AND rc.status='QUEUED')
+ AND EXISTS(SELECT 1 FROM recipients rc WHERE rc.message_id=m.id AND `+r.claimRecipient("rc")+`)
  AND EXISTS(SELECT 1 FROM providers p WHERE `+eligibleProvider+`)
  ORDER BY m.priority DESC,m.created_at,m.id LIMIT 1 FOR UPDATE OF m SKIP LOCKED`).Scan(&j.ID, &j.From, &j.Path, &j.Size, &j.SHA256)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -95,7 +99,7 @@ func (r Repository) Claim(ctx context.Context) (Job, error) {
 		return Job{}, ErrNoJob
 	}
 	var attemptNumber int
-	err = tx.QueryRowContext(ctx, `UPDATE messages SET status='SENDING',locked_at=now(),locked_by=$2,lease_expires_at=now()+($3 * interval '1 second'),attempt_count=attempt_count+1 WHERE id=$1 RETURNING attempt_count`, j.ID, j.Token, seconds+30).Scan(&attemptNumber)
+	err = tx.QueryRowContext(ctx, `UPDATE messages SET route_provider_id=$4,status='SENDING',locked_at=now(),locked_by=$2,lease_expires_at=now()+($3 * interval '1 second'),attempt_count=attempt_count+1 WHERE id=$1 RETURNING attempt_count`, j.ID, j.Token, seconds+30, j.Provider.ID).Scan(&attemptNumber)
 	if err != nil {
 		return Job{}, err
 	}
@@ -103,7 +107,7 @@ func (r Repository) Claim(ctx context.Context) (Job, error) {
 	if err != nil {
 		return Job{}, err
 	}
-	rows, err := tx.QueryContext(ctx, `UPDATE recipients SET status='SENDING',provider_id=$2 WHERE message_id=$1 AND status='QUEUED' RETURNING id,address`, j.ID, j.Provider.ID)
+	rows, err := tx.QueryContext(ctx, `UPDATE recipients rc SET status='SENDING',provider_id=$2,attempt_count=attempt_count+1,retry_started_at=coalesce(retry_started_at,now()),retry_at=NULL WHERE message_id=$1 AND `+r.claimRecipient("rc")+` RETURNING id,address`, j.ID, j.Provider.ID)
 	if err != nil {
 		return Job{}, err
 	}
@@ -120,6 +124,9 @@ func (r Repository) Claim(ctx context.Context) (Job, error) {
 		return Job{}, err
 	}
 	rows.Close()
+	if len(j.Recipients) == 0 {
+		return Job{}, ErrNoJob
+	}
 	for _, rc := range j.Recipients {
 		if _, err = tx.ExecContext(ctx, `INSERT INTO attempt_recipients(attempt_id,recipient_id,status) VALUES($1,$2,'SENDING')`, j.AttemptID, rc.ID); err != nil {
 			return Job{}, err
@@ -209,6 +216,9 @@ func (r Repository) Finish(ctx context.Context, j Job, out smtpclient.Result) er
 	if _, err = tx.ExecContext(ctx, `UPDATE delivery_attempts SET dns_started_at=$2,dns_completed_at=$3,timings=$4 WHERE id=$1`, j.AttemptID, nullable(out.DNSStartedAt), nullable(out.DNSCompletedAt), string(timings)); err != nil {
 		return err
 	}
+	if _, err = tx.ExecContext(ctx, `UPDATE delivery_attempts SET protocol_stage=$2 WHERE id=$1`, j.AttemptID, out.Stage); err != nil {
+		return err
+	}
 	if len(out.Recipients) != len(j.Recipients) {
 		return errors.New("incomplete recipient results")
 	}
@@ -234,6 +244,9 @@ func (r Repository) Finish(ctx context.Context, j Job, out smtpclient.Result) er
 		if _, err = tx.ExecContext(ctx, `UPDATE attempt_recipients SET status=$3,smtp_code=$4,smtp_enhanced_code=$5,smtp_response=$6 WHERE attempt_id=$1 AND recipient_id=$2`, j.AttemptID, rc.ID, rc.Status, rc.Code, rc.Enhanced, rc.Response); err != nil {
 			return err
 		}
+		if err = r.decideRecipient(ctx, tx, j, out, rc); err != nil {
+			return err
+		}
 	}
 	for _, e := range out.Events {
 		if err = recordEvent(ctx, tx, j, e); err != nil {
@@ -249,12 +262,11 @@ func (r Repository) Finish(ctx context.Context, j Job, out smtpclient.Result) er
 	if err = event(ctx, tx, j, kind, "", out.FinishedAt, map[string]any{"status": out.Status, "error_class": out.ErrorClass}); err != nil {
 		return err
 	}
-	var completed any
-	if out.Status == smtpclient.Accepted || out.Status == smtpclient.Permanent {
-		completed = out.FinishedAt
-	}
-	_, err = tx.ExecContext(ctx, `UPDATE messages SET status=$2,completed_at=$3,last_error=$4,next_attempt_at=NULL,locked_at=NULL,locked_by=NULL,lease_expires_at=NULL WHERE id=$1`, j.ID, out.Status, completed, out.ErrorClass)
+	_, err = tx.ExecContext(ctx, `UPDATE messages SET last_error=$2,locked_at=NULL,locked_by=NULL,lease_expires_at=NULL WHERE id=$1`, j.ID, out.ErrorClass)
 	if err != nil {
+		return err
+	}
+	if err = refresh(ctx, tx, j.ID); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -307,6 +319,11 @@ func (r Repository) Recover(ctx context.Context) error {
 		}
 		if _, err = tx.ExecContext(ctx, `UPDATE messages SET status=$2,last_error='WORKER_LEASE_EXPIRED',next_attempt_at=$3,locked_at=NULL,locked_by=NULL,lease_expires_at=NULL WHERE id=$1`, e.j.ID, status, next); err != nil {
 			return err
+		}
+		if !e.armed {
+			if err = expireRecovered(ctx, tx, e.j); err != nil {
+				return err
+			}
 		}
 		if err = event(ctx, tx, e.j, kind, "", time.Now().UTC(), map[string]bool{"data_may_have_started": e.armed}); err != nil {
 			return err
@@ -367,4 +384,11 @@ func timing(out smtpclient.Result, key string) any {
 		return value
 	}
 	return nil
+}
+
+func optionalID(id string) any {
+	if id == "" {
+		return nil
+	}
+	return id
 }

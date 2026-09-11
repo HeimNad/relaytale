@@ -10,7 +10,7 @@ Your Apps → SMTP ingress → Durable queue + EML archive → Provider router
                             Event ledger         Your existing SMTP providers
 ```
 
-## 当前进度：Phase 3
+## 当前进度：Phase 4A
 
 已实现 Go 服务入口、配置优先级、PostgreSQL 连接、内嵌 Goose 迁移、核心数据库表、存储可写检查、健康接口、JSON 日志、优雅退出和 Docker Compose。
 
@@ -18,7 +18,7 @@ Your Apps → SMTP ingress → Durable queue + EML archive → Provider router
 
 已实现 Generic SMTP Provider 投递、加密凭证、PostgreSQL 队列 worker、逐收件人投递结果和租约恢复。支持 STARTTLS 与隐式 TLS，严格验证 Provider 证书。
 
-**默认 `WORKER_COUNT=0`，只接收不投递。** 配置主密钥、Provider 并显式启用 worker 后才开始发送。当前没有管理 UI、自动重试或故障切换；失败与不确定邮件会暂停。
+**默认 `WORKER_COUNT=0`，只接收不投递。** 配置主密钥、Provider 并显式启用 worker 后才开始发送。当前没有管理 UI 或自动跨 Provider 切换；自动重试需另行显式启用，默认失败与不确定邮件暂停。真实 Provider 尚未验收。
 
 ## 启动
 
@@ -188,7 +188,7 @@ Provider 优先选择较小的 priority；连接额度耗尽或配置了本阶�
 | --- | --- |
 | SMTP_ACCEPTED | Provider 返回最终 2xx；不代表最终送达 |
 | PARTIAL_ACCEPTED | 部分收件人被接受，其他收件人失败；逐人保留结果 |
-| TEMP_FAILED | 暂时失败，本阶段暂停，不自动重试 |
+| TEMP_FAILED | 默认暂停；Phase 4A 显式启用后按逐收件人决策重试 |
 | PERM_FAILED | 明确永久失败，本阶段暂停 |
 | DELIVERY_UNKNOWN | DATA 后缺少确定结果，或持久化的 DATA 许可后 worker 租约过期；不自动重发 |
 
@@ -211,3 +211,12 @@ Phase 2 集成测试另外覆盖：SMTP ingress → 存档 → PostgreSQL 队列
 **自动清理默认关闭。** 手动 `cleanup` 默认只预览；邮件元数据和事件长期保留，待处理和结果不确定的邮件不会被 EML 保留策略删除。完整命令、保留边界与备份恢复流程见 [运维说明](docs/operations.md)。
 
 Phase 3 测试覆盖导出原子发布/不覆盖、过滤与敏感字段排除、清理预览、安全状态筛选、受限路径、删除中断恢复、审计不可修改，以及发送完成前事件已落库。规格遵循情况、设计取舍和剩余工作见 [前三阶段规格对照](docs/phase-1-3-spec-review.md)。
+
+
+## Delivery Decision Engine（Phase 4A）
+
+将 SMTP 事实与后续决策分离：每个收件人保存版本化决策及事件，临时失败可持久化安排同 Provider 重试，成功/永久失败的收件人不重发。退避含 jitter，默认预算为首次领取后 24 小时、最多 7 次。达到上限转人工处理，绝不把预算耗尽冒充远端永久拒绝。
+
+`RETRY_ENABLED=false` 默认关闭自动重试；只有真实 Provider 验收后才应考虑启用。历史暂停邮件不在迁移时自动恢复。配置错误/本地故障需要人工检查，UNKNOWN 不能自动重发。`resolve-unknown` 提供带预期 attempt、操作者、理由与重复风险确认的人工处理，旧尝试证据不改写。
+
+见 [实施计划](docs/phase-4-plan.md)、[真实链路矩阵](docs/real-world-validation.md) 和 [重试与人工处置说明](docs/operations.md#重试与-unknown-人工处置phase-4a)。4B 的跨 Provider 切换与 4C 的健康/配额仍待实现。

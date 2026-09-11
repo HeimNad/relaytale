@@ -130,3 +130,13 @@ func TestProbeAndRecorderFailure(t *testing.T) {
 		t.Fatalf("unsafe recorder failure: %+v", out)
 	}
 }
+
+func TestLoginOnlyProvider(t *testing.T) {
+	fake := testsmtp.Start(t, testsmtp.Options{LoginOnly: true})
+	host, port, _ := net.SplitHostPort(fake.Addr)
+	n, _ := strconv.Atoi(port)
+	out := (Client{Domain: "gateway.test", RootCAs: fake.Roots}).Probe(context.Background(), provider.Provider{Host: host, Port: n, Username: "provider-user", Security: "starttls", Timeout: time.Second}, "provider-password")
+	if out.Status != "READY" {
+		t.Fatalf("LOGIN negotiation: %+v", out)
+	}
+}

@@ -15,3 +15,5 @@ maintenance_interval: 0s
 eml_retention_days: 180
 debug_retention_days: 30
 cleanup_batch: 100
+
+retry_enabled: false

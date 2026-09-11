@@ -34,6 +34,10 @@ func (w Worker) RunOne(ctx context.Context) (bool, error) {
 }
 func (w Worker) runOne(claims, ctx context.Context) (bool, error) {
 	claimCtx, cancel := context.WithTimeout(claims, 10*time.Second)
+	if err := w.Repo.Schedule(claimCtx); err != nil {
+		cancel()
+		return false, err
+	}
 	j, err := w.Repo.Claim(claimCtx)
 	cancel()
 	if errors.Is(err, ErrNoJob) {

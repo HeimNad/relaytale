@@ -43,7 +43,7 @@ func run(log *slog.Logger) error {
 		case "license":
 			fmt.Print(project.LicenseText)
 			return nil
-		case "export-records", "cleanup", "list-providers", "test-provider", "doctor":
+		case "resolve-unknown", "export-records", "cleanup", "list-providers", "test-provider", "doctor":
 			return runOperation(os.Args[1], os.Args[2:])
 		}
 	}
@@ -122,12 +122,12 @@ func run(log *slog.Logger) error {
 		if err != nil {
 			return err
 		}
-		worker := queue.Worker{Repo: queue.Repository{DB: db}, Box: box, Sender: smtpclient.Client{Domain: cfg.SMTPDomain}, StorageRoot: cfg.StorageDir, MaxBytes: cfg.MaxMessageBytes, Log: log}
+		worker := queue.Worker{Repo: queue.Repository{DB: db, RetryEnabled: cfg.RetryEnabled}, Box: box, Sender: smtpclient.Client{Domain: cfg.SMTPDomain}, StorageRoot: cfg.StorageDir, MaxBytes: cfg.MaxMessageBytes, Log: log}
 		go func() { defer close(workersDone); worker.Run(claimCtx, operationCtx, cfg.WorkerCount) }()
 	} else {
 		close(workersDone)
 	}
-	log.Info("gateway started", "http_address", cfg.HTTPAddr, "smtp_address", cfg.SMTPAddr, "workers", cfg.WorkerCount, "phase", 3)
+	log.Info("gateway started", "http_address", cfg.HTTPAddr, "smtp_address", cfg.SMTPAddr, "workers", cfg.WorkerCount, "phase", "4A", "automatic_retry", cfg.RetryEnabled)
 	var serveErr error
 	select {
 	case serveErr = <-result:

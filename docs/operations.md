@@ -1,6 +1,6 @@
 # 运维、导出与保留策略
 
-适用版本：Phase 3。所有管理命令在本地容器中执行，需要数据库权限；尚无远程管理 API。默认关闭自动清理和外部投递。
+适用版本：Phase 4A（包含 Phase 3 运维功能）。所有管理命令在本地容器中执行，需要数据库权限；尚无远程管理 API。默认关闭自动清理和外部投递。
 
 ## 三类数据，分别管理
 
@@ -105,3 +105,49 @@ Git 只保存源代码和迁移。恢复运行至少需要同一时间点的 Pos
 恢复演练应在隔离实例中进行：先恢复数据库、原路径存储和配置，以对应 Git 标签构建；保持 `WORKER_COUNT=0`、`MAINTENANCE_INTERVAL=0s`。检查迁移版本、健康接口、文件数量及抽样 SHA-256，核对所有 SENDING / DELIVERY_UNKNOWN，再决定是否恢复投递。不要让恢复实例和原实例同时向同一批收件人发送。
 
 这是一份操作流程，尚未提供一键备份脚本，也未完成灾难恢复演练、WAL/PITR、磁盘水位告警或生产容量认证。应用回滚不能代替数据库/文件恢复；清理后的 EML 只能从独立备份找回。
+
+
+## 重试与 UNKNOWN 人工处置（Phase 4A）
+
+服务配置 `RETRY_ENABLED=false` 默认禁用自动重试；也支持 YAML `retry_enabled` 与 CLI `--retry-enabled`。此开关独立于 WORKER_COUNT；没有 worker 就不会投递或推进重试。真实 Provider 验收尚未完成，目前应保持禁用。
+
+启用时，**新完成的尝试**中符合决策条件的收件人才得到 `retry_at`。旧阶段 TEMP_FAILED 不会被迁移或开关批量重新发送。重试使用同一个 Provider、同一份原始 EML，仅收件人信封子集改变；已成功或永久失败的收件人排除。Provider 禁用、发件域不匹配或容量不可用时等待，不偷偷换到其他 Provider。
+
+重试预算固定为收件人首次领取后 24 小时、最多 7 次领取。间隔基数为 1/4/16/64/256/720 分钟，加 ±20% 的确定性 jitter（按 attempt 与 recipient ID 派生），最终时刻落库。进程重启不重算计划；窗口耗尽或超过次数会保留 TEMP_FAILED，并记录 MANUAL_INTERVENTION，而非编造 SMTP 永久拒绝。首轮开始前的排队等待不计入 24 小时。
+
+`retry_at` 到期后，数据库事务和 message 行锁将收件人排队；Claim 再检查开关、次数与时间，防止已排队后长时间停机绕过窗口。关闭自动重试会暂停已有自动队列项，但不会撤销已经开始的网络操作。原有未许可 DATA 的安全租约恢复仍可在预算内重新排队，它不是对 SMTP 失败的自动重试；已许可 DATA 的过期租约仍归 UNKNOWN。
+
+手动 UNKNOWN 重试是单次显式操作，不受自动开关阻止；它不会重置历史次数或时间窗口，后续自动重试仍受原预算约束。
+
+SMTP AUTH 明确 5xx 拒绝、密钥/本地存储问题进入人工检查；AUTH 4xx 或可识别的认证网络断开可同 Provider 重试。RCPT 4xx/5xx 分别按收件人处理。DATA 后缺少确定结果保持 UNKNOWN；一个 message 还有 UNKNOWN 收件人时，其他重试也暂缓，直至人工完成处置。
+
+决策的 `FailoverAllowed` 是协议层许可，4A **没有实现跨 Provider failover**。最终是否切换还需 4B 的候选配置与容量等策略。`delivery_attempts.result` 是当次事实；`recipients.status`/`messages.status` 是当前投递状态投影，例如 AUTH 535 事实可对应当前人工暂停 TEMP_FAILED，两者不应混淆。
+
+### 查看证据
+
+使用 `export-records --message-id <Gateway-UUID>` 导出记录，查找 UNKNOWN recipient 的 ID 及其最新 attempt ID；每轮 `DELIVERY_DECIDED` 事件含证据、预算、决策和实际重试时间。`attempt_recipients.decision` 保留该轮决策，`recipients.decision` 表示当前决策。
+
+本阶段没有 UI。操作者只能通过本地受信任 CLI 和数据库权限操作；`--actor` 是审计标签，不是额外身份认证。
+
+### 人工确认已送达 / 失败
+
+```sh
+docker compose exec -T gateway gateway resolve-unknown \
+  --recipient-id <Recipient-UUID> --expected-attempt <Latest-Attempt-UUID> \
+  --action mark-delivered --actor <Operator> --reason '已核查收件端原始邮件'
+```
+
+`mark-failed` 使用同一入口。它们更新当前收件人状态，追加 `UNKNOWN_RESOLVED` 事件及维护审计；原始 UNKNOWN attempt 和 RCPT/SMTP 响应保持不变。这里的 DELIVERED 是人工判断，不能在未来 UI 中显示为自动回执已验证。
+
+### 明确承担风险后手动重试
+
+```sh
+docker compose exec -T gateway gateway resolve-unknown \
+  --recipient-id <Recipient-UUID> --expected-attempt <Latest-Attempt-UUID> \
+  --action retry --actor <Operator> --reason '业务负责人要求重发' \
+  --acknowledge-duplicate-risk
+```
+
+每次只操作一个收件人。缺少风险确认、旧 attempt、已处置收件人、活跃投递或原文不可用时拒绝；并发操作只允许一次生效。它只排队，不在 CLI 中直接发送。发送时仍校验原文大小与 SHA-256，原 Provider 不可用时等待。剩余 UNKNOWN 收件人未处置前不会发出这次重试。
+
+当前命令仅处理 UNKNOWN；配置问题、重试预算耗尽的通用人工恢复流程仍待补充，不应通过直接改数据库状态绕过保护。尚未提供 undo、修改 Provider 或重置重试预算的操作。

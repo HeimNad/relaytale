@@ -20,6 +20,8 @@ import (
 )
 
 type Options struct {
+	RecipientCode                                  func(int, string) int
+	LoginOnly                                      bool
 	ImplicitTLS, NoSTARTTLS, RejectAuth, DropFinal bool
 	FinalCode, DataCode                            int
 	RejectRecipients                               map[string]int
@@ -29,6 +31,7 @@ type Server struct {
 	Addr        string
 	Roots       *x509.CertPool
 	Payloads    chan []byte
+	Envelopes   chan []string
 	Connections atomic.Int32
 	mu          sync.Mutex
 	conns       map[net.Conn]bool
@@ -56,7 +59,7 @@ func Start(t *testing.T, o Options) *Server {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := &Server{Addr: listener.Addr().String(), Roots: roots, Payloads: make(chan []byte, 100), conns: map[net.Conn]bool{}, listener: listener}
+	s := &Server{Addr: listener.Addr().String(), Roots: roots, Payloads: make(chan []byte, 100), Envelopes: make(chan []string, 100), conns: map[net.Conn]bool{}, listener: listener}
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
@@ -65,7 +68,7 @@ func Start(t *testing.T, o Options) *Server {
 			if err != nil {
 				return
 			}
-			s.Connections.Add(1)
+			number := int(s.Connections.Add(1))
 			s.mu.Lock()
 			s.conns[c] = true
 			s.mu.Unlock()
@@ -74,7 +77,7 @@ func Start(t *testing.T, o Options) *Server {
 				defer s.wg.Done()
 				defer c.Close()
 				defer func() { s.mu.Lock(); delete(s.conns, c); s.mu.Unlock() }()
-				s.serve(c, cert, o)
+				s.serve(c, cert, o, number)
 			}()
 		}
 	}()
@@ -89,7 +92,7 @@ func Start(t *testing.T, o Options) *Server {
 	})
 	return s
 }
-func (s *Server) serve(raw net.Conn, cert tls.Certificate, o Options) {
+func (s *Server) serve(raw net.Conn, cert tls.Certificate, o Options, number int) {
 	_ = raw.SetDeadline(time.Now().Add(15 * time.Second))
 	var transport net.Conn = raw
 	secure := o.ImplicitTLS
@@ -101,6 +104,7 @@ func (s *Server) serve(raw net.Conn, cert tls.Certificate, o Options) {
 	_ = wire.PrintfLine("220 localhost fake-provider")
 	authenticated := false
 	accepted := 0
+	var addresses []string
 	for {
 		line, err := wire.ReadLine()
 		if err != nil {
@@ -110,7 +114,11 @@ func (s *Server) serve(raw net.Conn, cert tls.Certificate, o Options) {
 		switch strings.ToUpper(command) {
 		case "EHLO":
 			if secure {
-				_ = wire.PrintfLine("250-localhost\r\n250-AUTH PLAIN LOGIN\r\n250 8BITMIME")
+				if o.LoginOnly {
+					_ = wire.PrintfLine("250-localhost\r\n250-AUTH LOGIN\r\n250 8BITMIME")
+				} else {
+					_ = wire.PrintfLine("250-localhost\r\n250-AUTH PLAIN LOGIN\r\n250 8BITMIME")
+				}
 			} else if o.NoSTARTTLS {
 				_ = wire.PrintfLine("250 localhost")
 			} else {
@@ -139,6 +147,27 @@ func (s *Server) serve(raw net.Conn, cert tls.Certificate, o Options) {
 				decoded, _ := base64.StdEncoding.DecodeString(parts[1])
 				valid = string(decoded) == "\x00provider-user\x00provider-password"
 			}
+			if len(parts) > 0 && parts[0] == "LOGIN" {
+				u := ""
+				if len(parts) == 2 {
+					u = parts[1]
+				} else {
+					_ = wire.PrintfLine("334 VXNlcm5hbWU6")
+					var e error
+					u, e = wire.ReadLine()
+					if e != nil {
+						return
+					}
+				}
+				decodedUser, _ := base64.StdEncoding.DecodeString(u)
+				_ = wire.PrintfLine("334 UGFzc3dvcmQ6")
+				pw, e := wire.ReadLine()
+				if e != nil {
+					return
+				}
+				decodedPassword, _ := base64.StdEncoding.DecodeString(pw)
+				valid = string(decodedUser) == "provider-user" && string(decodedPassword) == "provider-password"
+			}
 			if o.RejectAuth || !valid {
 				_ = wire.PrintfLine("535 5.7.8 authentication rejected")
 			} else {
@@ -151,13 +180,19 @@ func (s *Server) serve(raw net.Conn, cert tls.Certificate, o Options) {
 				continue
 			}
 			accepted = 0
+			addresses = nil
 			_ = wire.PrintfLine("250 2.1.0 sender accepted")
 		case "RCPT":
 			address := strings.TrimSuffix(strings.TrimPrefix(argument, "TO:<"), ">")
-			if code := o.RejectRecipients[address]; code != 0 {
+			code := o.RejectRecipients[address]
+			if o.RecipientCode != nil {
+				code = o.RecipientCode(number, address)
+			}
+			if code != 0 {
 				_ = wire.PrintfLine("%d 5.1.1 recipient rejected", code)
 			} else {
 				accepted++
+				addresses = append(addresses, address)
 				_ = wire.PrintfLine("250 2.1.5 recipient accepted")
 			}
 		case "DATA":
@@ -188,6 +223,7 @@ func (s *Server) serve(raw net.Conn, cert tls.Certificate, o Options) {
 				}
 			}
 			s.Payloads <- append([]byte(nil), data.Bytes()...)
+			s.Envelopes <- append([]string(nil), addresses...)
 			if o.DropFinal {
 				return
 			}
