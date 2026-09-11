@@ -23,9 +23,9 @@ Generic SMTP（STARTTLS / implicit TLS）、Provider 凭证加密、priority 与
 
 按用户要求采用 AGPL-3.0-only，提前实现运行日志轮转、压缩导出、可预览的 EML/debug 保留期清理、可恢复删除、定时维护和追加式审计；默认关闭自动清理。元数据/事件期限删除、完整 debug transcript 和完善错误枚举仍待后续实现。见 [运维说明](operations.md) 和 [规格对照](phase-1-3-spec-review.md)。
 
-## Phase 3.5 · 真实 Provider 验收（SMTP 层通过，QQ / iCloud 收信已确认）
+## Phase 3.5 · 真实 Provider 验收（SMTP 层通过，三个收件服务原始邮件已核对）
 
-本轮完成 SpaceMail / PurelyMail × 465 / 587，四封邮件、16 个收件人均取得最终 250；覆盖 Gmail、QQ、Google 托管学校邮箱和 iCloud，尚无 Outlook。QQ / iCloud 四种组合均已确认收到，QQ 的 PurelyMail 587 被报告进入垃圾箱；其他收件对应关系及原始邮件头仍待补充。明确 SMTP 接受、实际收信、原文保持和 DKIM 验证的不同证据。见 [验收矩阵](real-world-validation.md)。本地 Fake SMTP 不能替代真实结果。
+本轮完成 SpaceMail / PurelyMail × 465 / 587，四封邮件、16 个收件人均取得最终 250；覆盖 Gmail、QQ、Google 托管学校邮箱和 iCloud，尚无 Outlook。Gmail / QQ / iCloud 共 12 份原始邮件已核对，Message-ID、主题及解码 MIME 内容保持；QQ 的 PurelyMail 587 被报告进入垃圾箱。QQ 认证差异与 SpaceMail DMARC 仍待定位，学校邮箱未独立核验。明确 SMTP 接受、实际收信、原文保持和 DKIM 验证的不同证据。见 [验收矩阵](real-world-validation.md)。本地 Fake SMTP 不能替代真实结果。
 
 ## Phase 4A · Delivery Decision Engine（已完成本地验收，自动重试默认关闭）
 

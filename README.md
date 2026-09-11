@@ -18,7 +18,7 @@ Your Apps → SMTP ingress → Durable queue + EML archive → Provider router
 
 已实现 Generic SMTP Provider 投递、加密凭证、PostgreSQL 队列 worker、逐收件人投递结果和租约恢复。支持 STARTTLS 与隐式 TLS，严格验证 Provider 证书。
 
-**默认 `WORKER_COUNT=0`，只接收不投递。** 配置主密钥、Provider 并显式启用 worker 后才开始发送。当前没有管理 UI 或自动跨 Provider 切换；自动重试需另行显式启用，默认失败与不确定邮件暂停。真实 Provider 首轮 SMTP 接受层已通过，QQ / iCloud 四种组合均已确认收信，原始邮件头与 DKIM 待核对。
+**默认 `WORKER_COUNT=0`，只接收不投递。** 配置主密钥、Provider 并显式启用 worker 后才开始发送。当前没有管理 UI 或自动跨 Provider 切换；自动重试需另行显式启用，默认失败与不确定邮件暂停。真实 Provider 首轮 SMTP 接受层已通过，Gmail / QQ / iCloud 共 12 份收到的原始邮件已核对，Message-ID 与 MIME 内容保持；认证差异见验收报告。
 
 ## 启动
 
@@ -222,4 +222,4 @@ Phase 3 测试覆盖导出原子发布/不覆盖、过滤与敏感字段排除�
 见 [实施计划](docs/phase-4-plan.md)、[真实链路矩阵](docs/real-world-validation.md) 和 [重试与人工处置说明](docs/operations.md#重试与-unknown-人工处置phase-4a)。4B 的跨 Provider 切换与 4C 的健康/配额仍待实现。
 
 
-真实链路首轮：SpaceMail/PurelyMail 的 465 与 587 各一次投递，四封邮件、16 个收件人均获最终 250。临时 worker 已停止，测试配置已禁用。QQ / iCloud 四种组合均已确认收到（QQ 的 PurelyMail 587 在垃圾箱）；其余收件证据、DKIM、大消息边界和 Outlook 仍待验证，详见 [真实验收报告](docs/real-world-validation.md)。
+真实链路首轮：SpaceMail/PurelyMail 的 465 与 587 各一次投递，四封邮件、16 个收件人均获最终 250。临时 worker 已停止，测试配置已禁用。Gmail / QQ / iCloud 的 12 份原始邮件已确认 Message-ID、主题与解码 MIME 内容保持（QQ 的 PurelyMail 587 在垃圾箱）；QQ 认证差异、SpaceMail DMARC、大消息边界和 Outlook 仍待核验，详见 [真实验收报告](docs/real-world-validation.md)。

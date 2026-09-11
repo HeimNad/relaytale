@@ -1,6 +1,6 @@
 # Phase 3.5 真实 Provider 验收
 
-## 第一轮：SMTP 接受层通过，QQ / iCloud 收信已确认
+## 第一轮：SMTP 接受层通过，Gmail / QQ / iCloud 原始邮件已核对
 
 测试时间：2026-09-11T03:05:52.888000+00:00。基线：`phase-4a`（`06a5791`）；运行编号：`ef8ad30b66`。
 
@@ -21,22 +21,31 @@ SpaceMail 最终响应为 `250 2.0.0 Ok: queued as …`；PurelyMail 为 `250 2.
 
 收件目标覆盖 Gmail、QQ、学校邮箱和 iCloud。学校域的实时 MX 查询返回 `ASPMX.L.GOOGLE.COM` 及 GoogleMail 备用服务器，因此推断学校邮箱由 Google 托管。本轮**没有 Outlook 地址**，不能把学校邮箱当作 Outlook 验收。
 
-| 收件服务 | 收件箱 / 垃圾箱 | 中文、HTML 与附件 | 原始头 / DKIM |
+| 收件服务 | 到达 / 分类 | Message-ID、主题、解码 MIME 内容 | 收件端认证结果 |
 | --- | --- | --- | --- |
-| Gmail | 待操作者确认 | 待确认 | 待核对 |
-| QQ | 四种组合均收到；PurelyMail 587 被报告在垃圾箱，其余未明确分类 | 截图整体显示正常，逐邮箱对应待补充 | 待核对 |
-| 学校邮箱（Google MX） | 待操作者确认 | 待确认 | 待核对 |
-| iCloud | 四种组合均收到；文件夹分类未明确 | 截图整体显示正常，逐邮箱对应待补充 | 待核对 |
+| Gmail | 四种组合 EML 齐全；文件夹分类未单独确认 | 全部与发送原文一致 | SPF / DKIM 均 pass；PurelyMail DMARC pass，SpaceMail 未列 DMARC 结果 |
+| QQ | 四种组合 EML 齐全；用户报告 PurelyMail 587 在垃圾箱 | 全部与发送原文一致 | SPF pass；DKIM 与 DMARC 差异见下文 |
+| 学校邮箱（Google MX） | 未提供 EML，不作独立完整验收 | 未核对 | 未核对 |
+| iCloud | 四种组合 EML 齐全；文件夹分类未单独确认 | 全部与发送原文一致 | SPF / DKIM 均 pass；PurelyMail DMARC pass，SpaceMail DMARC none |
 
-## 收件侧反馈与显示问题
+## 收件侧原始邮件核验
 
-操作者提供了本轮 13 张截图，并明确确认 QQ、iCloud 各收到四种组合。截图未完整展示当前邮箱身份，因此不据此把 Gmail 和学校邮箱的所有组合标记为已确认；学校外部邮件提示出现在 PurelyMail 465 / 587 的截图中，完整对应关系仍待补充。截图和个人邮箱地址不纳入 Git。
+操作者提供了 13 张截图，随后将 Gmail、QQ、iCloud 各四份 EML 放入本地 `temp/`。逐一用运行编号与场景匹配发送原文，再比较 Message-ID、解码主题、原始 To 头，以及每个非 multipart 部件的 MIME 类型、文件名、解码字节数和 SHA-256。12 份均匹配，解析器未报告 MIME 缺陷。`temp/` 已加入忽略规则；原始邮件、个人邮箱地址和截图不纳入 Git。
 
-- 截图中的中文主题、中文发件人显示名和 HTML 正文可读，附件条目可见。尚未下载附件核对哈希，不能据此断言附件字节完整或纯文本部分正常。
-- 部分截图的收件人显示含 `invalid` 或异常引号。本地四份测试原文的 To 均为 `undisclosed-recipients:;`；需要对比收件端原始 To 头，区分中间服务改写与客户端显示问题。目前不能认定 Gateway 改坏了收件人，也不调整透明转发策略。
-- 两张截图的主题出现 `[THIS EMAIL IS NOT FROM NCC]` 前缀，疑似学校收件链路的外部发件人标记；具体添加环节需要原始邮件头确认。
-- QQ 的 PurelyMail 587 垃圾箱分类作为单次观测记录，原因未确定，不将其认定为端口导致的问题，也不触发重试或切换 Provider。
-- 用户确认收信作为验收证据保存；数据库仍保留本轮 SMTP_ACCEPTED 事实，不用截图覆盖历史投递记录。
+- 12 份的 Message-ID、主题和 To 均保持；解码后的 text/plain、text/html 以及附件 SHA-256 全部与各自发送原文相同。每份附件恰为 262144 字节（256 KiB），截图显示的 262.74 KB 不代表附件损坏。此结果不是整封 EML 字节相同：接收链路增加了邮件头。
+- 所有收到的原始 To 仍为 `undisclosed-recipients:;`，没有截图中的 `invalid` 或异常引号。因此现有证据指向客户端对该头的显示/解析问题，没有发现 Gateway 或 Provider 改坏 To 的证据；不修改透明转发策略。
+- 学校截图中 PurelyMail 465 / 587 的主题出现 `[THIS EMAIL IS NOT FROM NCC]` 前缀，疑似学校链路添加的外部发件人标记。用户选择不导出学校邮件，故不定位其添加环节，也不把 Google MX 等同于与个人 Gmail 完全相同的策略。
+- 用户确认和收到的 EML 作为验收证据；数据库仍保留本轮 SMTP_ACCEPTED 事实，不覆盖历史投递记录。
+
+### Authentication-Results 的差异
+
+以下是收到的邮件头所报告的结果，并非本地重新执行 DNS 与 DKIM 密码学验证。
+
+- Gmail / iCloud：四种组合 SPF、DKIM 均报告 pass。PurelyMail 的发件域签名与 Provider 域签名均通过，DMARC 也报告 pass。
+- SpaceMail：Gmail 的 Authentication-Results 未列 DMARC 项；iCloud 明确报告 `dmarc=none`。不将缺失或 none 写成 pass，也不据此断言当前 DNS 配置原因。
+- QQ / SpaceMail：DKIM 报告 pass，DMARC 报告 `none(permerror)`。
+- QQ / PurelyMail：顶层 DKIM 为 pass，但括号说明发件域签名验证失败、其他域签名通过；DMARC 为 `none(permerror)`。这与 Gmail / iCloud 的结果不同，不能简化为“DKIM 对齐验证全部通过”。QQ 导出的认证头还在部分单词内部出现折叠空白，以上按原始文本记录语义，不把它当作本地验证结论。
+- QQ 的 PurelyMail 465 / 587 认证描述相同，而用户仅明确报告 587 在垃圾箱。现有样本无法把垃圾箱分类归因于端口或单一认证项；后续若排障，应核对发件域 DNS 与接收方诊断。本轮不触发重试或切换 Provider。
 
 ## 已验证的行为
 
@@ -61,13 +70,13 @@ SpaceMail 最终响应为 `250 2.0.0 Ok: queued as …`；PurelyMail 为 `250 2.
 
 ## 尚未完成，不能算通过
 
-- QQ / iCloud 的四种组合实际到达已确认；Gmail / 学校邮箱的完整组合对应、其余文件夹分类、到达延迟和附件字节完整性仍待核对。
-- 收件端原始 Message-ID 是否保持、Provider 的头/正文改写、Authentication-Results 与 DKIM：需要收件端原始邮件头或 EML。网关本地哈希一致不等于远端 DKIM 通过。
+- 学校邮箱未独立核验，Outlook 未覆盖；其余文件夹分类、精确到达延迟未逐项确认。Gmail / QQ / iCloud 的 12 份原始邮件及附件完整性已核对。
+- 收件端 Message-ID 和 MIME 部件保持已核对；认证结果按上述接收方报告记录。QQ 的认证差异与 SpaceMail 的 DMARC 缺失/none 尚未定位，不宣称所有认证项通过。
 - 本轮原文没有预先签署的 DKIM，因此没有实测“已签名入站邮件经过网关后仍可验证”的场景。
 - 256 KiB 附件只是保守的 MIME 冒烟测试，不代表接近 Provider 大小上限的大邮件已通过；大消息边界另行约定后测试。
 - 没有覆盖 Outlook、单收件人独立事务、SMTPUTF8 地址、8BITMIME 协商以及完整旧客户端兼容矩阵。UTF-8 显示名/主题使用编码头，不是 SMTPUTF8 地址测试。
 
-在收件侧证据补齐前，不将 Phase 3.5 标记为完整通过，也不据此启用自动重试或 failover。
+本轮真实链路冒烟与三个收件服务的内容保持验证通过；上述认证差异和未覆盖场景保留为后续验收项。Phase 3.5 不标记为完整通过，也不据此启用自动重试或 failover。
 
 ## 配置依据
 
