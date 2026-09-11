@@ -18,7 +18,7 @@ Your Apps → SMTP ingress → Durable queue + EML archive → Provider router
 
 已实现 Generic SMTP Provider 投递、加密凭证、PostgreSQL 队列 worker、逐收件人投递结果和租约恢复。支持 STARTTLS 与隐式 TLS，严格验证 Provider 证书。
 
-**默认 `WORKER_COUNT=0`，只接收不投递。** 配置主密钥、Provider 并显式启用 worker 后才开始发送。当前没有管理 UI 或自动跨 Provider 切换；自动重试需另行显式启用，默认失败与不确定邮件暂停。真实 Provider 尚未验收。
+**默认 `WORKER_COUNT=0`，只接收不投递。** 配置主密钥、Provider 并显式启用 worker 后才开始发送。当前没有管理 UI 或自动跨 Provider 切换；自动重试需另行显式启用，默认失败与不确定邮件暂停。真实 Provider 首轮 SMTP 接受层已通过，收件端与 DKIM 待核对。
 
 ## 启动
 
@@ -220,3 +220,6 @@ Phase 3 测试覆盖导出原子发布/不覆盖、过滤与敏感字段排除�
 `RETRY_ENABLED=false` 默认关闭自动重试；只有真实 Provider 验收后才应考虑启用。历史暂停邮件不在迁移时自动恢复。配置错误/本地故障需要人工检查，UNKNOWN 不能自动重发。`resolve-unknown` 提供带预期 attempt、操作者、理由与重复风险确认的人工处理，旧尝试证据不改写。
 
 见 [实施计划](docs/phase-4-plan.md)、[真实链路矩阵](docs/real-world-validation.md) 和 [重试与人工处置说明](docs/operations.md#重试与-unknown-人工处置phase-4a)。4B 的跨 Provider 切换与 4C 的健康/配额仍待实现。
+
+
+真实链路首轮：SpaceMail/PurelyMail 的 465 与 587 各一次投递，四封邮件、16 个收件人均获最终 250。临时 worker 已停止，测试配置已禁用。收件端、DKIM、大消息边界和 Outlook 仍待验证，详见 [真实验收报告](docs/real-world-validation.md)。

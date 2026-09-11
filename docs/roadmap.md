@@ -23,9 +23,9 @@ Generic SMTP（STARTTLS / implicit TLS）、Provider 凭证加密、priority 与
 
 按用户要求采用 AGPL-3.0-only，提前实现运行日志轮转、压缩导出、可预览的 EML/debug 保留期清理、可恢复删除、定时维护和追加式审计；默认关闭自动清理。元数据/事件期限删除、完整 debug transcript 和完善错误枚举仍待后续实现。见 [运维说明](operations.md) 和 [规格对照](phase-1-3-spec-review.md)。
 
-## Phase 3.5 · 真实 Provider 验收（待账号与收件人）
+## Phase 3.5 · 真实 Provider 验收（SMTP 层通过，收件端待核对）
 
-SpaceMail / PurelyMail × 465 / 587 × Gmail / Outlook / iCloud。明确 SMTP 接受、实际收信、原文保持和 DKIM 验证的不同证据。见 [验收矩阵](real-world-validation.md)。本地 Fake SMTP 不能替代真实结果。
+本轮完成 SpaceMail / PurelyMail × 465 / 587，四封邮件、16 个收件人均取得最终 250；覆盖 Gmail、QQ、Google 托管学校邮箱和 iCloud，尚无 Outlook。明确 SMTP 接受、实际收信、原文保持和 DKIM 验证的不同证据。见 [验收矩阵](real-world-validation.md)。本地 Fake SMTP 不能替代真实结果。
 
 ## Phase 4A · Delivery Decision Engine（已完成本地验收，自动重试默认关闭）
 
@@ -51,4 +51,4 @@ SpaceMail / PurelyMail × 465 / 587 × Gmail / Outlook / iCloud。明确 SMTP �
 
 HTTPS / SMTP TLS 部署指引、指标、备份恢复演练、元数据/事件期限删除、完整删除流程、独立数据库权限、限流与安全测试。EML/debug 清理与备份流程文档已提前实现，不等于生产加固完成。
 
-真实 Provider 验证需要用户提供测试账号与明确收件人；默认开发测试不向外部发送邮件。
+真实 Provider 首轮已按用户提供的账号与收件人执行。日常自动测试仍只使用 Fake SMTP；后续外部测试需有明确范围。
