@@ -125,7 +125,7 @@ func (r Repository) Schedule(ctx context.Context) error {
 				if _, err = tx.ExecContext(ctx, `UPDATE recipients SET status='QUEUED',retry_at=NULL,retry_automatic=true WHERE id=$1`, c.id); err != nil {
 					return err
 				}
-				if err = event(ctx, tx, Job{ID: id}, "RETRY_QUEUED", c.id, now, map[string]any{"attempts": c.count, "same_provider": true}); err != nil {
+				if err = event(ctx, tx, Job{ID: id}, "RETRY_QUEUED", c.id, now, map[string]any{"attempts": c.count, "route_evaluated_at_claim": true, "failover_enabled": r.FailoverEnabled}); err != nil {
 					return err
 				}
 			}

@@ -244,3 +244,6 @@ func (s *Server) serve(raw net.Conn, cert tls.Certificate, o Options, number int
 		}
 	}
 }
+
+// CloseListener simulates a provider becoming unreachable while preserving captured evidence.
+func (s *Server) CloseListener() { _ = s.listener.Close() }

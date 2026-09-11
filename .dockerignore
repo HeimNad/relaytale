@@ -11,3 +11,6 @@ exports
 *.jsonl.gz
 *.log.gz
 __pycache__
+
+# Private received-mail validation artifacts
+temp

@@ -74,3 +74,24 @@ func TestRetryOptIn(t *testing.T) {
 		t.Fatal("invalid retry flag accepted")
 	}
 }
+
+func TestFailoverOptIn(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://localhost/test")
+	t.Setenv("RETRY_ENABLED", "false")
+	t.Setenv("FAILOVER_ENABLED", "false")
+	c, err := Load(nil)
+	if err != nil || c.FailoverEnabled {
+		t.Fatal("default failover", err)
+	}
+	if _, err = Load([]string{"--failover-enabled"}); err == nil {
+		t.Fatal("failover without retry")
+	}
+	c, err = Load([]string{"--failover-enabled", "--retry-enabled"})
+	if err != nil || !c.FailoverEnabled {
+		t.Fatal("opt-in", err)
+	}
+	t.Setenv("FAILOVER_ENABLED", "invalid")
+	if _, err = Load(nil); err == nil {
+		t.Fatal("invalid flag")
+	}
+}

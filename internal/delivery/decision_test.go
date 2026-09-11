@@ -29,6 +29,8 @@ func TestDecisionMatrix(t *testing.T) {
 		{"final 451", Evidence{Stage: "FINAL_RESPONSE_ERROR", ErrorClass: "FINAL_RESPONSE_ERROR", Status: "TEMP_FAILED", Code: 451, BodyStarted: true, FinalResponse: true, FinalCode: 451}, Retry, "provider", false, false},
 		{"final timeout", Evidence{Stage: "FINAL_RESPONSE_ERROR", ErrorClass: "FINAL_RESPONSE_TIMEOUT", Status: "DELIVERY_UNKNOWN", BodyStarted: true}, Unknown, "unknown", true, false},
 		{"final 250", Evidence{Stage: "FINAL_RESPONSE", Status: "SMTP_ACCEPTED", FinalResponse: true, FinalCode: 250, BodyStarted: true}, Accept, "none", true, false},
+		{"contradictory final acceptance", Evidence{Stage: "CONNECT_ERROR", ErrorClass: "CONNECT_ERROR", Status: "TEMP_FAILED", FinalResponse: true, FinalCode: 250}, Unknown, "unknown", true, false},
+		{"DATA connection reset", Evidence{Stage: "DATA_REJECTED", ErrorClass: "CONNECTION_RESET", Status: "TEMP_FAILED"}, Retry, "provider", false, false},
 		{"unclassified failure", Evidence{Status: "TEMP_FAILED", ErrorClass: "SOMETHING_NEW"}, Manual, "unknown", false, false},
 		{"contradictory temporary after body", Evidence{Status: "TEMP_FAILED", BodyStarted: true}, Unknown, "unknown", true, false},
 	}

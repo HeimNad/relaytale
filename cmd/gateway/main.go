@@ -122,12 +122,12 @@ func run(log *slog.Logger) error {
 		if err != nil {
 			return err
 		}
-		worker := queue.Worker{Repo: queue.Repository{DB: db, RetryEnabled: cfg.RetryEnabled}, Box: box, Sender: smtpclient.Client{Domain: cfg.SMTPDomain}, StorageRoot: cfg.StorageDir, MaxBytes: cfg.MaxMessageBytes, Log: log}
+		worker := queue.Worker{Repo: queue.Repository{DB: db, RetryEnabled: cfg.RetryEnabled, FailoverEnabled: cfg.FailoverEnabled}, Box: box, Sender: smtpclient.Client{Domain: cfg.SMTPDomain}, StorageRoot: cfg.StorageDir, MaxBytes: cfg.MaxMessageBytes, Log: log}
 		go func() { defer close(workersDone); worker.Run(claimCtx, operationCtx, cfg.WorkerCount) }()
 	} else {
 		close(workersDone)
 	}
-	log.Info("gateway started", "http_address", cfg.HTTPAddr, "smtp_address", cfg.SMTPAddr, "workers", cfg.WorkerCount, "phase", "4A", "automatic_retry", cfg.RetryEnabled)
+	log.Info("gateway started", "http_address", cfg.HTTPAddr, "smtp_address", cfg.SMTPAddr, "workers", cfg.WorkerCount, "phase", "4B", "automatic_retry", cfg.RetryEnabled, "automatic_failover", cfg.FailoverEnabled)
 	var serveErr error
 	select {
 	case serveErr = <-result:

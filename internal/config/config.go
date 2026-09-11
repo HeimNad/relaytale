@@ -13,6 +13,7 @@ import (
 )
 
 type Config struct {
+	FailoverEnabled     bool          `yaml:"failover_enabled"`
 	RetryEnabled        bool          `yaml:"retry_enabled"`
 	MaintenanceInterval time.Duration `yaml:"maintenance_interval"`
 	EMLRetentionDays    int           `yaml:"eml_retention_days"`
@@ -43,7 +44,8 @@ func Load(args []string) (Config, error) {
 	pre.Int("eml-retention-days", 180, "completed EML retention; 0 disables")
 	pre.Int("debug-retention-days", 30, "SMTP debug retention; 0 disables")
 	pre.Int("cleanup-batch", 100, "maximum cleanup items per category")
-	pre.Bool("retry-enabled", false, "enable same-provider automatic retries (requires validation)")
+	pre.Bool("failover-enabled", false, "enable safe provider failover; requires retry-enabled")
+	pre.Bool("retry-enabled", false, "enable automatic retries (requires validation)")
 	pre.Int("workers", 0, "delivery workers; 0 disables outbound delivery")
 	pre.String("smtp-addr", "", "SMTP listen address; empty disables SMTP")
 	pre.String("smtp-domain", "", "SMTP greeting domain")
@@ -106,6 +108,13 @@ func Load(args []string) (Config, error) {
 		}
 		c.RetryEnabled = value
 	}
+	if raw, ok := os.LookupEnv("FAILOVER_ENABLED"); ok {
+		value, err := strconv.ParseBool(raw)
+		if err != nil {
+			return c, errors.New("invalid FAILOVER_ENABLED")
+		}
+		c.FailoverEnabled = value
+	}
 	for key, target := range map[string]*int{"EML_RETENTION_DAYS": &c.EMLRetentionDays, "DEBUG_RETENTION_DAYS": &c.DebugRetentionDays, "CLEANUP_BATCH": &c.CleanupBatch} {
 		if raw, ok := os.LookupEnv(key); ok {
 			value, err := strconv.Atoi(raw)
@@ -125,6 +134,8 @@ func Load(args []string) (Config, error) {
 
 	pre.Visit(func(f *flag.Flag) {
 		switch f.Name {
+		case "failover-enabled":
+			c.FailoverEnabled, _ = strconv.ParseBool(f.Value.String())
 		case "retry-enabled":
 			c.RetryEnabled, _ = strconv.ParseBool(f.Value.String())
 		case "maintenance-interval":
@@ -158,6 +169,9 @@ func Load(args []string) (Config, error) {
 			c.ShutdownTimeout, _ = time.ParseDuration(f.Value.String())
 		}
 	})
+	if c.FailoverEnabled && !c.RetryEnabled {
+		return c, errors.New("FAILOVER_ENABLED requires RETRY_ENABLED")
+	}
 	if c.DatabaseURL == "" {
 		return c, errors.New("DATABASE_URL is required")
 	}

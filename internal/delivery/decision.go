@@ -46,7 +46,7 @@ type Budget struct {
 }
 
 func Decide(e Evidence, b Budget) Decision {
-	d := Decision{Version: 1, Action: Manual, Reason: "UNCLASSIFIED_EVIDENCE", Scope: "unknown"}
+	d := Decision{Version: 2, Action: Manual, Reason: "UNCLASSIFIED_EVIDENCE", Scope: "unknown"}
 	rcRejected := e.Stage == "RCPT_REJECTED" && e.Code >= 400 && e.Code < 600
 	switch {
 	case e.Status == "SMTP_ACCEPTED" && e.FinalResponse && e.FinalCode >= 200 && e.FinalCode < 300:
@@ -56,7 +56,7 @@ func Decide(e Evidence, b Budget) Decision {
 		d.MayHaveDelivered = true
 		d.Scope = "none"
 		return d
-	case e.Status == "DELIVERY_UNKNOWN" || (!rcRejected && e.BodyStarted && !(e.FinalResponse && e.FinalCode >= 400 && e.FinalCode < 600)):
+	case (!rcRejected && e.FinalResponse && e.FinalCode >= 200 && e.FinalCode < 300 && e.Status != "SMTP_ACCEPTED") || e.Status == "DELIVERY_UNKNOWN" || (!rcRejected && e.BodyStarted && !(e.FinalResponse && e.FinalCode >= 400 && e.FinalCode < 600)):
 		d.Action = Unknown
 		d.Reason = "REMOTE_ACCEPTANCE_UNCERTAIN"
 		d.MayHaveDelivered = true
@@ -100,8 +100,8 @@ func Decide(e Evidence, b Budget) Decision {
 		d.Action = Retry
 		d.Reason = e.ErrorClass
 		d.Scope = "provider"
-		// Permission only. Phase 4A always pins the original Provider.
-		d.FailoverAllowed = !e.BodyStarted && (e.Stage == "DNS_ERROR" || e.Stage == "CONNECT_ERROR" || e.Stage == "TLS_ERROR" || e.Stage == "DATA_REJECTED")
+		// Permission only; the queue also enforces opt-in, route and recipient safety.
+		d.FailoverAllowed = !e.BodyStarted && !e.FinalResponse && ((e.Code == 0 && (e.Stage == "DNS_ERROR" || e.Stage == "CONNECT_ERROR" || e.Stage == "TLS_ERROR")) || (e.Stage == "DATA_REJECTED" && e.Code >= 400 && e.Code < 500))
 	default:
 		return d
 	}

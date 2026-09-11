@@ -24,8 +24,9 @@ type Job struct {
 	Recipients                               []smtpclient.Recipient
 }
 type Repository struct {
-	DB           *sql.DB
-	RetryEnabled bool
+	DB              *sql.DB
+	RetryEnabled    bool
+	FailoverEnabled bool
 }
 
 func (r Repository) begin(ctx context.Context) (*sql.Tx, error) {
@@ -56,10 +57,10 @@ func event(ctx context.Context, tx *sql.Tx, j Job, kind, rid string, at time.Tim
 	return err
 }
 
-const eligibleProvider = `p.enabled AND p.security IN ('starttls','implicit_tls') AND p.timeout_seconds BETWEEN 1 AND 300 AND p.max_connections BETWEEN 1 AND 32
- AND (m.route_provider_id IS NULL OR p.id=m.route_provider_id)
+const providerRequirements = `p.enabled AND p.security IN ('starttls','implicit_tls') AND p.timeout_seconds BETWEEN 1 AND 300 AND p.max_connections BETWEEN 1 AND 32
  AND p.hourly_limit IS NULL AND p.daily_limit IS NULL
  AND lower(split_part(m.envelope_from,'@',2))=ANY(p.from_domains)
+ AND lower(split_part(m.header_from,'@',2))=ANY(p.from_domains)
  AND (SELECT count(*) FROM delivery_attempts a JOIN messages active ON active.id=a.message_id WHERE a.provider_id=p.id AND a.result='IN_PROGRESS' AND active.lease_expires_at>clock_timestamp())<p.max_connections`
 
 func (r Repository) Claim(ctx context.Context) (Job, error) {
@@ -72,7 +73,7 @@ func (r Repository) Claim(ctx context.Context) (Job, error) {
 	err = tx.QueryRowContext(ctx, `SELECT m.id,m.envelope_from,m.eml_path,m.eml_size,m.eml_sha256 FROM messages m
  WHERE m.status='QUEUED' AND m.archive_state='AVAILABLE' AND m.next_attempt_at<=now()
  AND EXISTS(SELECT 1 FROM recipients rc WHERE rc.message_id=m.id AND `+r.claimRecipient("rc")+`)
- AND EXISTS(SELECT 1 FROM providers p WHERE `+eligibleProvider+`)
+ AND EXISTS(SELECT 1 FROM providers p WHERE `+r.eligibleProvider()+`)
  ORDER BY m.priority DESC,m.created_at,m.id LIMIT 1 FOR UPDATE OF m SKIP LOCKED`).Scan(&j.ID, &j.From, &j.Path, &j.Size, &j.SHA256)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Job{}, ErrNoJob
@@ -82,7 +83,7 @@ func (r Repository) Claim(ctx context.Context) (Job, error) {
 	}
 	var seconds int
 	err = tx.QueryRowContext(ctx, `SELECT p.id,p.name,p.host,p.port,p.security,p.username,p.password_ciphertext,p.nonce,p.priority,p.max_connections,p.timeout_seconds
- FROM providers p JOIN messages m ON m.id=$1 WHERE `+eligibleProvider+` ORDER BY p.priority,p.id LIMIT 1 FOR UPDATE OF p SKIP LOCKED`, j.ID).Scan(&j.Provider.ID, &j.Provider.Name, &j.Provider.Host, &j.Provider.Port, &j.Provider.Security, &j.Provider.Username, &j.Provider.Ciphertext, &j.Provider.Nonce, &j.Provider.Priority, &j.Provider.MaxConnections, &seconds)
+ FROM providers p JOIN messages m ON m.id=$1 WHERE `+r.eligibleProvider()+` ORDER BY (p.id=m.route_provider_id) ASC NULLS LAST,p.priority,p.id LIMIT 1 FOR UPDATE OF p SKIP LOCKED`, j.ID).Scan(&j.Provider.ID, &j.Provider.Name, &j.Provider.Host, &j.Provider.Port, &j.Provider.Security, &j.Provider.Username, &j.Provider.Ciphertext, &j.Provider.Nonce, &j.Provider.Priority, &j.Provider.MaxConnections, &seconds)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Job{}, ErrNoJob
 	}
@@ -97,6 +98,10 @@ func (r Repository) Claim(ctx context.Context) (Job, error) {
 	}
 	if active >= j.Provider.MaxConnections {
 		return Job{}, ErrNoJob
+	}
+	var previous string
+	if err = tx.QueryRowContext(ctx, `SELECT coalesce(route_provider_id::text,'') FROM messages WHERE id=$1`, j.ID).Scan(&previous); err != nil {
+		return Job{}, err
 	}
 	var attemptNumber int
 	err = tx.QueryRowContext(ctx, `UPDATE messages SET route_provider_id=$4,status='SENDING',locked_at=now(),locked_by=$2,lease_expires_at=now()+($3 * interval '1 second'),attempt_count=attempt_count+1 WHERE id=$1 RETURNING attempt_count`, j.ID, j.Token, seconds+30, j.Provider.ID).Scan(&attemptNumber)
@@ -131,6 +136,9 @@ func (r Repository) Claim(ctx context.Context) (Job, error) {
 		if _, err = tx.ExecContext(ctx, `INSERT INTO attempt_recipients(attempt_id,recipient_id,status) VALUES($1,$2,'SENDING')`, j.AttemptID, rc.ID); err != nil {
 			return Job{}, err
 		}
+	}
+	if err = recordFailover(ctx, tx, j, previous); err != nil {
+		return Job{}, err
 	}
 	if err = event(ctx, tx, j, "ATTEMPT_STARTED", "", time.Now().UTC(), map[string]any{"provider_id": j.Provider.ID, "attempt_number": attemptNumber}); err != nil {
 		return Job{}, err

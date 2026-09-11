@@ -111,7 +111,7 @@ Git 只保存源代码和迁移。恢复运行至少需要同一时间点的 Pos
 
 服务配置 `RETRY_ENABLED=false` 默认禁用自动重试；也支持 YAML `retry_enabled` 与 CLI `--retry-enabled`。此开关独立于 WORKER_COUNT；没有 worker 就不会投递或推进重试。真实 Provider 验收尚未完成，目前应保持禁用。
 
-启用时，**新完成的尝试**中符合决策条件的收件人才得到 `retry_at`。旧阶段 TEMP_FAILED 不会被迁移或开关批量重新发送。重试使用同一个 Provider、同一份原始 EML，仅收件人信封子集改变；已成功或永久失败的收件人排除。Provider 禁用、发件域不匹配或容量不可用时等待，不偷偷换到其他 Provider。
+启用时，**新完成的尝试**中符合决策条件的收件人才得到 `retry_at`。旧阶段 TEMP_FAILED 不会被迁移或开关批量重新发送。未启用 failover 时，重试使用同一个 Provider、同一份原始 EML，仅收件人信封子集改变；已成功或永久失败的收件人排除。Provider 禁用、发件域不匹配或容量不可用时等待，不偷偷换到其他 Provider。
 
 重试预算固定为收件人首次领取后 24 小时、最多 7 次领取。间隔基数为 1/4/16/64/256/720 分钟，加 ±20% 的确定性 jitter（按 attempt 与 recipient ID 派生），最终时刻落库。进程重启不重算计划；窗口耗尽或超过次数会保留 TEMP_FAILED，并记录 MANUAL_INTERVENTION，而非编造 SMTP 永久拒绝。首轮开始前的排队等待不计入 24 小时。
 
@@ -121,7 +121,7 @@ Git 只保存源代码和迁移。恢复运行至少需要同一时间点的 Pos
 
 SMTP AUTH 明确 5xx 拒绝、密钥/本地存储问题进入人工检查；AUTH 4xx 或可识别的认证网络断开可同 Provider 重试。RCPT 4xx/5xx 分别按收件人处理。DATA 后缺少确定结果保持 UNKNOWN；一个 message 还有 UNKNOWN 收件人时，其他重试也暂缓，直至人工完成处置。
 
-决策的 `FailoverAllowed` 是协议层许可，4A **没有实现跨 Provider failover**。最终是否切换还需 4B 的候选配置与容量等策略。`delivery_attempts.result` 是当次事实；`recipients.status`/`messages.status` 是当前投递状态投影，例如 AUTH 535 事实可对应当前人工暂停 TEMP_FAILED，两者不应混淆。
+决策的 `FailoverAllowed` 是协议层许可，4B 在显式启用后还会检查候选配置、容量和全部未完成收件人的证据，见下节。`delivery_attempts.result` 是当次事实；`recipients.status`/`messages.status` 是当前投递状态投影，例如 AUTH 535 事实可对应当前人工暂停 TEMP_FAILED，两者不应混淆。
 
 ### 查看证据
 
@@ -151,3 +151,16 @@ docker compose exec -T gateway gateway resolve-unknown \
 每次只操作一个收件人。缺少风险确认、旧 attempt、已处置收件人、活跃投递或原文不可用时拒绝；并发操作只允许一次生效。它只排队，不在 CLI 中直接发送。发送时仍校验原文大小与 SHA-256，原 Provider 不可用时等待。剩余 UNKNOWN 收件人未处置前不会发出这次重试。
 
 当前命令仅处理 UNKNOWN；配置问题、重试预算耗尽的通用人工恢复流程仍待补充，不应通过直接改数据库状态绕过保护。尚未提供 undo、修改 Provider 或重置重试预算的操作。
+
+
+## 安全 Provider 切换（Phase 4B）
+
+`FAILOVER_ENABLED=false` 默认关闭，也支持 YAML `failover_enabled` 和 CLI `--failover-enabled`。开启必须同时开启 RETRY_ENABLED，否则启动拒绝配置。关闭开关不会取消已经领取或开始的网络操作；它阻止下一次领取时再次更换路由，已选中的 Provider 会保留为当前路由。
+
+切换等待已持久化的重试时间，不立即重发。所有未完成收件人都必须已到期排队、预算有效，且最新尝试证明正文前失败、允许切换。DNS / TCP / TLS 失败与正文前 DATA 4xx 可触发；AUTH 错误、RCPT 4xx、正文后明确 4xx 不触发切换，UNKNOWN 必须人工处置。混合收件人策略不同则继续原路由；不会为了切换重发已接受收件人。
+
+备用 Provider 必须同时授权 Envelope From 与 Header From 域，启用 TLS，满足并发容量，且没有配置尚不支持的 hourly/daily limit。`from_domains` 是操作者对该服务发件能力的声明，系统不自动验证服务商是否允许域内每个地址；应先完成相应身份验收。不会改写发件地址或 MIME 来迁就备用账号。不同发件域的两套账号通常不能直接互备。
+
+一次消息最多使用三个不同 Provider，且不会返回已离开的 Provider；逐人 7 次 / 24 小时预算跨 Provider 累计。没有合格备用时仍可在预算内重试当前 Provider；当前 Provider 也不可用则等待。滚动健康与熔断在 4C 实现，当前不宣称备用有历史健康保证。
+
+导出时间线中的 `PROVIDER_FAILOVER` 事件包含每个收件人的前后 Provider、前一次 attempt 和决策。事件与路由/新尝试一起提交；审计写入失败不启动投递。切换后的 DATA 仍需持久化授权，已发出正文却无法提交最终结果时保持 UNKNOWN，不尝试第三个 Provider。

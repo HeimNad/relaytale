@@ -31,9 +31,9 @@ Generic SMTP（STARTTLS / implicit TLS）、Provider 凭证加密、priority 与
 
 集中、可解释的逐收件人决策，持久化同 Provider 重试、退避/jitter、24 小时与 7 次上限，以及有审计和并发保护的 UNKNOWN 人工处置。自动重试默认关闭，历史暂停邮件不自动启动。计划和验收边界见 [Phase 4 实施计划](phase-4-plan.md)。
 
-## Phase 4B · 安全 Provider 切换
+## Phase 4B · 安全 Provider 切换（已完成本地验收，默认关闭）
 
-在可证明安全的协议阶段判断候选 Provider，检查发件域、配置、配额与健康；切换单独记录事件。增加跨 Provider 故障注入与重复投递测试。4A 的 FailoverAllowed 仅表达协议许可，不执行切换。
+在全部未完成收件人的最新决策许可且重试到期时选择备用，检查 Envelope/Header From 域、配置、并发容量，排除不支持的配额配置。最多三个不同 Provider，不回切，保留逐人重试预算；切换事件与新尝试原子提交。混合 RCPT 错误保留原路由，UNKNOWN 不切换。滚动健康与真正配额记账仍属于 4C。
 
 ## Phase 4C · Provider Health、熔断与配额
 

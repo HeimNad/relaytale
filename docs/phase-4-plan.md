@@ -44,3 +44,28 @@
 真实 Provider 矩阵仍待账号/收件人；没有启用自动重试或发送外部测试邮件。本轮未实现 4B/4C、完整协议兼容矩阵、Message-ID 注入、通用人工恢复或 UI。前三阶段 main 基线保留，4A 在独立分支提交。
 
 容器验收：迁移版本 4，ready 正常，RETRY_ENABLED=false、WORKER_COUNT=0；人工处置非法 UUID 被拒绝且未更改数据。
+
+
+## Phase 4B 实施方案（2026-09-11）
+
+基线为 4A 与真实收件侧核验检查点 `0db4acb`。本轮实现默认关闭的安全切换，不更换 SMTP 核心，不修改 MIME，也不在 worker 的网络错误分支即时重发。
+
+- 配置 `FAILOVER_ENABLED` / `failover_enabled` / `--failover-enabled`，默认 false，要求同时启用 RETRY_ENABLED。保留现有退避、逐人 7 次 / 24 小时预算。
+- 到期调度后，在领取事务中检查所有未完成收件人均已排队、自动重试获准、预算有效。每人的最新不可变 attempt 决策必须是 version 2 且允许切换且不存在可能已投递；拒绝使用租约恢复遗留的旧决策。
+- 目前一封邮件仍只有一条路由；混合 RCPT 暂时拒绝、未来到期或人工暂停会阻止整封路由切换。允许已经完成部分收件人的邮件只为剩余安全子集切换。此保守边界避免引入第二套并行路由状态。
+- 只为 DNS / TCP / TLS 失败、正文前 DATA 临时拒绝执行切换；AUTH、RCPT、正文后的最终拒绝保持原有处理，UNKNOWN 绝不自动切换。
+- 候选必须启用、TLS 配置有效，并同时授权 Envelope From 与 Header From 的域，满足并发限制。hourly/daily limit 非空仍排除（尚未实现记账）。滚动健康、熔断和半开放行留在 4C，不能把连接诊断模型当作健康算法。
+- 优先选择未尝试过的合格备用，最多涉及三个不同 Provider；不切回已尝试的旧 Provider。没有合格备用时按原预算重试当前 Provider；当前也不可用时等待，不放宽限制。
+- route、attempt、逐人 PROVIDER_FAILOVER 事件在同一事务提交，记录前后 Provider、来源 attempt 与决策；失败全部回滚。后续 DATA fence、租约恢复、UNKNOWN 和最终提交失败语义保持。
+- 决策 version 2 收紧矛盾最终接受证据与正文前 DATA 许可；version 1 历史决策只允许原路由重试，不直接切换。迁移 5 只添加收件人历史尝试查询索引，不改旧状态，不自动激活历史暂停邮件。
+
+验收涵盖真实 Fake SMTP 网络失败与跨 Provider 恢复、原文保持、已成功收件人不重发、混合拒绝不切换、候选授权/容量/配额/开关/预算、并发领取、切换审计回滚、切换后崩溃与最终提交失败。真实邮箱本轮不发送；两套已有账号的发件域不同，不能直接作为互备验收。
+
+### 4B 验收结果
+
+- `go vet ./...` 通过。
+- 隔离 PostgreSQL + Fake SMTP 容器内 `go test -race -count=1 -timeout=5m ./...` 全部通过，最终集成测试耗时 100.404 秒。
+- 迁移版本 5；隔离容器 `/health/ready` 返回 ready，启动记录确认 workers=0、automatic_retry=false、automatic_failover=false。
+- 已检查暂存差异；原始邮件 `temp/` 同时排除出 Git 和 Docker 构建。本轮没有外部邮件发送，未启用开发环境投递。
+
+DNS 许可通过决策单测验证；TCP 拒绝、TLS 验证失败和 DATA 451 通过真实本地 socket + PostgreSQL 验证跨 Provider 恢复。没有将这些故障测试描述为真实服务商互备验收。
