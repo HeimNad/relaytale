@@ -2,13 +2,15 @@
 
 日期：2026-09-10。基线：`phase-3`。保持 Go + PostgreSQL + 原始 EML + recipient-level state，不重写 SMTP 核心。
 
+本文保留 Phase 4 的历史实施与验收记录。Phase 4C 后的最新排期以 [开发路线图](roadmap.md) 为准：信誉保护基础 → 资源加固 → 最小管理 API → Web UI；完整 DSN 与 HTTP 发信分别验收。
+
 ## 顺序与交付边界
 
 1. **Phase 3.5 真实链路验收**：准备测试矩阵与证据模板；需要操作者提供 SpaceMail/PurelyMail 测试凭证及明确允许接收测试邮件的地址。未取得这些信息不发送外部邮件，结果不得用 Fake SMTP 替代。
 2. **Phase 4A（本轮实现）**：纯函数投递决策、逐收件人持久化重试、同 Provider 固定路由、24 小时/7 次上限、退避与 jitter、UNKNOWN 人工处置及追加审计。自动重试默认关闭，真实验收通过前不启用。保持原文与原始 Message-ID 不变。
 3. **Phase 4B**：安全跨 Provider 切换，候选域授权/配额/健康检查，明确事件，逐阶段故障注入。决策允许切换不等于执行切换；4A 不执行切换。
 4. **Phase 4C**：滚动 Provider 健康、熔断与半开、配额记账；以决策的错误归属区分 Provider 与收件人错误。
-5. 随后管理 UI / HTTP API，再做 DSN / bounce / suppression；配套生产指标、LISTEN 唤醒和数据生命周期工作保留在路线图。
+5. 后续顺序已于 2026-09-11 调整：先做 suppression 与可信反馈基础、资源加固，再做管理 API / UI；完整 DSN 自动化、HTTP 发信和生产运维见最新路线图。
 
 ## 4A 模型与不变量
 

@@ -34,3 +34,5 @@
 - `list-providers` 对隔离测试配置验证了限额、用量、健康样本与熔断字段。
 - 隔离容器 readiness 正常，迁移版本 6；未提供控制开关时启动记录确认 workers=0、automatic_retry=false、automatic_failover=false、provider_health=false。
 - 已核对暂存内容，不含真实邮件、凭证或数据库数据。真实服务商的配额口径及熔断互备仍未做外部验收；现有真实账号未启用投递。
+
+后续工作按 [最新路线图](roadmap.md) 执行：先做信誉保护基础与资源加固，再做管理 API / UI。本文中的已完成验收范围不随排期调整扩大。
