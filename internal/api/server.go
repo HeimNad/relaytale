@@ -4,15 +4,18 @@ import (
 	"context"
 	"encoding/json"
 	"io"
-	project "relaytale"
 	"net/http"
+	project "relaytale"
 	"time"
 )
 
 type Pinger interface{ PingContext(context.Context) error }
 
-func Handler(db Pinger, storageCheck func() error) http.Handler {
+func Handler(db Pinger, storageCheck func() error, metrics ...http.Handler) http.Handler {
 	mux := http.NewServeMux()
+	if len(metrics) > 0 && metrics[0] != nil {
+		mux.Handle("GET /metrics", metrics[0])
+	}
 	mux.HandleFunc("GET /license", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		_, _ = io.WriteString(w, project.LicenseText)

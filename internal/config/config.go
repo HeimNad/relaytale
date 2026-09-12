@@ -10,9 +10,14 @@ import (
 
 	"go.yaml.in/yaml/v3"
 	"relaytale/internal/encryption"
+	"relaytale/internal/resource"
 )
 
 type Config struct {
+	MemoryBudget int64  `yaml:"memory_budget_bytes"`
+	SpoolBudget  int64  `yaml:"spool_budget_bytes"`
+	SnapshotDir  string `yaml:"snapshot_dir"`
+
 	HealthEnabled       bool          `yaml:"health_enabled"`
 	FailoverEnabled     bool          `yaml:"failover_enabled"`
 	RetryEnabled        bool          `yaml:"retry_enabled"`
@@ -37,9 +42,12 @@ type Config struct {
 
 // Load applies defaults < YAML < environment < command-line flags.
 func Load(args []string) (Config, error) {
-	c := Config{EMLRetentionDays: 180, DebugRetentionDays: 30, CleanupBatch: 100, SMTPAddr: ":587", SMTPDomain: "localhost", MaxMessageBytes: 25 * 1024 * 1024, HTTPAddr: ":8080", StorageDir: "data/eml", ShutdownTimeout: 30 * time.Second}
+	c := Config{MemoryBudget: resource.DefaultMemory, SpoolBudget: resource.DefaultSpool, EMLRetentionDays: 180, DebugRetentionDays: 30, CleanupBatch: 100, SMTPAddr: ":587", SMTPDomain: "localhost", MaxMessageBytes: 25 * 1024 * 1024, HTTPAddr: ":8080", StorageDir: "data/eml", ShutdownTimeout: 30 * time.Second}
 	var file string
 	pre := flag.NewFlagSet("relaytale", flag.ContinueOnError)
+	pre.Int64("memory-budget-bytes", c.MemoryBudget, "active working-set reservation budget")
+	pre.Int64("spool-budget-bytes", c.SpoolBudget, "maximum concurrent outbound snapshot bytes")
+	pre.String("snapshot-dir", "", "temporary snapshot directory; default OS temp directory")
 	pre.StringVar(&file, "config", "", "optional YAML configuration file")
 	pre.Duration("maintenance-interval", 0, "automatic cleanup interval; 0 disables")
 	pre.Int("eml-retention-days", 180, "completed EML retention; 0 disables")
@@ -102,6 +110,18 @@ func Load(args []string) (Config, error) {
 		}
 		c.WorkerCount = n
 	}
+	for key, target := range map[string]*int64{"MEMORY_BUDGET_BYTES": &c.MemoryBudget, "SPOOL_BUDGET_BYTES": &c.SpoolBudget} {
+		if raw, ok := os.LookupEnv(key); ok {
+			value, err := strconv.ParseInt(raw, 10, 64)
+			if err != nil {
+				return c, fmt.Errorf("invalid %s", key)
+			}
+			*target = value
+		}
+	}
+	if raw, ok := os.LookupEnv("SNAPSHOT_DIR"); ok {
+		c.SnapshotDir = raw
+	}
 	c.MasterKey = encryption.EnvironmentKey()
 	if raw, ok := os.LookupEnv("RETRY_ENABLED"); ok {
 		value, err := strconv.ParseBool(raw)
@@ -143,6 +163,13 @@ func Load(args []string) (Config, error) {
 
 	pre.Visit(func(f *flag.Flag) {
 		switch f.Name {
+		case "memory-budget-bytes":
+			c.MemoryBudget, _ = strconv.ParseInt(f.Value.String(), 10, 64)
+		case "spool-budget-bytes":
+			c.SpoolBudget, _ = strconv.ParseInt(f.Value.String(), 10, 64)
+		case "snapshot-dir":
+			c.SnapshotDir = f.Value.String()
+
 		case "health-enabled":
 			c.HealthEnabled, _ = strconv.ParseBool(f.Value.String())
 		case "failover-enabled":
@@ -197,6 +224,9 @@ func Load(args []string) (Config, error) {
 	}
 	if c.WorkerCount < 0 || c.WorkerCount > 32 {
 		return c, errors.New("WORKER_COUNT must be between 0 and 32")
+	}
+	if c.MemoryBudget < resource.SendMemory || c.MemoryBudget > 16<<30 || c.SpoolBudget < c.MaxMessageBytes || c.SpoolBudget > 64<<30 {
+		return c, errors.New("memory budget must be 8 MiB..16 GiB; spool budget must cover max message size and be at most 64 GiB")
 	}
 	if c.WorkerCount > 0 {
 		if _, err := encryption.New(c.MasterKey); err != nil {

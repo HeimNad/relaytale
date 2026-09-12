@@ -12,7 +12,7 @@ Your Apps → SMTP ingress → Durable queue + EML archive → Provider router
                             Event ledger         Your existing SMTP providers
 ```
 
-## 当前进度：Phase 4C
+## 当前进度：Phase 5B（已完成本地验收）
 
 已实现 Go 服务入口、配置优先级、PostgreSQL 连接、内嵌 Goose 迁移、核心数据库表、存储可写检查、健康接口、JSON 日志、优雅退出和 Docker Compose。
 
@@ -74,6 +74,9 @@ go run ./cmd/relaytale --config config.example.yaml
 | `--smtp-cert` | `SMTP_TLS_CERT` | 启用 SMTP 时必填 |
 | `--smtp-key` | `SMTP_TLS_KEY` | 启用 SMTP 时必填 |
 | `--max-message-bytes` | `MAX_MESSAGE_BYTES` | `26214400` |
+| `--memory-budget-bytes` | `MEMORY_BUDGET_BYTES` | `67108864`（在途工作预算，非 RSS 上限） |
+| `--spool-budget-bytes` | `SPOOL_BUDGET_BYTES` | `268435456`（出站快照预算） |
+| `--snapshot-dir` | `SNAPSHOT_DIR` | 系统临时目录；Compose 为 `/data/snapshots` |
 | `--workers` | `WORKER_COUNT` | `0`（关闭投递） |
 | `--shutdown-timeout` | `SHUTDOWN_TIMEOUT` | `30s` |
 
@@ -249,4 +252,4 @@ Phase 3 测试覆盖导出原子发布/不覆盖、过滤与敏感字段排除�
 
 ## 后续开发顺序
 
-Phase 5A 已实现 suppression 与人工解除、可信退信设计及身份验收边界说明；接下来做 **5B 大邮件/队列资源加固**、**5C 最小管理 API** 和 **6 Web UI**。完整 DSN 自动化、HTTP 发信 API 与生产运维分别验收。已完成本地故障测试不代表生产就绪；当前功能、阶段验收条件与剩余缺口以 [开发路线图](docs/roadmap.md) 为准。
+Phase 5A 已实现 suppression 与人工解除、可信退信设计及身份验收边界说明；5B 已实现流式出站、在途资源背压与基础指标；持续负载中发现的收尾死锁已修复并通过回归，执行记录及容量限制见 [资源加固报告](docs/phase-5b-resources.md)。接下来做 **5C 最小管理 API** 和 **6 Web UI**。完整 DSN 自动化、HTTP 发信 API 与生产运维分别验收。已完成本地故障测试不代表生产就绪；当前功能、阶段验收条件与剩余缺口以 [开发路线图](docs/roadmap.md) 为准。

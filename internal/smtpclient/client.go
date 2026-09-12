@@ -1,7 +1,6 @@
 package smtpclient
 
 import (
-	"bytes"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
@@ -30,7 +29,7 @@ type Client struct {
 
 // Send uses a single bounded SMTP conversation. beforeData is a durable fence:
 // no DATA command or body may be transmitted unless it commits successfully.
-func (c Client) Send(ctx context.Context, p provider.Provider, password, from string, recipients []Recipient, payload []byte, beforeData func(context.Context) error, records ...func(context.Context, Event) error) (out Result) {
+func (c Client) Send(ctx context.Context, p provider.Provider, password, from string, recipients []Recipient, payload io.ReadSeeker, beforeData func(context.Context) error, records ...func(context.Context, Event) error) (out Result) {
 	stage := "CONNECT_ERROR"
 	out.StartedAt = time.Now().UTC()
 	out.Timings = map[string]int64{}
@@ -112,11 +111,12 @@ func (c Client) Send(ctx context.Context, p provider.Provider, password, from st
 			return
 		}
 	}
-	// Refuse a non-canonical snapshot rather than silently reserialize MIME.
-	if !c.probe && (!bytes.HasSuffix(payload, []byte("\r\n")) || bytes.Contains(bytes.ReplaceAll(payload, []byte("\r\n"), nil), []byte("\n"))) {
-		stage = "INVALID_EML"
-		fail(errors.New("EML must use CRLF"), false)
-		return
+	if !c.probe {
+		if err := validatePayload(ctx, payload); err != nil {
+			stage = "INVALID_EML"
+			fail(err, false)
+			return
+		}
 	}
 	stage = "DNS_ERROR"
 	out.DNSStartedAt = time.Now().UTC()
@@ -362,19 +362,13 @@ func (c Client) Send(ctx context.Context, p provider.Provider, password, from st
 		return
 	}
 	stage = "DATA_WRITE_ERROR"
-	// Dot-stuff only; payload bytes (including CRLF and headers) stay unchanged.
-	stuffed := dotStuff(payload)
 	transferStart := time.Now()
-	_, err = io.Copy(wire.W, bytes.NewReader(stuffed))
-	if err == nil {
-		err = wire.W.Flush()
-	}
+	out.BytesSent, err = streamDATA(ctx, wire.W, payload)
 	out.Timings["data_transfer_ms"] = time.Since(transferStart).Milliseconds()
 	if err != nil {
 		fail(err, true)
 		return
 	}
-	out.BytesSent = int64(len(payload))
 	out.DataCompletedAt = time.Now().UTC()
 	if !event("DATA_COMPLETED", "", 0, "") {
 		return
@@ -445,19 +439,6 @@ func safeResponse(s, password string) string {
 		s = s[:4096]
 	}
 	return strings.ToValidUTF8(strings.ReplaceAll(s, "\x00", ""), "�")
-}
-func dotStuff(raw []byte) []byte {
-	var b bytes.Buffer
-	lineStart := true
-	for _, v := range raw {
-		if lineStart && v == '.' {
-			b.WriteByte('.')
-		}
-		b.WriteByte(v)
-		lineStart = v == '\n'
-	}
-	b.WriteString(".\r\n")
-	return b.Bytes()
 }
 
 // Probe authenticates and disconnects without MAIL, RCPT or DATA.

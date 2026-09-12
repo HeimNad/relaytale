@@ -49,7 +49,7 @@ func TestProviderConversation(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), timeout)
 			defer cancel()
 			armed := false
-			out := (Client{Domain: "relaytale.test", RootCAs: fake.Roots}).Send(ctx, p, "provider-password", "sender@example.test", []Recipient{{"one", "one@example.test"}, {"two", "two@example.test"}}, []byte(raw), func(context.Context) error { armed = true; return nil })
+			out := (Client{Domain: "relaytale.test", RootCAs: fake.Roots}).Send(ctx, p, "provider-password", "sender@example.test", []Recipient{{"one", "one@example.test"}, {"two", "two@example.test"}}, bytes.NewReader([]byte(raw)), func(context.Context) error { armed = true; return nil })
 			if out.Status != tc.status {
 				t.Fatalf("want %s got %+v", tc.status, out)
 			}
@@ -81,7 +81,7 @@ func TestFenceFailurePreventsDATA(t *testing.T) {
 	number, _ := strconv.Atoi(port)
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	out := (Client{RootCAs: fake.Roots}).Send(ctx, provider.Provider{Host: host, Port: number, Username: "provider-user", Security: "starttls"}, "provider-password", "sender@example.test", []Recipient{{"one", "one@example.test"}}, []byte(raw), func(context.Context) error { return errors.New("lease lost") })
+	out := (Client{RootCAs: fake.Roots}).Send(ctx, provider.Provider{Host: host, Port: number, Username: "provider-user", Security: "starttls"}, "provider-password", "sender@example.test", []Recipient{{"one", "one@example.test"}}, bytes.NewReader([]byte(raw)), func(context.Context) error { return errors.New("lease lost") })
 	if out.Status != Temporary || !out.DataStartedAt.IsZero() {
 		t.Fatalf("unsafe fence result: %+v", out)
 	}
@@ -98,7 +98,7 @@ func TestUntrustedProviderCertificateRejected(t *testing.T) {
 	number, _ := strconv.Atoi(port)
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	out := (Client{}).Send(ctx, provider.Provider{Host: host, Port: number, Username: "provider-user", Security: "starttls"}, "provider-password", "sender@example.test", []Recipient{{"one", "one@example.test"}}, []byte(raw), func(context.Context) error { t.Fatal("untrusted TLS reached DATA"); return nil })
+	out := (Client{}).Send(ctx, provider.Provider{Host: host, Port: number, Username: "provider-user", Security: "starttls"}, "provider-password", "sender@example.test", []Recipient{{"one", "one@example.test"}}, bytes.NewReader([]byte(raw)), func(context.Context) error { t.Fatal("untrusted TLS reached DATA"); return nil })
 	if out.Status != Temporary || out.ErrorClass != "TLS_ERROR" {
 		t.Fatalf("untrusted certificate accepted: %+v", out)
 	}
@@ -125,7 +125,7 @@ func TestProbeAndRecorderFailure(t *testing.T) {
 	default:
 	}
 	armed := false
-	out = c.Send(context.Background(), p, "provider-password", "sender@example.test", []Recipient{{"one", "one@example.test"}}, []byte(raw), func(context.Context) error { armed = true; return nil }, func(context.Context, Event) error { return errors.New("recorder unavailable") })
+	out = c.Send(context.Background(), p, "provider-password", "sender@example.test", []Recipient{{"one", "one@example.test"}}, bytes.NewReader([]byte(raw)), func(context.Context) error { armed = true; return nil }, func(context.Context, Event) error { return errors.New("recorder unavailable") })
 	if !out.RecorderError || armed || out.Status != Temporary {
 		t.Fatalf("unsafe recorder failure: %+v", out)
 	}

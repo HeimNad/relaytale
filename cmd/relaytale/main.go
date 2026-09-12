@@ -21,8 +21,10 @@ import (
 	"relaytale/internal/database"
 	"relaytale/internal/encryption"
 	"relaytale/internal/message"
+	"relaytale/internal/metrics"
 	"relaytale/internal/operations"
 	"relaytale/internal/queue"
+	"relaytale/internal/resource"
 	"relaytale/internal/smtpclient"
 	"relaytale/internal/smtpserver"
 	"relaytale/internal/storage"
@@ -55,6 +57,15 @@ func run(log *slog.Logger) error {
 	if err != nil {
 		return fmt.Errorf("configuration: %w", err)
 	}
+	resources := resource.New(cfg.MemoryBudget, cfg.SpoolBudget)
+	if cfg.SnapshotDir != "" {
+		if err := os.MkdirAll(cfg.SnapshotDir, 0700); err != nil {
+			return errors.New("cannot create snapshot directory")
+		}
+		if err := storage.CheckWritable(cfg.SnapshotDir); err != nil {
+			return errors.New("snapshot directory is not writable")
+		}
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	if err := os.MkdirAll(cfg.StorageDir, 0700); err != nil {
@@ -80,7 +91,7 @@ func run(log *slog.Logger) error {
 		return fmt.Errorf("HTTP listen: %w", err)
 	}
 	defer httpListener.Close()
-	srv := &http.Server{Handler: api.Handler(db, func() error { return storage.CheckWritable(cfg.StorageDir) }), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 60 * time.Second}
+	srv := &http.Server{Handler: api.Handler(db, func() error { return storage.CheckWritable(cfg.StorageDir) }, &metrics.Handler{DB: db, Resources: resources}), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 60 * time.Second}
 	result := make(chan error, 2)
 	var shutdownSMTP func(context.Context) error
 	var closeSMTP func() error
@@ -93,7 +104,7 @@ func run(log *slog.Logger) error {
 		if err != nil {
 			return err
 		}
-		receiver := message.Receiver{Store: storage.LocalStore{Root: cfg.StorageDir, MaxBytes: cfg.MaxMessageBytes}, Repo: message.Postgres{DB: db}}
+		receiver := message.Receiver{Resources: resources, Store: storage.LocalStore{Root: cfg.StorageDir, MaxBytes: cfg.MaxMessageBytes}, Repo: message.Postgres{DB: db}}
 		smtp := smtpserver.New(&smtpserver.Backend{Accounts: accounts, Receiver: receiver, Log: log, Timeout: 60 * time.Second}, cfg.SMTPDomain, cert, cfg.MaxMessageBytes)
 		listener, err := net.Listen("tcp", cfg.SMTPAddr)
 		if err != nil {
@@ -122,12 +133,12 @@ func run(log *slog.Logger) error {
 		if err != nil {
 			return err
 		}
-		worker := queue.Worker{Repo: queue.Repository{DB: db, RetryEnabled: cfg.RetryEnabled, FailoverEnabled: cfg.FailoverEnabled, HealthEnabled: cfg.HealthEnabled}, Box: box, Sender: smtpclient.Client{Domain: cfg.SMTPDomain}, StorageRoot: cfg.StorageDir, MaxBytes: cfg.MaxMessageBytes, Log: log}
+		worker := queue.Worker{Resources: resources, SnapshotDir: cfg.SnapshotDir, Repo: queue.Repository{DB: db, RetryEnabled: cfg.RetryEnabled, FailoverEnabled: cfg.FailoverEnabled, HealthEnabled: cfg.HealthEnabled}, Box: box, Sender: smtpclient.Client{Domain: cfg.SMTPDomain}, StorageRoot: cfg.StorageDir, MaxBytes: cfg.MaxMessageBytes, Log: log}
 		go func() { defer close(workersDone); worker.Run(claimCtx, operationCtx, cfg.WorkerCount) }()
 	} else {
 		close(workersDone)
 	}
-	log.Info("relaytale started", "http_address", cfg.HTTPAddr, "smtp_address", cfg.SMTPAddr, "workers", cfg.WorkerCount, "phase", "5A", "automatic_retry", cfg.RetryEnabled, "automatic_failover", cfg.FailoverEnabled, "provider_health", cfg.HealthEnabled)
+	log.Info("relaytale started", "http_address", cfg.HTTPAddr, "smtp_address", cfg.SMTPAddr, "workers", cfg.WorkerCount, "phase", "5B", "automatic_retry", cfg.RetryEnabled, "automatic_failover", cfg.FailoverEnabled, "provider_health", cfg.HealthEnabled)
 	var serveErr error
 	select {
 	case serveErr = <-result:

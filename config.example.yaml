@@ -21,3 +21,8 @@ retry_enabled: false
 failover_enabled: false
 
 health_enabled: false
+
+# Shared ingress/outbound admission and outbound disk snapshot budget.
+memory_budget_bytes: 67108864
+spool_budget_bytes: 268435456
+snapshot_dir: ""

@@ -1,0 +1,202 @@
+{
+  "accepted_per_second": 10.096529951037654,
+  "baseline_goroutines": 4,
+  "baseline_heap_bytes": 592848,
+  "baseline_rss_bytes": 85204992,
+  "drain_seconds": 2.505888031,
+  "duration_seconds": 120,
+  "elapsed_seconds": 122.51734071,
+  "final_goroutines": 4,
+  "initial_backlog": 40,
+  "latency_seconds": {
+    "p50": 1.290137,
+    "p95": 2.5511011999999997,
+    "p99": 2.8054404799999997
+  },
+  "message_bytes": 32768,
+  "messages": 1237,
+  "peak_database_connections": 5,
+  "peak_heap_bytes": 3338520,
+  "peak_rss_bytes": 25481216,
+  "resource_reservations": {
+    "MemoryLimit": 33554432,
+    "SpoolLimit": 104857600,
+    "Memory": 0,
+    "Spool": 0,
+    "PeakMemory": 33554432,
+    "PeakSpool": 104857600,
+    "Waiting": 0
+  },
+  "sampled_peak_lock_waiters": 1,
+  "snapshot_fds_after_drain": 0,
+  "tables_after": [
+    {
+      "table": "attempt_recipients",
+      "Live": 1245,
+      "Dead": 164,
+      "HeapBytes": 475136,
+      "IndexBytes": 163840,
+      "Autovacuums": 1,
+      "ManualVacuums": 0
+    },
+    {
+      "table": "delivery_attempts",
+      "Live": 1245,
+      "Dead": 668,
+      "HeapBytes": 1081344,
+      "IndexBytes": 368640,
+      "Autovacuums": 2,
+      "ManualVacuums": 0
+    },
+    {
+      "table": "events",
+      "Live": 28389,
+      "Dead": 0,
+      "HeapBytes": 5881856,
+      "IndexBytes": 4136960,
+      "Autovacuums": 2,
+      "ManualVacuums": 0
+    },
+    {
+      "table": "messages",
+      "Live": 1238,
+      "Dead": 883,
+      "HeapBytes": 737280,
+      "IndexBytes": 557056,
+      "Autovacuums": 2,
+      "ManualVacuums": 0
+    },
+    {
+      "table": "provider_quota",
+      "Live": 1238,
+      "Dead": 0,
+      "HeapBytes": 172032,
+      "IndexBytes": 122880,
+      "Autovacuums": 0,
+      "ManualVacuums": 0
+    },
+    {
+      "table": "recipients",
+      "Live": 1238,
+      "Dead": 177,
+      "HeapBytes": 598016,
+      "IndexBytes": 172032,
+      "Autovacuums": 2,
+      "ManualVacuums": 0
+    }
+  ],
+  "tables_after_manual_vacuum": [
+    {
+      "table": "attempt_recipients",
+      "Live": 1237,
+      "Dead": 0,
+      "HeapBytes": 475136,
+      "IndexBytes": 163840,
+      "Autovacuums": 1,
+      "ManualVacuums": 1
+    },
+    {
+      "table": "delivery_attempts",
+      "Live": 1237,
+      "Dead": 0,
+      "HeapBytes": 1081344,
+      "IndexBytes": 393216,
+      "Autovacuums": 2,
+      "ManualVacuums": 1
+    },
+    {
+      "table": "events",
+      "Live": 28451,
+      "Dead": 0,
+      "HeapBytes": 5881856,
+      "IndexBytes": 4136960,
+      "Autovacuums": 2,
+      "ManualVacuums": 1
+    },
+    {
+      "table": "messages",
+      "Live": 1237,
+      "Dead": 0,
+      "HeapBytes": 737280,
+      "IndexBytes": 557056,
+      "Autovacuums": 2,
+      "ManualVacuums": 1
+    },
+    {
+      "table": "provider_quota",
+      "Live": 1237,
+      "Dead": 0,
+      "HeapBytes": 180224,
+      "IndexBytes": 122880,
+      "Autovacuums": 0,
+      "ManualVacuums": 1
+    },
+    {
+      "table": "recipients",
+      "Live": 1237,
+      "Dead": 0,
+      "HeapBytes": 598016,
+      "IndexBytes": 172032,
+      "Autovacuums": 2,
+      "ManualVacuums": 1
+    }
+  ],
+  "tables_before": [
+    {
+      "table": "attempt_recipients",
+      "Live": 0,
+      "Dead": 0,
+      "HeapBytes": 8192,
+      "IndexBytes": 16384,
+      "Autovacuums": 0,
+      "ManualVacuums": 0
+    },
+    {
+      "table": "delivery_attempts",
+      "Live": 0,
+      "Dead": 0,
+      "HeapBytes": 8192,
+      "IndexBytes": 40960,
+      "Autovacuums": 0,
+      "ManualVacuums": 0
+    },
+    {
+      "table": "events",
+      "Live": 0,
+      "Dead": 0,
+      "HeapBytes": 8192,
+      "IndexBytes": 24576,
+      "Autovacuums": 0,
+      "ManualVacuums": 0
+    },
+    {
+      "table": "messages",
+      "Live": 0,
+      "Dead": 0,
+      "HeapBytes": 8192,
+      "IndexBytes": 73728,
+      "Autovacuums": 0,
+      "ManualVacuums": 0
+    },
+    {
+      "table": "provider_quota",
+      "Live": 0,
+      "Dead": 0,
+      "HeapBytes": 0,
+      "IndexBytes": 16384,
+      "Autovacuums": 0,
+      "ManualVacuums": 0
+    },
+    {
+      "table": "recipients",
+      "Live": 0,
+      "Dead": 0,
+      "HeapBytes": 8192,
+      "IndexBytes": 32768,
+      "Autovacuums": 0,
+      "ManualVacuums": 0
+    }
+  ],
+  "wal_bytes": 30229552,
+  "workers": 4
+}

@@ -182,3 +182,16 @@ docker compose exec -T relaytale relaytale resolve-unknown \
 ## 抑制名单（Phase 5A）
 
 管理命令、全局地址范围、DATA 授权边界、不可自动重放的历史与审计规则见 [Phase 5A 操作说明](phase-5a-suppression.md#cli)。自动退信处理尚未开放，不要把收到的 DSN 内容直接导入名单。
+
+
+## 在途资源与指标（Phase 5B）
+
+`MEMORY_BUDGET_BYTES` 默认 64 MiB，是工作准入预算，不是进程 RSS 硬上限。每个接收操作预留 1 MiB，每个 worker 操作预留 8 MiB；共享 FIFO 等待可取消。`SPOOL_BUDGET_BYTES` 默认 256 MiB，每个出站操作按 `MAX_MESSAGE_BYTES` 预留临时磁盘容量，等待期间不领取租约或预留 Provider 配额。
+
+Compose 将快照放在 `/data/snapshots`，要求可写；快照打开后立即移除路径，关闭或进程退出后释放空间。路径为空时使用系统临时目录；若目录位于 tmpfs，其页也占用内存。预算不包含原始 EML 存档、数据库、文件系统缓存、认证及空闲连接开销。多实例预算逐进程生效，部署总量必须相加；目前不能将此视为完整的生产连接限流或内存保障。
+
+指标从内部 `http://relaytale:8080/metrics` 抓取，默认 Caddy 对 `/metrics` 及子路径返回 404。独立部署需自行限制 HTTP 监听与网络访问。指标无管理员认证，不能直接暴露公网。建议从 30 秒抓取周期开始；单次数据库采集超时 2 秒，重叠采集返回 503。
+
+消息状态数量、最老 QUEUED 年龄、24 小时尝试结果、Provider 配额耗尽与熔断、资源预算/等待数、Go 堆和数据库连接均为聚合指标，无邮箱/消息 ID 标签。24 小时结果是 gauge，不能对它使用 counter 的 `rate()` 推导精确吞吐；无记录的状态标签不输出。数据库指标在多个实例上是重复的全局视图，不能按实例简单相加。`SMTP_ACCEPTED` 仍不表示收件箱投递成功。
+
+复现负载测试、观测数据及剩余限制见 [5B 验收报告](phase-5b-resources.md)。

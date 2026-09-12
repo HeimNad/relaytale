@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 	"relaytale/internal/auth"
+	"relaytale/internal/resource"
 	"relaytale/internal/storage"
 )
 
@@ -38,11 +39,18 @@ type Repository interface {
 	Enqueue(context.Context, Submission) error
 }
 type Receiver struct {
-	Store ArchiveStore
-	Repo  Repository
+	Resources *resource.Limiter
+	Store     ArchiveStore
+	Repo      Repository
 }
 
 func (s Receiver) Receive(ctx context.Context, e Envelope, r io.Reader) (string, error) {
+	release, err := s.Resources.Acquire(ctx, resource.ReceiveMemory, 0)
+	if err != nil {
+		return "", err
+	}
+	defer release()
+
 	if !e.Account.Allows(e.From) || len(e.Recipients) == 0 {
 		return "", ErrSenderDenied
 	}

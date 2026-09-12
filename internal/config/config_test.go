@@ -112,3 +112,18 @@ func TestHealthOptIn(t *testing.T) {
 		t.Fatal("invalid health flag accepted")
 	}
 }
+
+func TestResourceBudgetConfiguration(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://localhost/test")
+	t.Setenv("MEMORY_BUDGET_BYTES", "16777216")
+	t.Setenv("SPOOL_BUDGET_BYTES", "52428800")
+	cfg, err := Load([]string{"--memory-budget-bytes", "33554432", "--snapshot-dir", "/tmp/snapshots"})
+	if err != nil || cfg.MemoryBudget != 32<<20 || cfg.SpoolBudget != 50<<20 || cfg.SnapshotDir != "/tmp/snapshots" {
+		t.Fatal("budget precedence", err)
+	}
+	for _, args := range [][]string{{"--memory-budget-bytes", "0"}, {"--spool-budget-bytes", "1024"}, {"--max-message-bytes", "1073741824"}} {
+		if _, err := Load(args); err == nil {
+			t.Fatal("impossible work budget accepted", args)
+		}
+	}
+}

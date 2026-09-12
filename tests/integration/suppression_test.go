@@ -3,6 +3,7 @@ package integration
 import (
 	"context"
 	"errors"
+	"io"
 	"strings"
 	"sync"
 	"testing"
@@ -147,7 +148,7 @@ type suppressionSender struct {
 	hook func(context.Context, func(context.Context) error) error
 }
 
-func (s suppressionSender) Send(ctx context.Context, p provider.Provider, password, from string, rc []smtpclient.Recipient, raw []byte, gate func(context.Context) error, events ...func(context.Context, smtpclient.Event) error) smtpclient.Result {
+func (s suppressionSender) Send(ctx context.Context, p provider.Provider, password, from string, rc []smtpclient.Recipient, raw io.ReadSeeker, gate func(context.Context) error, events ...func(context.Context, smtpclient.Event) error) smtpclient.Result {
 	return s.base.Send(ctx, p, password, from, rc, raw, func(c context.Context) error { return s.hook(c, gate) }, events...)
 }
 func TestSuppressionMidConversationResumesOnlyUnblocked(t *testing.T) {

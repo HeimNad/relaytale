@@ -3,9 +3,11 @@ package testsmtp
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
+	"encoding/hex"
 	"net"
 	"net/textproto"
 	"os"
@@ -20,6 +22,13 @@ import (
 )
 
 type Options struct {
+	// Load fixtures hash DATA without retaining a message-sized in-memory copy.
+	DiscardPayload bool
+	MaxBytes       int64
+	ReadDelay      time.Duration // once per 64 KiB
+	DropAfterBytes int64
+	OnMessage      func(int64, string)
+
 	RecipientCode                                  func(int, string) int
 	LoginOnly                                      bool
 	ImplicitTLS, NoSTARTTLS, RejectAuth, DropFinal bool
@@ -206,6 +215,12 @@ func (s *Server) serve(raw net.Conn, cert tls.Certificate, o Options, number int
 			}
 			_ = wire.PrintfLine("354 send payload")
 			var data bytes.Buffer
+			hash := sha256.New()
+			var size, delayed int64
+			maxBytes := o.MaxBytes
+			if maxBytes == 0 {
+				maxBytes = 4 * 1024 * 1024
+			}
 			for {
 				line, err := wire.R.ReadString('\n')
 				if err != nil {
@@ -217,13 +232,29 @@ func (s *Server) serve(raw net.Conn, cert tls.Certificate, o Options, number int
 				if strings.HasPrefix(line, "..") {
 					line = line[1:]
 				}
-				data.WriteString(line)
-				if data.Len() > 4*1024*1024 {
+				size += int64(len(line))
+				_, _ = hash.Write([]byte(line))
+				if !o.DiscardPayload {
+					data.WriteString(line)
+				}
+				if o.DropAfterBytes > 0 && size >= o.DropAfterBytes {
+					return
+				}
+				if o.ReadDelay > 0 && size-delayed >= 64*1024 {
+					time.Sleep(o.ReadDelay)
+					delayed = size
+				}
+				if size > maxBytes {
 					return
 				}
 			}
-			s.Payloads <- append([]byte(nil), data.Bytes()...)
-			s.Envelopes <- append([]string(nil), addresses...)
+			if o.OnMessage != nil {
+				o.OnMessage(size, hex.EncodeToString(hash.Sum(nil)))
+			}
+			if !o.DiscardPayload {
+				s.Payloads <- append([]byte(nil), data.Bytes()...)
+				s.Envelopes <- append([]string(nil), addresses...)
+			}
 			if o.DropFinal {
 				return
 			}

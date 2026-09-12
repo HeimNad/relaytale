@@ -248,6 +248,13 @@ func (r Repository) Finish(ctx context.Context, j Job, out smtpclient.Result) er
 	if err = fence(ctx, tx, j, false); err != nil {
 		return err
 	}
+	// Lock the provider before recipient updates acquire FK KEY SHARE locks.
+	// Concurrent finishes must never upgrade those shared locks at finishHealth.
+	// Keep the same message -> provider order as Claim.
+	var lockedProvider string
+	if err = tx.QueryRowContext(ctx, `SELECT id FROM providers WHERE id=$1 FOR UPDATE`, j.Provider.ID).Scan(&lockedProvider); err != nil {
+		return err
+	}
 	var policyBlocked bool
 	if err = tx.QueryRowContext(ctx, `SELECT suppression_blocked_at IS NOT NULL FROM delivery_attempts WHERE id=$1 AND message_id=$2 AND claim_token=$3 AND result='IN_PROGRESS'`, j.AttemptID, j.ID, j.Token).Scan(&policyBlocked); err != nil {
 		return err

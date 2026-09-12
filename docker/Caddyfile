@@ -1,4 +1,6 @@
 {$SITE_ADDRESS:http://localhost} {
- encode gzip
- reverse_proxy relaytale:8080
+	@metrics path /metrics /metrics/*
+	respond @metrics 404
+	encode gzip
+	reverse_proxy relaytale:8080
 }

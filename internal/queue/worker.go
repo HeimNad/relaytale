@@ -14,13 +14,16 @@ import (
 
 	"relaytale/internal/encryption"
 	"relaytale/internal/provider"
+	"relaytale/internal/resource"
 	"relaytale/internal/smtpclient"
 )
 
 type Sender interface {
-	Send(context.Context, provider.Provider, string, string, []smtpclient.Recipient, []byte, func(context.Context) error, ...func(context.Context, smtpclient.Event) error) smtpclient.Result
+	Send(context.Context, provider.Provider, string, string, []smtpclient.Recipient, io.ReadSeeker, func(context.Context) error, ...func(context.Context, smtpclient.Event) error) smtpclient.Result
 }
 type Worker struct {
+	Resources   *resource.Limiter
+	SnapshotDir string
 	Repo        Repository
 	Box         *encryption.Box
 	Sender      Sender
@@ -33,6 +36,13 @@ func (w Worker) RunOne(ctx context.Context) (bool, error) {
 	return w.runOne(ctx, ctx)
 }
 func (w Worker) runOne(claims, ctx context.Context) (bool, error) {
+	// Reserve the maximum snapshot size before taking any lease or quota.
+	release, err := w.Resources.Acquire(claims, resource.SendMemory, w.MaxBytes)
+	if err != nil {
+		return false, err
+	}
+	defer release()
+
 	claimCtx, cancel := context.WithTimeout(claims, 10*time.Second)
 	if err := w.Repo.Schedule(claimCtx); err != nil {
 		cancel()
@@ -74,6 +84,7 @@ func (w Worker) deliver(ctx context.Context, j Job) (err error) {
 		if readErr != nil {
 			out = failure("LOCAL_STORAGE_ERROR")
 		} else {
+			defer raw.Close()
 			out = w.Sender.Send(operation, j.Provider, password, j.From, j.Recipients, raw, func(c context.Context) error { return w.Repo.ArmData(c, j) }, func(c context.Context, e smtpclient.Event) error { return w.Repo.Record(c, j, e) })
 		}
 	}
@@ -87,7 +98,7 @@ func (w Worker) deliver(ctx context.Context, j Job) (err error) {
 	w.Log.Info("delivery attempt recorded", "message_id", j.ID, "attempt_id", j.AttemptID, "provider_id", j.Provider.ID, "status", out.Status)
 	return nil
 }
-func (w Worker) readVerified(ctx context.Context, j Job) ([]byte, error) {
+func (w Worker) readVerified(ctx context.Context, j Job) (*os.File, error) {
 	if j.Size < 0 || j.Size > w.MaxBytes {
 		return nil, errors.New("invalid archive size")
 	}
@@ -120,14 +131,44 @@ func (w Worker) readVerified(ctx context.Context, j Job) ([]byte, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	raw, err := io.ReadAll(io.LimitReader(f, j.Size+1))
+	snapshot, err := os.CreateTemp(w.SnapshotDir, "relaytale-send-*")
 	if err != nil {
 		return nil, err
 	}
-	if int64(len(raw)) != j.Size || fmt.Sprintf("%x", sha256.Sum256(raw)) != j.SHA256 {
+	// Unix open-unlink: no pathname can later be replaced, and crash/close
+	// releases disk blocks. Never leave readable snapshots behind on failure.
+	if err = os.Remove(snapshot.Name()); err != nil {
+		snapshot.Close()
+		return nil, err
+	}
+	success := false
+	defer func() {
+		if !success {
+			snapshot.Close()
+		}
+	}()
+	hash := sha256.New()
+	n, err := io.CopyBuffer(io.MultiWriter(snapshot, hash), contextReader{ctx, io.LimitReader(f, j.Size)}, make([]byte, 32*1024))
+	if err != nil {
+		return nil, err
+	}
+	// Detect extra archive bytes without writing beyond the snapshot reservation.
+	var extra [1]byte
+	extraN, extraErr := (contextReader{ctx, f}).Read(extra[:])
+	if extraN != 0 || extraErr != io.EOF {
+		return nil, errors.New("archive size mismatch")
+	}
+	if n != j.Size || fmt.Sprintf("%x", hash.Sum(nil)) != j.SHA256 {
 		return nil, errors.New("archive integrity mismatch")
 	}
-	return raw, ctx.Err()
+	if err = ctx.Err(); err != nil {
+		return nil, err
+	}
+	if _, err = snapshot.Seek(0, io.SeekStart); err != nil {
+		return nil, err
+	}
+	success = true
+	return snapshot, nil
 }
 
 // Run stops claiming on stopClaims, lets active operations drain, and uses
@@ -168,4 +209,17 @@ func (w Worker) Run(stopClaims, operations context.Context, count int) {
 		}()
 	}
 	wg.Wait()
+}
+
+// No ReaderFrom/WriterTo fast path may bypass cancellation or the bounded buffer.
+type contextReader struct {
+	ctx context.Context
+	r   io.Reader
+}
+
+func (r contextReader) Read(p []byte) (int, error) {
+	if err := r.ctx.Err(); err != nil {
+		return 0, err
+	}
+	return r.r.Read(p)
 }
