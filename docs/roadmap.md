@@ -2,13 +2,15 @@
 
 更新：2026-09-11。当前已完成 Phase 4C 的本地验收；这不等于生产就绪。后续按本文件排期，已完成阶段的实现与验收记录保留，不重编号或移动已有 Git 标签。
 
+项目统一命名为 **RelayTale**，改名不改变投递语义或历史阶段标签。升级边界见 [改名说明](rename-relaytale.md)。
+
 下一阶段：**Phase 5A 信誉保护基础**，随后资源加固、最小管理 API，再进入完整 Web UI。
 
 ## Phase 0 · 基础服务（已完成）
 
 - Go 项目、配置、数据库连接和内嵌迁移。
 - 核心表与关键约束、健康检查、优雅退出。
-- gateway / postgres / caddy Compose。
+- relaytale / postgres / caddy Compose。
 - 验收：编译、单元测试、真实数据库迁移、Compose 启动与重启。
 
 ## Phase 1 · 可靠接收（已实现，含集成测试）

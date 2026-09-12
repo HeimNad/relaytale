@@ -13,12 +13,12 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"mailgateway/internal/database"
-	"mailgateway/internal/encryption"
-	"mailgateway/internal/operations"
-	"mailgateway/internal/provider"
-	"mailgateway/internal/queue"
-	"mailgateway/internal/smtpclient"
+	"relaytale/internal/database"
+	"relaytale/internal/encryption"
+	"relaytale/internal/operations"
+	"relaytale/internal/provider"
+	"relaytale/internal/queue"
+	"relaytale/internal/smtpclient"
 )
 
 func operationDB(ctx context.Context) (*sql.DB, error) {
@@ -173,7 +173,7 @@ func runOperation(command string, args []string) error {
 			return errors.New("invalid provider timeout")
 		}
 		p.Timeout = time.Duration(seconds) * time.Second
-		box, err := encryption.New(os.Getenv("MAILGATEWAY_MASTER_KEY"))
+		box, err := encryption.New(encryption.EnvironmentKey())
 		if err != nil {
 			return err
 		}

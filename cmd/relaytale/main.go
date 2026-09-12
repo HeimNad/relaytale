@@ -14,25 +14,25 @@ import (
 	"syscall"
 	"time"
 
-	project "mailgateway"
-	"mailgateway/internal/api"
-	"mailgateway/internal/auth"
-	"mailgateway/internal/config"
-	"mailgateway/internal/database"
-	"mailgateway/internal/encryption"
-	"mailgateway/internal/message"
-	"mailgateway/internal/operations"
-	"mailgateway/internal/queue"
-	"mailgateway/internal/smtpclient"
-	"mailgateway/internal/smtpserver"
-	"mailgateway/internal/storage"
+	project "relaytale"
+	"relaytale/internal/api"
+	"relaytale/internal/auth"
+	"relaytale/internal/config"
+	"relaytale/internal/database"
+	"relaytale/internal/encryption"
+	"relaytale/internal/message"
+	"relaytale/internal/operations"
+	"relaytale/internal/queue"
+	"relaytale/internal/smtpclient"
+	"relaytale/internal/smtpserver"
+	"relaytale/internal/storage"
 )
 
 func main() {
 	log := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	if err := run(log); err != nil {
 		// Connection errors can include credentials. Keep startup detail out of logs.
-		log.Error("gateway stopped", "error", err.Error())
+		log.Error("relaytale stopped", "error", err.Error())
 		os.Exit(1)
 	}
 }
@@ -127,7 +127,7 @@ func run(log *slog.Logger) error {
 	} else {
 		close(workersDone)
 	}
-	log.Info("gateway started", "http_address", cfg.HTTPAddr, "smtp_address", cfg.SMTPAddr, "workers", cfg.WorkerCount, "phase", "4C", "automatic_retry", cfg.RetryEnabled, "automatic_failover", cfg.FailoverEnabled, "provider_health", cfg.HealthEnabled)
+	log.Info("relaytale started", "http_address", cfg.HTTPAddr, "smtp_address", cfg.SMTPAddr, "workers", cfg.WorkerCount, "phase", "4C", "automatic_retry", cfg.RetryEnabled, "automatic_failover", cfg.FailoverEnabled, "provider_health", cfg.HealthEnabled)
 	var serveErr error
 	select {
 	case serveErr = <-result:
@@ -135,7 +135,7 @@ func run(log *slog.Logger) error {
 	}
 	stopClaims()
 	stopMaintenance()
-	log.Info("gateway shutting down")
+	log.Info("relaytale shutting down")
 	shutdown, cancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
 	defer cancel()
 	var wg sync.WaitGroup

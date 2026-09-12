@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"mailgateway/internal/encryption"
+	"relaytale/internal/encryption"
 )
 
 type Provider struct {

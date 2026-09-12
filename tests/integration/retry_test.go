@@ -8,10 +8,10 @@ import (
 	"sync"
 	"testing"
 
-	decision "mailgateway/internal/delivery"
-	"mailgateway/internal/queue"
-	"mailgateway/internal/smtpclient"
-	"mailgateway/internal/testsmtp"
+	decision "relaytale/internal/delivery"
+	"relaytale/internal/queue"
+	"relaytale/internal/smtpclient"
+	"relaytale/internal/testsmtp"
 )
 
 func TestRetryOnlyRejectedRecipient(t *testing.T) {

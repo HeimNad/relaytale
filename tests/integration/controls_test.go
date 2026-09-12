@@ -6,9 +6,9 @@ import (
 	"sync"
 	"testing"
 
-	"mailgateway/internal/queue"
-	"mailgateway/internal/smtpclient"
-	"mailgateway/internal/testsmtp"
+	"relaytale/internal/queue"
+	"relaytale/internal/smtpclient"
+	"relaytale/internal/testsmtp"
 )
 
 func providerID(t *testing.T, f *deliveryFixture) string {
@@ -139,7 +139,7 @@ func TestCircuitHalfOpenSuccessAndFailure(t *testing.T) {
 				bid := f.addProvider(t, b, 20, 1)
 				mustExec(t, f, `UPDATE providers p SET host=b.host,port=b.port FROM providers b WHERE p.id=$1 AND b.id=$2`, pid, bid)
 				mustExec(t, f, `UPDATE providers SET enabled=false WHERE id=$1`, bid)
-				f.worker.Sender = smtpclient.Client{Domain: "gateway.test", RootCAs: b.Roots}
+				f.worker.Sender = smtpclient.Client{Domain: "relaytale.test", RootCAs: b.Roots}
 			}
 			mustExec(t, f, `UPDATE provider_health SET open_until=now()-interval '1 second' WHERE provider_id=$1`, pid)
 			runOne(t, f.worker)
@@ -280,7 +280,7 @@ func TestQuotaSplitFailoverAuditsEveryRecipient(t *testing.T) {
 	bid := f.addProvider(t, b, 20, 1)
 	mustExec(t, f, `UPDATE providers SET hourly_limit=1 WHERE id=$1`, bid)
 	dueFailover(t, f, id)
-	f.worker.Sender = smtpclient.Client{Domain: "gateway.test", RootCAs: b.Roots}
+	f.worker.Sender = smtpclient.Client{Domain: "relaytale.test", RootCAs: b.Roots}
 	runOne(t, f.worker)
 	mustExec(t, f, `UPDATE provider_quota SET reserved_at=clock_timestamp()-interval '61 minutes' WHERE provider_id=$1`, bid)
 	runOne(t, f.worker)
@@ -331,7 +331,7 @@ func TestCircuitStillRequiresSafeFailover(t *testing.T) {
 	b := testsmtp.Start(t, testsmtp.Options{})
 	f.addProvider(t, b, 20, 1)
 	dueFailover(t, f, id)
-	f.worker.Sender = smtpclient.Client{Domain: "gateway.test", RootCAs: b.Roots}
+	f.worker.Sender = smtpclient.Client{Domain: "relaytale.test", RootCAs: b.Roots}
 	runOne(t, f.worker)
 	if f.status(t, id) != smtpclient.Accepted || circuit(t, f, pid) != "OPEN" {
 		t.Fatal("safe failover or isolation lost")

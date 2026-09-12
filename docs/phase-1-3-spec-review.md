@@ -1,6 +1,6 @@
 # Phase 1–3 开发规格对照与设计复盘
 
-日期：2026-09-10。依据：[产品与工程开发规格说明书 v0.1](../Mail%20Gateway%20-%20Email%20Flight%20Recorder%20开发规格说明书.md)。范围为 Phase 0 基础骨架以及 Phase 1–3；不将未来路线图或只有表结构的功能算作已实现。
+日期：2026-09-10。依据：[产品与工程开发规格说明书 v0.1](../RelayTale%20开发规格说明书.md)。范围为 Phase 0 基础骨架以及 Phase 1–3；不将未来路线图或只有表结构的功能算作已实现。
 
 结论：当前实现遵循 SMTP 原生网关、先持久化再确认、逐收件人状态、原文留档和追加式事件这些核心要求。前三个功能阶段已具备可测试的后端链路；有一些比原阶段顺序更早落地的可靠性措施，也存在明确的简化和未完成项。**当前尚不满足规格 §90 的完整 MVP，更不等于生产 v1。**
 
@@ -8,7 +8,7 @@
 
 | 阶段 | 原规格 | 当前实现与证据 | 判断 |
 | --- | --- | --- | --- |
-| Phase 0（§79） | Go、配置、DB、迁移、Docker、健康 | `cmd/gateway`、`internal/config`、`internal/database`、Compose；数据库及存储就绪检查 | 已实现，包含于 phase-1 基线 |
+| Phase 0（§79） | Go、配置、DB、迁移、Docker、健康 | `cmd/relaytale`、`internal/config`、`internal/database`、Compose；数据库及存储就绪检查 | 已实现，包含于 phase-1 基线 |
 | Phase 1（§80） | SMTP AUTH、信封、DATA、EML、messages/recipients | `smtpserver`、`message`、`storage`；TLS 接收、账号发件人限制、原文同步后事务入队 | 已实现；协议客户端和 PostgreSQL 集成测试替代手工 swaks 作为主要回归证据 |
 | Phase 2（§81） | Generic SMTP、队列读取、SMTP_ACCEPTED | `provider`、`encryption`、`queue`、`smtpclient`；STARTTLS / implicit TLS、priority、并发额度、逐人结果 | 本地 Fake Provider 全链路已验收；真实 SpaceMail/PurelyMail 尚未验收 |
 | Phase 3（§82） | attempts、events、耗时、错误分类 | 连续事件、序号去重、DNS/连接/TLS/AUTH/RCPT/DATA/最终响应耗时、阶段错误分类 | 核心已实现；完整错误枚举、全量 transcript 和 UI 聚合不在当前完成范围 |
@@ -19,7 +19,7 @@
 | 规格章节 | 要求 | 实现与边界 |
 | --- | --- | --- |
 | §1–4、§95 | 自托管 SMTP 控制面；不要第一版堆消息中间件 | Go 单体 + PostgreSQL + 本地文件 + Caddy；没有 Redis/Kafka/Kubernetes，也没有营销功能或直接公网 MX 投递 |
-| §3、§59 | Go 1.24+，YAML/env/CLI，结构化日志 | 固定 Go 1.27.1 与依赖版本；服务配置按 CLI > env > YAML > 默认。管理子命令使用自身 flags/env，未统一复用服务 YAML 配置；本次同时修正 README 中 Compose exec 缺少 gateway 可执行文件的命令示例 |
+| §3、§59 | Go 1.24+，YAML/env/CLI，结构化日志 | 固定 Go 1.27.1 与依赖版本；服务配置按 CLI > env > YAML > 默认。管理子命令使用自身 flags/env，未统一复用服务 YAML 配置；本次同时修正 README 中 Compose exec 缺少 relaytale 可执行文件的命令示例 |
 | §6–10、§67 | 分离消息、收件人、尝试和事件 | 首版迁移包含九类基础表，额外 `attempt_recipients` 保存每轮收件人结果；表存在不代表 API key、suppression 或 health 功能已经可用 |
 | §11–12 | 不能把 SMTP_ACCEPTED 叫 DELIVERED；不确定结果禁止盲目切换 | final 2xx 才认定 SMTP_ACCEPTED；DATA 后失去响应或已许可 DATA 的租约过期转 DELIVERY_UNKNOWN，不自动重发 |
 | §13–14、§46、§49 | STARTTLS、AUTH PLAIN/LOGIN、发件人限制、密码哈希 | 入站强制 TLS/AUTH、Argon2id、信封和 Header From 都检查；Compose 默认仅本机开放；没有匿名 trusted-network 旁路 |
@@ -97,7 +97,7 @@
 
 - `go vet ./...` 静态检查。
 - `docker compose --profile test run --build --rm test`：隔离 PostgreSQL + 本地 Fake SMTP，执行 `go test -race -count=1 ./...`。
-- 本地 Compose 重建后 schema_version=3、gateway/postgres 健康；`/health/ready` 返回 ready，`/license` 与 LICENSE 字节一致；三个运行容器均确认 local 日志轮转配置。
+- 本地 Compose 重建后 schema_version=3、relaytale/postgres 健康；`/health/ready` 返回 ready，`/license` 与 LICENSE 字节一致；三个运行容器均确认 local 日志轮转配置。
 - 本地 CLI 清理预览无删除、空库记录导出 gzip/校验和通过；运行日志导出可解压，重复路径被拒绝且原文件哈希未改变。实际业务库未执行删除，也未向外部发送邮件。
 - 全链路 ingress → EML → PostgreSQL queue → TLS Provider → 逐人结果；正常、部分成功、4xx/5xx、最终响应丢失/超时。
 - 认证拒绝、发件人限制、存档/数据库故障、原文完整性、错误主密钥、并发领取和租约恢复、最终提交失败。

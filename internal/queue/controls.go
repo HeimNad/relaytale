@@ -5,8 +5,8 @@ import (
 	"database/sql"
 	"time"
 
-	"mailgateway/internal/delivery"
-	"mailgateway/internal/smtpclient"
+	"relaytale/internal/delivery"
+	"relaytale/internal/smtpclient"
 )
 
 // Quotas are rolling admission budgets measured in recipient attempts, including

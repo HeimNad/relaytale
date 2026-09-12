@@ -6,7 +6,7 @@
 
 | 数据 | 保存方式 | 当前策略 |
 | --- | --- | --- |
-| 运行日志 | gateway / postgres / caddy 的 Docker 日志 | `local` 驱动，每个容器按 10 MB × 5 文件轮转，压缩旧文件；按大小，不保证保留天数 |
+| 运行日志 | relaytale / postgres / caddy 的 Docker 日志 | `local` 驱动，每个容器按 10 MB × 5 文件轮转，压缩旧文件；按大小，不保证保留天数 |
 | 邮件元数据、投递尝试、事件及维护审计 | PostgreSQL | 长期保留；事件和维护审计禁止普通 UPDATE/DELETE；尚无期限删除配置 |
 | 原始 EML | `/data/eml` 持久卷 | 安全终态默认保留 180 天；自动清理默认关闭 |
 | SMTP debug transcript | attempt 的 `raw_debug_log` | 当前不采集完整 transcript；已有内容可按 30 天清理，自动清理默认关闭 |
@@ -16,9 +16,9 @@
 ## 查看状态和连接诊断
 
 ```sh
-docker compose exec -T gateway gateway doctor
-docker compose exec -T gateway gateway list-providers
-docker compose exec -T gateway gateway test-provider --id <Provider-UUID>
+docker compose exec -T relaytale relaytale doctor
+docker compose exec -T relaytale relaytale list-providers
+docker compose exec -T relaytale relaytale test-provider --id <Provider-UUID>
 ```
 
 `doctor` 检查数据库并输出迁移版本、各邮件状态数量和最早接收时间；数据库连通不等于所有业务正常。`/health/ready` 另检查存储可写。
@@ -28,11 +28,11 @@ docker compose exec -T gateway gateway test-provider --id <Provider-UUID>
 ## 导出邮件记录
 
 ```sh
-docker compose exec -T gateway gateway export-records \
+docker compose exec -T relaytale relaytale export-records \
   --since 2026-09-01T00:00:00Z --until 2026-10-01T00:00:00Z \
   --output /data/exports/records-2026-09.jsonl.gz
 mkdir -p exports
-docker compose cp gateway:/data/exports/records-2026-09.jsonl.gz ./exports/
+docker compose cp relaytale:/data/exports/records-2026-09.jsonl.gz ./exports/
 ```
 
 可加 `--message-id <Gateway-UUID>`，这里是内部 UUID，不是邮件头的 Message-ID。筛选按邮件接收时间，开始包含、结束不包含；匹配邮件的所有尝试与事件随之导出。省略日期时从 Unix epoch 到当前时间。
@@ -54,10 +54,10 @@ gzip -t exports/records-2026-09.jsonl.gz
 
 ```sh
 python3 scripts/export-logs.py --since 24h --tail 10000 \
-  --output exports/runtime-2026-09-10.log.gz gateway postgres caddy
+  --output exports/runtime-2026-09-10.log.gz relaytale postgres caddy
 ```
 
-只读取尚未被轮转淘汰的日志，`--tail` 是每个服务的上限（1–100000），默认只导出 gateway。文件权限 0600，不覆盖已有文件，输出 SHA-256。宿主机脚本不写数据库审计。已有文件和 Docker 故障会返回非零退出码。
+只读取尚未被轮转淘汰的日志，`--tail` 是每个服务的上限（1–100000），默认只导出 relaytale。文件权限 0600，不覆盖已有文件，输出 SHA-256。宿主机脚本不写数据库审计。已有文件和 Docker 故障会返回非零退出码。
 
 不要手动截断 Docker 管理的日志文件；轮转参数见 `docker-compose.yml`。修改后重建相应容器才生效。导出目录不会自动清理，应另设受控归档周期。
 
@@ -65,9 +65,9 @@ python3 scripts/export-logs.py --since 24h --tail 10000 \
 
 ```sh
 # 只报告候选项，不更改文件或数据库。
-docker compose exec -T gateway gateway cleanup --eml-days 180 --debug-days 30 --batch 100
+docker compose exec -T relaytale relaytale cleanup --eml-days 180 --debug-days 30 --batch 100
 # 使用相同参数执行实际清理。
-docker compose exec -T gateway gateway cleanup --eml-days 180 --debug-days 30 --batch 100 --apply
+docker compose exec -T relaytale relaytale cleanup --eml-days 180 --debug-days 30 --batch 100 --apply
 ```
 
 CLI 保留天数默认 180 / 30、批量默认 100；手动命令应显式传参，它不继承自动任务的保留期配置。`--storage-dir` 默认读取 `EML_STORAGE_DIR`。天数 0 禁用对应类别，范围 0–36500；批量 1–1000，每类独立计数。
@@ -97,10 +97,10 @@ Git 只保存源代码和迁移。恢复运行至少需要同一时间点的 Pos
 
 当前推荐维护窗口备份：
 
-1. 停止 gateway，等待容器正常退出，阻止新接收、投递和自动清理；PostgreSQL 保持运行。
+1. 停止 relaytale，等待容器正常退出，阻止新接收、投递和自动清理；PostgreSQL 保持运行。
 2. 对数据库执行 `pg_dump -Fc`，以受限权限保存；同时备份 `mail_data`。邮件文件与数据库应在业务停止期间取得，不能随意拼接不同时间点的副本。
 3. 在仓库外加密保存 `.env`、主密钥及必要证书，记录 Git 标签、迁移版本、备份时间与文件校验值。
-4. 确认备份完成后恢复 gateway。备份需有异地副本与独立保留策略。
+4. 确认备份完成后恢复 relaytale。备份需有异地副本与独立保留策略。
 
 恢复演练应在隔离实例中进行：先恢复数据库、原路径存储和配置，以对应 Git 标签构建；保持 `WORKER_COUNT=0`、`MAINTENANCE_INTERVAL=0s`。检查迁移版本、健康接口、文件数量及抽样 SHA-256，核对所有 SENDING / DELIVERY_UNKNOWN，再决定是否恢复投递。不要让恢复实例和原实例同时向同一批收件人发送。
 
@@ -132,7 +132,7 @@ SMTP AUTH 明确 5xx 拒绝、密钥/本地存储问题进入人工检查；AUTH
 ### 人工确认已送达 / 失败
 
 ```sh
-docker compose exec -T gateway gateway resolve-unknown \
+docker compose exec -T relaytale relaytale resolve-unknown \
   --recipient-id <Recipient-UUID> --expected-attempt <Latest-Attempt-UUID> \
   --action mark-delivered --actor <Operator> --reason '已核查收件端原始邮件'
 ```
@@ -142,7 +142,7 @@ docker compose exec -T gateway gateway resolve-unknown \
 ### 明确承担风险后手动重试
 
 ```sh
-docker compose exec -T gateway gateway resolve-unknown \
+docker compose exec -T relaytale relaytale resolve-unknown \
   --recipient-id <Recipient-UUID> --expected-attempt <Latest-Attempt-UUID> \
   --action retry --actor <Operator> --reason '业务负责人要求重发' \
   --acknowledge-duplicate-risk

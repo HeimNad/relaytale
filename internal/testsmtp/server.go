@@ -16,7 +16,7 @@ import (
 	"testing"
 	"time"
 
-	"mailgateway/internal/devtls"
+	"relaytale/internal/devtls"
 )
 
 type Options struct {

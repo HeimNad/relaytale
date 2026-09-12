@@ -12,9 +12,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"mailgateway/internal/auth"
-	"mailgateway/internal/database"
-	"mailgateway/internal/devtls"
+	"relaytale/internal/auth"
+	"relaytale/internal/database"
+	"relaytale/internal/devtls"
 )
 
 func manage(args []string) error {

@@ -21,7 +21,7 @@ git diff phase-1..HEAD
 需要研究旧版本时优先创建独立工作目录，不覆盖当前工作：
 
 ```sh
-git worktree add ../mailgate-phase-1 phase-1
+git worktree add ../relaytale-phase-1 phase-1
 ```
 
 旧代码运行时不要直接连接当前开发数据库或复用当前数据卷。代码回退不等于数据库迁移回退。

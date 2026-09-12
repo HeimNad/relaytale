@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"mailgateway/internal/database"
-	"mailgateway/internal/encryption"
-	"mailgateway/internal/provider"
+	"relaytale/internal/database"
+	"relaytale/internal/encryption"
+	"relaytale/internal/provider"
 )
 
 func createProvider(args []string) error {
@@ -35,7 +35,7 @@ func createProvider(args []string) error {
 	if fs.NArg() != 0 || !*stdin {
 		return errors.New("use --password-stdin to supply the provider password")
 	}
-	box, err := encryption.New(os.Getenv("MAILGATEWAY_MASTER_KEY"))
+	box, err := encryption.New(encryption.EnvironmentKey())
 	if err != nil {
 		return err
 	}

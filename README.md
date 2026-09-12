@@ -1,6 +1,8 @@
-# MailGateway
+# RelayTale
 
-MailGateway is a self-hosted SMTP control plane and flight recorder for the email providers you already use.
+RelayTale is a self-hosted SMTP control plane and flight recorder for the email providers you already use.
+
+品牌名称统一为 **RelayTale**；模块、命令和容器服务使用 `relaytale`。已有部署升级前请阅读 [改名与兼容说明](docs/rename-relaytale.md)。
 
 Change your SMTP host. Keep your email code.
 
@@ -28,7 +30,7 @@ Your Apps → SMTP ingress → Durable queue + EML archive → Provider router
 cp .env.example .env
 # 修改 .env 中的 POSTGRES_PASSWORD，建议用 openssl rand -hex 24 生成。
 # 首次启动：显式生成仅用于 localhost 开发的自签证书（已有证书时不要重复执行）。
-docker compose run --build --rm gateway init-dev-tls
+docker compose run --build --rm relaytale init-dev-tls
 docker compose up --build -d
 curl http://localhost:8080/health/live
 curl http://localhost:8080/health/ready
@@ -39,7 +41,7 @@ curl http://localhost:8080/health/ready
 默认仅绑定本机，Caddy HTTP 入口为 8080。PostgreSQL 不向主机公开端口。当前 Compose 是本地开发配置；SMTP STARTTLS 入口为本机 1587，容器内部监听 587。生产需要替换为有效域名证书，并配置正式端口和 HTTPS。
 
 ```sh
-docker compose logs -f gateway
+docker compose logs -f relaytale
 docker compose down
 ```
 
@@ -53,11 +55,11 @@ Go 1.27.1+。需可访问的 PostgreSQL，并设置 `DATABASE_URL`。
 export GO111MODULE=on
 export SMTP_TLS_CERT='/path/to/smtp.crt'
 export SMTP_TLS_KEY='/path/to/smtp.key'
-export DATABASE_URL='postgres://user:password@localhost:5432/mailgateway?sslmode=disable'
+export DATABASE_URL='postgres://user:password@localhost:5432/relaytale?sslmode=disable'
 make test
 make vet
 make build
-go run ./cmd/gateway --config config.example.yaml
+go run ./cmd/relaytale --config config.example.yaml
 ```
 
 配置顺序：CLI > 环境变量 > YAML > 默认值。`.env` 由 Compose 读取，Go 程序不会自动读取它。SMTP 默认监听 `:587` 且必须有 TLS 证书；仅测试 HTTP 时可以显式设置 `SMTP_LISTEN_ADDR=` 关闭 SMTP。
@@ -80,7 +82,7 @@ go run ./cmd/gateway --config config.example.yaml
 ## 目录
 
 ```text
-cmd/gateway/       进程装配、启动和退出
+cmd/relaytale/       进程装配、启动和退出
 internal/config/   配置加载与校验
 internal/database/ PostgreSQL 连接与迁移
 internal/api/      HTTP 路由与健康检查
@@ -106,14 +108,14 @@ docs/              架构决策与分阶段计划
 
 PostgreSQL 和 `/data/eml` 必须成对备份。邮件接收后，原始 EML 存储在 `/data/eml/YYYY/MM/DD/<uuid>.eml`，数据库保存路径、大小与 SHA-256。事件表禁止普通 UPDATE/DELETE；后续保留期清理必须通过专门维护流程实现。生产环境还需分离迁移账号和运行账号，当前开发环境使用同一账号。
 
-采用 **AGPL-3.0-only**，完整文本见 [LICENSE](LICENSE)。项目原创代码按此许可证发布；第三方依赖保留各自许可证。可通过 `gateway license` 或 `GET /license` 查看正文。发布或部署修改版时，请按许可证提供对应源代码；仅展示许可证正文不能代替源代码提供安排。
+采用 **AGPL-3.0-only**，完整文本见 [LICENSE](LICENSE)。项目原创代码按此许可证发布；第三方依赖保留各自许可证。可通过 `relaytale license` 或 `GET /license` 查看正文。发布或部署修改版时，请按许可证提供对应源代码；仅展示许可证正文不能代替源代码提供安排。
 
 ## 创建 SMTP 账号
 
 服务启动并完成迁移后执行：
 
 ```sh
-docker compose exec gateway create-smtp-account \
+docker compose exec relaytale relaytale create-smtp-account \
   --username local-app \
   --allowed-from noreply@example.com
 ```
@@ -123,14 +125,14 @@ docker compose exec gateway create-smtp-account \
 导出开发证书供客户端信任：
 
 ```sh
-docker compose cp gateway:/data/tls/smtp.crt /tmp/mailgateway-smtp.crt
+docker compose cp relaytale:/data/tls/smtp.crt /tmp/relaytale-smtp.crt
 ```
 
 客户端配置：`localhost:1587`、STARTTLS、上面创建的账号密码，并信任该证书。可使用 swaks（交互输入密码，不将密码写入 shell 历史）：
 
 ```sh
 swaks --server localhost --port 1587 --tls --tls-verify \
-  --tls-ca-file /tmp/mailgateway-smtp.crt \
+  --tls-ca-file /tmp/relaytale-smtp.crt \
   --auth PLAIN --auth-user local-app --auth-password \
   --from noreply@example.com --to recipient@example.test
 ```
@@ -138,7 +140,7 @@ swaks --server localhost --port 1587 --tls --tls-verify \
 可以查看 QUEUED 状态：
 
 ```sh
-docker compose exec postgres psql -U mailgateway -d mailgateway \
+docker compose exec postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"' sh \
   -c 'SELECT id, subject, status, eml_size FROM messages ORDER BY created_at DESC LIMIT 10;'
 ```
 
@@ -163,12 +165,12 @@ docker compose --profile test stop postgres-test
 
 ## 启用 Provider 投递（Phase 2）
 
-1. 生成主密钥：`openssl rand -hex 32`。将结果保存到 `.env` 的 `MAILGATEWAY_MASTER_KEY`。该值用于加密 Provider 密码，需要独立备份；更换或丢失会导致已有凭证无法解密。
+1. 生成主密钥：`openssl rand -hex 32`。将结果保存到 `.env` 的 `RELAYTALE_MASTER_KEY`。该值用于加密 Provider 密码，需要独立备份；更换或丢失会导致已有凭证无法解密。
 2. 保持 `WORKER_COUNT=0`，运行 `docker compose up -d --build`，让容器载入主密钥并应用迁移。
 3. 使用仅本地可读的密码文件创建 Provider，例如：
 
 ```sh
-docker compose exec -T gateway gateway create-provider \
+docker compose exec -T relaytale relaytale create-provider \
   --name primary \
   --host smtp.your-provider.example --port 587 --security starttls \
   --username your-smtp-username --from-domains example.com \
@@ -195,7 +197,7 @@ Provider 优先选择较小的 priority；并发容量或滚动收件人配额�
 查看投递记录：
 
 ```sh
-docker compose exec postgres psql -U mailgateway -d mailgateway \
+docker compose exec postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"' sh \
   -c 'SELECT message_id, attempt_number, result, smtp_code, error_class FROM delivery_attempts ORDER BY started_at DESC LIMIT 20;'
 ```
 

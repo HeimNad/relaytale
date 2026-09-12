@@ -12,9 +12,9 @@ import (
 	"sync"
 	"time"
 
-	"mailgateway/internal/encryption"
-	"mailgateway/internal/provider"
-	"mailgateway/internal/smtpclient"
+	"relaytale/internal/encryption"
+	"relaytale/internal/provider"
+	"relaytale/internal/smtpclient"
 )
 
 type Sender interface {

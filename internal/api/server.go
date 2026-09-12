@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
-	project "mailgateway"
+	project "relaytale"
 	"net/http"
 	"time"
 )

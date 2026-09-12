@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"mailgateway/internal/provider"
-	"mailgateway/internal/testsmtp"
+	"relaytale/internal/provider"
+	"relaytale/internal/testsmtp"
 )
 
 const raw = "From: sender@example.test\r\nMessage-ID: <stable@example.test>\r\nDKIM-Signature: unchanged-test\r\n\r\n.line\r\nbody\r\n"
@@ -49,7 +49,7 @@ func TestProviderConversation(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), timeout)
 			defer cancel()
 			armed := false
-			out := (Client{Domain: "gateway.test", RootCAs: fake.Roots}).Send(ctx, p, "provider-password", "sender@example.test", []Recipient{{"one", "one@example.test"}, {"two", "two@example.test"}}, []byte(raw), func(context.Context) error { armed = true; return nil })
+			out := (Client{Domain: "relaytale.test", RootCAs: fake.Roots}).Send(ctx, p, "provider-password", "sender@example.test", []Recipient{{"one", "one@example.test"}, {"two", "two@example.test"}}, []byte(raw), func(context.Context) error { armed = true; return nil })
 			if out.Status != tc.status {
 				t.Fatalf("want %s got %+v", tc.status, out)
 			}
@@ -109,7 +109,7 @@ func TestProbeAndRecorderFailure(t *testing.T) {
 	host, port, _ := net.SplitHostPort(fake.Addr)
 	number, _ := strconv.Atoi(port)
 	p := provider.Provider{Host: host, Port: number, Username: "provider-user", Security: "starttls", Timeout: 3 * time.Second}
-	c := Client{Domain: "gateway.test", RootCAs: fake.Roots}
+	c := Client{Domain: "relaytale.test", RootCAs: fake.Roots}
 	out := c.Probe(context.Background(), p, "provider-password")
 	if out.Status != "READY" || out.DNSCompletedAt.IsZero() {
 		t.Fatalf("probe: %+v", out)
@@ -135,7 +135,7 @@ func TestLoginOnlyProvider(t *testing.T) {
 	fake := testsmtp.Start(t, testsmtp.Options{LoginOnly: true})
 	host, port, _ := net.SplitHostPort(fake.Addr)
 	n, _ := strconv.Atoi(port)
-	out := (Client{Domain: "gateway.test", RootCAs: fake.Roots}).Probe(context.Background(), provider.Provider{Host: host, Port: n, Username: "provider-user", Security: "starttls", Timeout: time.Second}, "provider-password")
+	out := (Client{Domain: "relaytale.test", RootCAs: fake.Roots}).Probe(context.Background(), provider.Provider{Host: host, Port: n, Username: "provider-user", Security: "starttls", Timeout: time.Second}, "provider-password")
 	if out.Status != "READY" {
 		t.Fatalf("LOGIN negotiation: %+v", out)
 	}

@@ -12,8 +12,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"mailgateway/internal/auth"
-	"mailgateway/internal/storage"
+	"relaytale/internal/auth"
+	"relaytale/internal/storage"
 )
 
 var ErrInvalidMessage = errors.New("invalid message headers")

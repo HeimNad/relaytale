@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"time"
 
-	"mailgateway/internal/delivery"
-	"mailgateway/internal/smtpclient"
+	"relaytale/internal/delivery"
+	"relaytale/internal/smtpclient"
 )
 
 func (r Repository) claimRecipient(alias string) string {

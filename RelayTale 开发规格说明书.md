@@ -1,4 +1,4 @@
-# Mail Gateway / Email Flight Recorder
+# RelayTale / Email Flight Recorder
 ## 产品与工程开发规格说明书
 
 版本：v0.1  
@@ -42,7 +42,7 @@ Applications
           │
           ▼
 ┌───────────────────────┐
-│     Mail Gateway      │
+│     RelayTale      │
 │                       │
 │ SMTP Ingress          │
 │ HTTP API              │
@@ -160,7 +160,7 @@ UUIDv7
 仅运行：
 
 ```text
-gateway
+relaytale
 postgres
 caddy
 ```
@@ -204,10 +204,10 @@ MinIO
 建议：
 
 ```text
-mailgateway/
+relaytale/
 │
 ├── cmd/
-│   └── gateway/
+│   └── relaytale/
 │       └── main.go
 │
 ├── internal/
@@ -1004,7 +1004,7 @@ SMTP 密码不得 plaintext 保存。
 使用 master key：
 
 ```env
-MAILGATEWAY_MASTER_KEY=
+RELAYTALE_MASTER_KEY=
 ```
 
 AES-256-GCM 加密 credentials。
@@ -1642,7 +1642,7 @@ Gateway 生成。
 例如：
 
 ```text
-<0199...@gateway.example.com>
+<0199...@relaytale.example.com>
 ```
 
 同一邮件无论经过几次 Provider retry：
@@ -1795,7 +1795,7 @@ recipient
 sender
 subject
 message ID
-gateway ID
+relaytale ID
 provider
 ```
 
@@ -2162,21 +2162,21 @@ Prometheus endpoint：
 至少：
 
 ```text
-mailgateway_messages_received_total
+relaytale_messages_received_total
 
-mailgateway_messages_queued
+relaytale_messages_queued
 
-mailgateway_delivery_attempt_total
+relaytale_delivery_attempt_total
 
-mailgateway_delivery_success_total
+relaytale_delivery_success_total
 
-mailgateway_delivery_failure_total
+relaytale_delivery_failure_total
 
-mailgateway_delivery_unknown_total
+relaytale_delivery_unknown_total
 
-mailgateway_provider_latency_seconds
+relaytale_provider_latency_seconds
 
-mailgateway_queue_depth
+relaytale_queue_depth
 ```
 
 ---
@@ -2233,7 +2233,7 @@ Docker stop 不应造成邮件状态损坏。
 
 ```yaml
 services:
-  gateway:
+  relaytale:
   postgres:
   caddy:
 ```
@@ -2438,7 +2438,7 @@ SMTP：
 可以允许：
 
 ```text
-X-MailGateway-Idempotency-Key
+X-RelayTale-Idempotency-Key
 ```
 
 但不是 MVP 必需。
@@ -3039,7 +3039,7 @@ Open-source email sending platform
 
 应该：
 
-> MailGateway is a self-hosted SMTP control plane and flight recorder for the email providers you already use.
+> RelayTale is a self-hosted SMTP control plane and flight recorder for the email providers you already use.
 
 架构图：
 
@@ -3048,7 +3048,7 @@ Your Apps
    │
    │ SMTP
    ▼
-MailGateway
+RelayTale
    │
    ├── SpaceMail
    ├── PurelyMail
@@ -3336,7 +3336,7 @@ SMTP_PORT=465
 现在：
 
 ```env
-SMTP_HOST=gateway.example.com
+SMTP_HOST=relaytale.example.com
 SMTP_PORT=587
 ```
 

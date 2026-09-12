@@ -16,14 +16,14 @@ import (
 
 	"github.com/emersion/go-sasl"
 	"github.com/google/uuid"
-	"mailgateway/internal/auth"
-	"mailgateway/internal/encryption"
-	"mailgateway/internal/message"
-	"mailgateway/internal/provider"
-	"mailgateway/internal/queue"
-	"mailgateway/internal/smtpclient"
-	"mailgateway/internal/storage"
-	"mailgateway/internal/testsmtp"
+	"relaytale/internal/auth"
+	"relaytale/internal/encryption"
+	"relaytale/internal/message"
+	"relaytale/internal/provider"
+	"relaytale/internal/queue"
+	"relaytale/internal/smtpclient"
+	"relaytale/internal/storage"
+	"relaytale/internal/testsmtp"
 )
 
 type deliveryFixture struct {
@@ -51,7 +51,7 @@ func delivery(t *testing.T, o testsmtp.Options, connections int) *deliveryFixtur
 	if err != nil {
 		t.Fatal(err)
 	}
-	f.worker = queue.Worker{Repo: queue.Repository{DB: db}, Box: box, Sender: smtpclient.Client{Domain: "gateway.test", RootCAs: fake.Roots}, StorageRoot: root, MaxBytes: 1024 * 1024, Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	f.worker = queue.Worker{Repo: queue.Repository{DB: db}, Box: box, Sender: smtpclient.Client{Domain: "relaytale.test", RootCAs: fake.Roots}, StorageRoot: root, MaxBytes: 1024 * 1024, Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
 	return f
 }
 func (f *deliveryFixture) addProvider(t *testing.T, fake *testsmtp.Server, priority, connections int) string {

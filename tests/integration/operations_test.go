@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"mailgateway/internal/operations"
-	"mailgateway/internal/testsmtp"
+	"relaytale/internal/operations"
+	"relaytale/internal/testsmtp"
 )
 
 func TestRetentionAndExport(t *testing.T) {

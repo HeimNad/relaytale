@@ -1,4 +1,4 @@
-// Package migrations embeds the versioned PostgreSQL schema in the gateway binary.
+// Package migrations embeds the versioned PostgreSQL schema in the relaytale binary.
 package migrations
 
 import "embed"

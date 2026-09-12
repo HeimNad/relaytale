@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"mailgateway/internal/provider"
-	"mailgateway/internal/smtpclient"
+	"relaytale/internal/provider"
+	"relaytale/internal/smtpclient"
 )
 
 var ErrNoJob = errors.New("no eligible queued message")

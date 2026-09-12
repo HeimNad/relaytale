@@ -17,7 +17,7 @@ import (
 	"time"
 
 	"github.com/emersion/go-sasl"
-	"mailgateway/internal/provider"
+	"relaytale/internal/provider"
 )
 
 type Client struct {

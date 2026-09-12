@@ -1,4 +1,4 @@
-module mailgateway
+module relaytale
 
 go 1.27.1
 

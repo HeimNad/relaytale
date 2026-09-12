@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"os"
 )
 
 type Box struct{ aead cipher.AEAD }
@@ -13,7 +14,7 @@ type Box struct{ aead cipher.AEAD }
 func New(encoded string) (*Box, error) {
 	key, err := hex.DecodeString(encoded)
 	if err != nil || len(key) != 32 {
-		return nil, errors.New("MAILGATEWAY_MASTER_KEY must be 64 hexadecimal characters")
+		return nil, errors.New("RELAYTALE_MASTER_KEY must be 64 hexadecimal characters")
 	}
 	block, err := aes.NewCipher(key)
 	if err != nil {
@@ -41,4 +42,13 @@ func (b *Box) Open(id string, ciphertext, nonce []byte) (string, error) {
 		return "", errors.New("cannot decrypt provider credentials")
 	}
 	return string(raw), nil
+}
+
+// EnvironmentKey prefers the new name, including an explicitly empty value.
+// The legacy alias keeps existing standalone deployments readable during upgrade.
+func EnvironmentKey() string {
+	if value, ok := os.LookupEnv("RELAYTALE_MASTER_KEY"); ok {
+		return value
+	}
+	return os.Getenv("MAILGATEWAY_MASTER_KEY")
 }

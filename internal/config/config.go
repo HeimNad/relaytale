@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"go.yaml.in/yaml/v3"
-	"mailgateway/internal/encryption"
+	"relaytale/internal/encryption"
 )
 
 type Config struct {
@@ -39,7 +39,7 @@ type Config struct {
 func Load(args []string) (Config, error) {
 	c := Config{EMLRetentionDays: 180, DebugRetentionDays: 30, CleanupBatch: 100, SMTPAddr: ":587", SMTPDomain: "localhost", MaxMessageBytes: 25 * 1024 * 1024, HTTPAddr: ":8080", StorageDir: "data/eml", ShutdownTimeout: 30 * time.Second}
 	var file string
-	pre := flag.NewFlagSet("gateway", flag.ContinueOnError)
+	pre := flag.NewFlagSet("relaytale", flag.ContinueOnError)
 	pre.StringVar(&file, "config", "", "optional YAML configuration file")
 	pre.Duration("maintenance-interval", 0, "automatic cleanup interval; 0 disables")
 	pre.Int("eml-retention-days", 180, "completed EML retention; 0 disables")
@@ -102,7 +102,7 @@ func Load(args []string) (Config, error) {
 		}
 		c.WorkerCount = n
 	}
-	c.MasterKey = os.Getenv("MAILGATEWAY_MASTER_KEY")
+	c.MasterKey = encryption.EnvironmentKey()
 	if raw, ok := os.LookupEnv("RETRY_ENABLED"); ok {
 		value, err := strconv.ParseBool(raw)
 		if err != nil {

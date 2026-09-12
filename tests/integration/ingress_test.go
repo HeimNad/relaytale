@@ -20,12 +20,12 @@ import (
 	"github.com/emersion/go-sasl"
 	"github.com/emersion/go-smtp"
 	"github.com/google/uuid"
-	"mailgateway/internal/auth"
-	"mailgateway/internal/database"
-	"mailgateway/internal/devtls"
-	"mailgateway/internal/message"
-	"mailgateway/internal/smtpserver"
-	"mailgateway/internal/storage"
+	"relaytale/internal/auth"
+	"relaytale/internal/database"
+	"relaytale/internal/devtls"
+	"relaytale/internal/message"
+	"relaytale/internal/smtpserver"
+	"relaytale/internal/storage"
 )
 
 func testDB(t *testing.T) *sql.DB {

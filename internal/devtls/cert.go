@@ -36,7 +36,7 @@ func Generate(dir string) error {
 	if err != nil {
 		return err
 	}
-	cert := &x509.Certificate{SerialNumber: serial, Subject: pkix.Name{CommonName: "MailGateway localhost development"}, DNSNames: []string{"localhost"}, IPAddresses: []net.IP{net.ParseIP("127.0.0.1"), net.ParseIP("::1")}, NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().AddDate(1, 0, 0), KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}, BasicConstraintsValid: true}
+	cert := &x509.Certificate{SerialNumber: serial, Subject: pkix.Name{CommonName: "RelayTale localhost development"}, DNSNames: []string{"localhost"}, IPAddresses: []net.IP{net.ParseIP("127.0.0.1"), net.ParseIP("::1")}, NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().AddDate(1, 0, 0), KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}, BasicConstraintsValid: true}
 	der, err := x509.CreateCertificate(rand.Reader, cert, cert, &key.PublicKey, key)
 	if err != nil {
 		return err

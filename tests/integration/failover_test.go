@@ -6,9 +6,9 @@ import (
 	"sync"
 	"testing"
 
-	"mailgateway/internal/queue"
-	"mailgateway/internal/smtpclient"
-	"mailgateway/internal/testsmtp"
+	"relaytale/internal/queue"
+	"relaytale/internal/smtpclient"
+	"relaytale/internal/testsmtp"
 )
 
 func dueFailover(t *testing.T, f *deliveryFixture, id string) {
@@ -29,7 +29,7 @@ func TestSafeFailover(t *testing.T) {
 				f.fake.CloseListener()
 			}
 			if failure == "tls" {
-				f.worker.Sender = smtpclient.Client{Domain: "gateway.test"}
+				f.worker.Sender = smtpclient.Client{Domain: "relaytale.test"}
 			}
 			runOne(t, f.worker)
 			backup := testsmtp.Start(t, testsmtp.Options{})
@@ -37,7 +37,7 @@ func TestSafeFailover(t *testing.T) {
 			dueFailover(t, f, id)
 			fresh := f.worker
 			fresh.Repo = queue.Repository{DB: f.db, RetryEnabled: true, FailoverEnabled: true}
-			fresh.Sender = smtpclient.Client{Domain: "gateway.test", RootCAs: backup.Roots}
+			fresh.Sender = smtpclient.Client{Domain: "relaytale.test", RootCAs: backup.Roots}
 			runOne(t, fresh)
 			if f.status(t, id) != smtpclient.Accepted {
 				t.Fatal("backup did not accept")
@@ -172,7 +172,7 @@ func TestFailoverPreservesAcceptedRecipients(t *testing.T) {
 	b := testsmtp.Start(t, testsmtp.Options{})
 	f.addProvider(t, b, 20, 1)
 	dueFailover(t, f, id)
-	f.worker.Sender = smtpclient.Client{Domain: "gateway.test", RootCAs: b.Roots}
+	f.worker.Sender = smtpclient.Client{Domain: "relaytale.test", RootCAs: b.Roots}
 	runOne(t, f.worker)
 	select {
 	case rc := <-b.Envelopes:
@@ -248,7 +248,7 @@ func TestFailoverNoRevisitAndProviderBudget(t *testing.T) {
 	for i := 0; i < 2; i++ {
 		b := testsmtp.Start(t, testsmtp.Options{DataCode: 451})
 		bid := f.addProvider(t, b, 20+i, 1)
-		f.worker.Sender = smtpclient.Client{Domain: "gateway.test", RootCAs: b.Roots}
+		f.worker.Sender = smtpclient.Client{Domain: "relaytale.test", RootCAs: b.Roots}
 		dueFailover(t, f, id)
 		runOne(t, f.worker)
 		var route string
@@ -312,7 +312,7 @@ func TestFailoverLostCompletionRemainsUnknown(t *testing.T) {
 	runOne(t, f.worker)
 	b := testsmtp.Start(t, testsmtp.Options{})
 	f.addProvider(t, b, 20, 1)
-	f.worker.Sender = smtpclient.Client{Domain: "gateway.test", RootCAs: b.Roots}
+	f.worker.Sender = smtpclient.Client{Domain: "relaytale.test", RootCAs: b.Roots}
 	dueFailover(t, f, id)
 	mustExec(t, f, `CREATE FUNCTION fail_backup_completion() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.event_type='SMTP_ACCEPTED' THEN RAISE EXCEPTION 'injected'; END IF; RETURN NEW; END; $$; CREATE TRIGGER fail_backup_completion BEFORE INSERT ON events FOR EACH ROW EXECUTE FUNCTION fail_backup_completion();`)
 	worked, err := f.worker.RunOne(context.Background())

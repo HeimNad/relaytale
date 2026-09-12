@@ -8,7 +8,7 @@ smtp_domain: localhost
 smtp_tls_cert: ''
 smtp_tls_key: ''
 max_message_bytes: 26214400
-# Provider encryption key is read only from MAILGATEWAY_MASTER_KEY.
+# Provider encryption key is read only from RELAYTALE_MASTER_KEY.
 worker_count: 0
 
 maintenance_interval: 0s

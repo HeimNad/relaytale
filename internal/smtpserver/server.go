@@ -12,9 +12,9 @@ import (
 
 	"github.com/emersion/go-sasl"
 	"github.com/emersion/go-smtp"
-	"mailgateway/internal/auth"
-	"mailgateway/internal/message"
-	"mailgateway/internal/storage"
+	"relaytale/internal/auth"
+	"relaytale/internal/message"
+	"relaytale/internal/storage"
 )
 
 type Authenticator interface {

@@ -16,12 +16,12 @@ def main():
     parser.add_argument('--since', default='24h')
     parser.add_argument('--tail', type=int, default=10000)
     parser.add_argument('--output', required=True, type=Path)
-    parser.add_argument('services', nargs='*', default=['gateway'])
+    parser.add_argument('services', nargs='*', default=['relaytale'])
     args = parser.parse_args()
     if not 1 <= args.tail <= 100000:
         parser.error('--tail must be between 1 and 100000 per service')
-    if not args.services or any(s not in ('gateway', 'postgres', 'caddy') for s in args.services):
-        parser.error('services must be gateway, postgres or caddy')
+    if not args.services or any(s not in ('relaytale', 'postgres', 'caddy') for s in args.services):
+        parser.error('services must be relaytale, postgres or caddy')
     target = args.output.resolve()
     if target.exists():
         parser.error('output already exists; refusing to overwrite')
