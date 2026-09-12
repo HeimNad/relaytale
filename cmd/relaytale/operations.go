@@ -41,6 +41,8 @@ func runOperation(command string, args []string) error {
 	}
 	defer db.Close()
 	switch command {
+	case "add-suppression", "release-suppression", "list-suppressions":
+		return runSuppression(ctx, db, command, args)
 	case "resolve-unknown":
 		fs := flag.NewFlagSet(command, flag.ContinueOnError)
 		v := queue.Resolution{}

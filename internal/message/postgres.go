@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"relaytale/internal/suppression"
 )
 
 type Postgres struct{ DB *sql.DB }
@@ -39,10 +40,27 @@ func (p Postgres) Enqueue(ctx context.Context, s Submission) error {
 			return err
 		}
 	}
+	if err = suppression.Lock(ctx, tx, false); err != nil {
+		return err
+	}
+	if _, err = suppression.Apply(ctx, tx, s.ID, "", false); err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, `UPDATE messages SET status='SUPPRESSED',completed_at=now(),next_attempt_at=NULL WHERE id=$1 AND NOT EXISTS(SELECT 1 FROM recipients WHERE message_id=$1 AND status<>'SUPPRESSED')`, s.ID); err != nil {
+		return err
+	}
+	queueEvent := "MESSAGE_QUEUED"
+	var messageStatus string
+	if err = tx.QueryRowContext(ctx, `SELECT status FROM messages WHERE id=$1`, s.ID).Scan(&messageStatus); err != nil {
+		return err
+	}
+	if messageStatus == "SUPPRESSED" {
+		queueEvent = "MESSAGE_SUPPRESSED"
+	}
 	for _, event := range []struct {
 		kind string
 		at   time.Time
-	}{{"MESSAGE_RECEIVED", s.ReceivedAt}, {"MESSAGE_ARCHIVED", s.ArchivedAt}, {"MESSAGE_QUEUED", queued}} {
+	}{{"MESSAGE_RECEIVED", s.ReceivedAt}, {"MESSAGE_ARCHIVED", s.ArchivedAt}, {queueEvent, queued}} {
 		id, err := uuid.NewV7()
 		if err != nil {
 			return err
@@ -55,7 +73,7 @@ func (p Postgres) Enqueue(ctx context.Context, s Submission) error {
 			return err
 		}
 	}
-	if _, err = tx.ExecContext(ctx, `SELECT pg_notify('queue_new_message',$1)`, s.ID); err != nil {
+	if _, err = tx.ExecContext(ctx, `SELECT pg_notify('queue_new_message',$1) FROM messages WHERE id=$1::uuid AND status='QUEUED'`, s.ID); err != nil {
 		return err
 	}
 	if err = tx.Commit(); err != nil {

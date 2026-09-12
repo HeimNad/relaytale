@@ -40,7 +40,7 @@ SMTP 信封无法准确区分 To / Cc / Bcc，新增 `envelope` 类型以免猜�
 
 ## 当前明确限制
 
-已实现 SMTP 接收、存档、队列 worker 和 Generic SMTP 一次投递；未实现 HTTP 发件 API、管理员登录、UI、自动重试和故障切换。当前迁移自动执行，仅支持单实例开发启动；多实例部署前需增加迁移互斥和独立迁移发布步骤。
+已实现 SMTP 接收、存档、队列 worker 和 Generic SMTP 一次投递；已实现显式启用的自动重试、安全切换、健康/配额和 Phase 5A suppression；HTTP 发件 API、管理员登录、UI 与自动 DSN 尚未实现。当前迁移自动执行，仅支持单实例开发启动；多实例部署前需增加迁移互斥和独立迁移发布步骤。
 
 ## 版本策略（2026-09-10）
 
@@ -89,3 +89,8 @@ attempt 的 `timings` 保存实际网络操作耗时；原有 duration 列同步
 新增纯函数 `internal/delivery`，输入逐收件人 SMTP 事实和重试预算，输出版本化动作/原因/故障归属与安全标志。queue 完成事务分别保存 attempt 事实、逐人决策、DELIVERY_DECIDED 事件与下一次计划，并根据全部收件人重建 message 投影。人工处置只追加新证据，不重写旧 attempt。
 
 `route_provider_id` 从首次领取固定，迁移对历史邮件回填最后 Provider；4A 不支持自动切换。逐人计数与首次领取时间覆盖正常尝试和崩溃恢复。自动调度由 worker 的低频轮询推进，锁定 message，与领取/完成/人工处置互斥；不额外引入消息中间件或内存延迟队列。后续 LISTEN/NOTIFY 只改变唤醒方式，不改变持久化决策模型。
+
+
+## Phase 5A 抑制规则
+
+新增 `internal/suppression` 提供操作服务与事务内检查。queue 保留 SMTP attempt 事实，用独立策略标记阻止未授权 DATA 的发送；UNKNOWN 与已接受结果不受后来的名单变化覆盖。模型、锁顺序和崩溃恢复见 [Phase 5A](phase-5a-suppression.md)。

@@ -9,10 +9,11 @@ import (
 
 	"relaytale/internal/delivery"
 	"relaytale/internal/smtpclient"
+	"relaytale/internal/suppression"
 )
 
 func (r Repository) claimRecipient(alias string) string {
-	return fmt.Sprintf(`%s.status='QUEUED' AND (NOT %s.retry_automatic OR (%t AND %s.attempt_count<7 AND %s.retry_started_at>clock_timestamp()-interval '24 hours'))`, alias, alias, r.RetryEnabled, alias, alias)
+	return fmt.Sprintf(`%s.status='QUEUED' AND (NOT %s.retry_automatic OR (%t AND %s.attempt_count<7 AND %s.retry_started_at>clock_timestamp()-interval '24 hours'))`, alias, alias, r.RetryEnabled, alias, alias) + ` AND NOT ` + suppression.ActiveSQL(alias+".address")
 }
 func (r Repository) decideRecipient(ctx context.Context, tx *sql.Tx, j Job, out smtpclient.Result, rc smtpclient.RecipientResult) error {
 	var count int
@@ -46,13 +47,14 @@ func refresh(ctx context.Context, tx *sql.Tx, id string) error {
  SELECT count(*) n,count(*) FILTER(WHERE status='DELIVERY_UNKNOWN') unknown,
  count(*) FILTER(WHERE status='QUEUED') queued,count(*) FILTER(WHERE status='SENDING') sending,
  count(*) FILTER(WHERE status IN ('SMTP_ACCEPTED','DELIVERED')) accepted,
+ count(*) FILTER(WHERE status='SUPPRESSED') suppressed,
  count(*) FILTER(WHERE status='DELIVERED') delivered,count(*) FILTER(WHERE status='TEMP_FAILED') temporary
  FROM recipients WHERE message_id=$1), projection AS (
  SELECT CASE WHEN unknown>0 THEN 'DELIVERY_UNKNOWN' WHEN sending>0 THEN 'SENDING' WHEN queued>0 THEN 'QUEUED'
- WHEN delivered=n AND n>0 THEN 'DELIVERED' WHEN accepted=n AND n>0 THEN 'SMTP_ACCEPTED'
+ WHEN suppressed=n AND n>0 THEN 'SUPPRESSED' WHEN delivered=n AND n>0 THEN 'DELIVERED' WHEN accepted=n AND n>0 THEN 'SMTP_ACCEPTED'
  WHEN accepted>0 THEN 'PARTIAL_ACCEPTED' WHEN temporary>0 THEN 'TEMP_FAILED' ELSE 'PERM_FAILED' END status FROM counts)
  UPDATE messages m SET status=p.status,next_attempt_at=CASE WHEN p.status='QUEUED' THEN now() ELSE (SELECT min(retry_at) FROM recipients WHERE message_id=$1) END,
- completed_at=CASE WHEN p.status IN ('SMTP_ACCEPTED','PERM_FAILED','DELIVERED') THEN coalesce(m.completed_at,now()) ELSE NULL END
+ completed_at=CASE WHEN p.status IN ('SMTP_ACCEPTED','PERM_FAILED','DELIVERED','SUPPRESSED') THEN coalesce(m.completed_at,now()) ELSE NULL END
  FROM projection p WHERE m.id=$1`, id)
 	return err
 }

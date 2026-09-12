@@ -20,6 +20,8 @@ import (
 	"relaytale/internal/provider"
 )
 
+var ErrSuppressed = errors.New("suppression changed before DATA")
+
 type Client struct {
 	probe   bool
 	Domain  string
@@ -344,6 +346,9 @@ func (c Client) Send(ctx context.Context, p provider.Provider, password, from st
 	}
 	stage = "DATABASE_ERROR"
 	if err := beforeData(ctx); err != nil {
+		if errors.Is(err, ErrSuppressed) {
+			stage = "SUPPRESSION_BLOCKED"
+		}
 		fail(err, false)
 		return
 	}

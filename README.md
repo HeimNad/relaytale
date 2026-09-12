@@ -241,6 +241,12 @@ Phase 3 测试覆盖导出原子发布/不覆盖、过滤与敏感字段排除�
 创建 Provider 可设置 `--hourly-limit` / `--daily-limit`（0 不限），按滚动 1h / 24h 的收件人尝试预留计数；额度不够会分批投递。已提交的预留在失败或崩溃时不返还，防止不确定结果重复使用额度。配额独立于熔断开关，明确配置后始终执行。`list-providers` 展示剩余用量依据与熔断状态。详见 [4C 方案与验收](docs/phase-4c-plan.md)。
 
 
+## 抑制名单（Phase 5A）
+
+提供 `add-suppression`、`list-suppressions`、`release-suppression`。名单按全网关邮箱地址忽略大小写匹配，在入队、领取和 DATA 授权前强制检查；多收件人邮件保留其他收件人的投递。添加和解除必须包含操作者与理由，已抑制的历史邮件不会在解除或到期后自动重发，UNKNOWN 保持独立处理。
+
+已获 DATA 授权的尝试不能撤回。SMTP 5xx 与收到的退信样式邮件不会自动封禁地址；完整可信 DSN 消费者尚未实现。操作、并发边界与验收见 [Phase 5A](docs/phase-5a-suppression.md)，退信与 DKIM 责任见 [反馈与认证说明](docs/feedback-and-sender-identity.md)。
+
 ## 后续开发顺序
 
-Phase 4C 之后先做 **5A 信誉保护基础**（suppression、人工解除、可信退信设计与发件身份验收），再做 **5B 大邮件/队列资源加固**、**5C 最小管理 API** 和 **6 Web UI**。完整 DSN 自动化、HTTP 发信 API 与生产运维分别验收。已完成本地故障测试不代表生产就绪；当前功能、阶段验收条件与剩余缺口以 [开发路线图](docs/roadmap.md) 为准。
+Phase 5A 已实现 suppression 与人工解除、可信退信设计及身份验收边界说明；接下来做 **5B 大邮件/队列资源加固**、**5C 最小管理 API** 和 **6 Web UI**。完整 DSN 自动化、HTTP 发信 API 与生产运维分别验收。已完成本地故障测试不代表生产就绪；当前功能、阶段验收条件与剩余缺口以 [开发路线图](docs/roadmap.md) 为准。

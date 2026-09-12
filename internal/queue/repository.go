@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"relaytale/internal/provider"
 	"relaytale/internal/smtpclient"
+	"relaytale/internal/suppression"
 )
 
 var ErrNoJob = errors.New("no eligible queued message")
@@ -65,11 +66,17 @@ const providerRequirements = `p.enabled AND p.security IN ('starttls','implicit_
  AND (SELECT count(*) FROM delivery_attempts a JOIN messages active ON active.id=a.message_id WHERE a.provider_id=p.id AND a.result='IN_PROGRESS' AND active.lease_expires_at>clock_timestamp())<p.max_connections`
 
 func (r Repository) Claim(ctx context.Context) (Job, error) {
+	if err := r.SweepSuppressed(ctx); err != nil {
+		return Job{}, err
+	}
 	tx, err := r.begin(ctx)
 	if err != nil {
 		return Job{}, err
 	}
 	defer tx.Rollback()
+	if err = suppression.Lock(ctx, tx, false); err != nil {
+		return Job{}, err
+	}
 	j := Job{Token: uuid.NewString(), AttemptID: uuid.Must(uuid.NewV7()).String()}
 	err = tx.QueryRowContext(ctx, `SELECT m.id,m.envelope_from,m.eml_path,m.eml_size,m.eml_sha256 FROM messages m
  WHERE m.status='QUEUED' AND m.archive_state='AVAILABLE' AND m.next_attempt_at<=now()
@@ -178,6 +185,35 @@ func (r Repository) ArmData(ctx context.Context, j Job) error {
 	if err = fence(ctx, tx, j, true); err != nil {
 		return err
 	}
+	var armed, blocked bool
+	if err = tx.QueryRowContext(ctx, `SELECT data_armed_at IS NOT NULL,suppression_blocked_at IS NOT NULL FROM delivery_attempts WHERE id=$1 AND message_id=$2 AND claim_token=$3 AND result='IN_PROGRESS'`, j.AttemptID, j.ID, j.Token).Scan(&armed, &blocked); err != nil {
+		return err
+	}
+	if armed {
+		return ErrLeaseLost
+	}
+	if blocked {
+		return smtpclient.ErrSuppressed
+	}
+	if err = suppression.Lock(ctx, tx, false); err != nil {
+		return err
+	}
+	hits, err := suppression.Apply(ctx, tx, j.ID, j.AttemptID, true)
+	if err != nil {
+		return err
+	}
+	if hits > 0 {
+		if _, err = tx.ExecContext(ctx, `UPDATE delivery_attempts SET suppression_blocked_at=clock_timestamp() WHERE id=$1`, j.AttemptID); err != nil {
+			return err
+		}
+		if err = event(ctx, tx, j, "SUPPRESSION_GATE_BLOCKED", "", time.Now().UTC(), map[string]any{"recipients": hits, "data_authorized": false}); err != nil {
+			return err
+		}
+		if err = tx.Commit(); err != nil {
+			return err
+		}
+		return smtpclient.ErrSuppressed
+	}
 	res, err := tx.ExecContext(ctx, `UPDATE delivery_attempts SET data_armed_at=now() WHERE id=$1 AND claim_token=$2 AND result='IN_PROGRESS' AND data_armed_at IS NULL`, j.AttemptID, j.Token)
 	if err != nil {
 		return err
@@ -211,6 +247,13 @@ func (r Repository) Finish(ctx context.Context, j Job, out smtpclient.Result) er
 	defer tx.Rollback()
 	if err = fence(ctx, tx, j, false); err != nil {
 		return err
+	}
+	var policyBlocked bool
+	if err = tx.QueryRowContext(ctx, `SELECT suppression_blocked_at IS NOT NULL FROM delivery_attempts WHERE id=$1 AND message_id=$2 AND claim_token=$3 AND result='IN_PROGRESS'`, j.AttemptID, j.ID, j.Token).Scan(&policyBlocked); err != nil {
+		return err
+	}
+	if policyBlocked && (!out.DataStartedAt.IsZero() || !out.FinalResponseAt.IsZero() || out.BytesSent != 0) {
+		return errors.New("DATA evidence contradicts suppression fence")
 	}
 	var ip any
 	if out.RemoteIP != "" {
@@ -254,11 +297,20 @@ func (r Repository) Finish(ctx context.Context, j Job, out smtpclient.Result) er
 		if rc.Status == smtpclient.Accepted || rc.Status == smtpclient.Permanent {
 			completed = out.FinishedAt
 		}
-		if _, err = tx.ExecContext(ctx, `UPDATE recipients SET status=$2,smtp_code=$3,smtp_response=$4,completed_at=$5 WHERE id=$1 AND message_id=$6`, rc.ID, rc.Status, rc.Code, rc.Response, completed, j.ID); err != nil {
+		if _, err = tx.ExecContext(ctx, `UPDATE recipients SET status=$2,smtp_code=$3,smtp_response=$4,completed_at=$5 WHERE id=$1 AND message_id=$6 AND status<>'SUPPRESSED'`, rc.ID, rc.Status, rc.Code, rc.Response, completed, j.ID); err != nil {
 			return err
 		}
 		if _, err = tx.ExecContext(ctx, `UPDATE attempt_recipients SET status=$3,smtp_code=$4,smtp_enhanced_code=$5,smtp_response=$6 WHERE attempt_id=$1 AND recipient_id=$2`, j.AttemptID, rc.ID, rc.Status, rc.Code, rc.Enhanced, rc.Response); err != nil {
 			return err
+		}
+		if policyBlocked {
+			handled, policyErr := r.finishSuppression(ctx, tx, j, out, rc)
+			if policyErr != nil {
+				return policyErr
+			}
+			if handled {
+				continue
+			}
 		}
 		if err = r.decideRecipient(ctx, tx, j, out, rc); err != nil {
 			return err

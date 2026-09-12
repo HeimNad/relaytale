@@ -8,6 +8,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/google/uuid"
+	"relaytale/internal/suppression"
 )
 
 type Resolution struct {
@@ -69,6 +70,18 @@ func (r Repository) ResolveUnknown(ctx context.Context, v Resolution) (string, e
 	}
 	if v.Action == "retry" && archive != "AVAILABLE" {
 		return "", errors.New("original archive unavailable; cannot retry")
+	}
+	if v.Action == "retry" {
+		if err = suppression.Lock(ctx, tx, false); err != nil {
+			return "", err
+		}
+		var blocked bool
+		if err = tx.QueryRowContext(ctx, `SELECT `+suppression.ActiveSQL("r.address")+` FROM recipients r WHERE id=$1`, v.RecipientID).Scan(&blocked); err != nil {
+			return "", err
+		}
+		if blocked {
+			return "", suppression.ErrBlocked
+		}
 	}
 	raw, err := json.Marshal(v)
 	if err != nil {

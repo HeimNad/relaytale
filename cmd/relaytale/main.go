@@ -43,7 +43,7 @@ func run(log *slog.Logger) error {
 		case "license":
 			fmt.Print(project.LicenseText)
 			return nil
-		case "resolve-unknown", "export-records", "cleanup", "list-providers", "test-provider", "doctor":
+		case "add-suppression", "release-suppression", "list-suppressions", "resolve-unknown", "export-records", "cleanup", "list-providers", "test-provider", "doctor":
 			return runOperation(os.Args[1], os.Args[2:])
 		}
 	}
@@ -127,7 +127,7 @@ func run(log *slog.Logger) error {
 	} else {
 		close(workersDone)
 	}
-	log.Info("relaytale started", "http_address", cfg.HTTPAddr, "smtp_address", cfg.SMTPAddr, "workers", cfg.WorkerCount, "phase", "4C", "automatic_retry", cfg.RetryEnabled, "automatic_failover", cfg.FailoverEnabled, "provider_health", cfg.HealthEnabled)
+	log.Info("relaytale started", "http_address", cfg.HTTPAddr, "smtp_address", cfg.SMTPAddr, "workers", cfg.WorkerCount, "phase", "5A", "automatic_retry", cfg.RetryEnabled, "automatic_failover", cfg.FailoverEnabled, "provider_health", cfg.HealthEnabled)
 	var serveErr error
 	select {
 	case serveErr = <-result:

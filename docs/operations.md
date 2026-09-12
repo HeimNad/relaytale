@@ -177,3 +177,8 @@ docker compose exec -T relaytale relaytale resolve-unknown \
 `list-providers` 可查看 `hourly_reserved`、`daily_reserved`、`health_successes`、`health_failures`、`circuit_state`、`open_until` 和 `probe_attempt_id`。这些健康计数排除 IGNORED 样本，熔断恢复后从新周期起点统计；历史完整证据仍在 attempts。事件 `QUOTA_RESERVED` 与 `PROVIDER_CIRCUIT_OPEN/HALF_OPEN/CLOSED` 可随消息记录导出。
 
 升级迁移 6 会为最近 24 小时历史尝试补记配额，不恢复暂停邮件。回退代码前应关闭投递并评估数据库版本兼容，不能只切换 Git 标签后直接连接新数据库。配额 ledger 的长期清理策略待后续生命周期阶段。
+
+
+## 抑制名单（Phase 5A）
+
+管理命令、全局地址范围、DATA 授权边界、不可自动重放的历史与审计规则见 [Phase 5A 操作说明](phase-5a-suppression.md#cli)。自动退信处理尚未开放，不要把收到的 DSN 内容直接导入名单。
