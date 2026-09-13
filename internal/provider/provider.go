@@ -21,27 +21,8 @@ type Provider struct {
 }
 
 func Create(ctx context.Context, db *sql.DB, box *encryption.Box, p Provider, password string, domains []string) (string, error) {
-	if p.Name == "" || p.Host == "" || strings.ContainsAny(p.Host, "\r\n /@") || p.Port < 1 || p.Port > 65535 || p.Username == "" || strings.ContainsAny(p.Username, "\r\n\x00") || password == "" || len(password) > 4096 {
-		return "", errors.New("invalid provider settings")
-	}
-	if p.Security != "starttls" && p.Security != "implicit_tls" {
-		return "", errors.New("provider requires starttls or implicit_tls")
-	}
-	if p.Timeout < time.Second || p.Timeout > 5*time.Minute || p.MaxConnections < 1 || p.MaxConnections > 32 {
-		return "", errors.New("provider timeout must be 1s..5m and connections 1..32")
-	}
-	if p.HourlyLimit < 0 || p.DailyLimit < 0 || p.HourlyLimit > 2147483647 || p.DailyLimit > 2147483647 {
-		return "", errors.New("provider limits must be 0 (unlimited) or positive 32-bit integers")
-	}
-	if len(domains) == 0 {
-		return "", errors.New("at least one sender domain is required")
-	}
-	for i, d := range domains {
-		d = strings.ToLower(strings.TrimSpace(d))
-		if d == "" || strings.ContainsAny(d, "\r\n @/:*") || net.ParseIP(d) != nil {
-			return "", errors.New("invalid sender domain")
-		}
-		domains[i] = d
+	if err := Validate(p, password, domains); err != nil {
+		return "", err
 	}
 	id, err := uuid.NewV7()
 	if err != nil {
@@ -58,4 +39,31 @@ func Create(ctx context.Context, db *sql.DB, box *encryption.Box, p Provider, pa
 		return "", errors.New("cannot create provider; check name uniqueness and database availability")
 	}
 	return p.ID, nil
+}
+
+// Validate is shared by local provisioning and the management API.
+func Validate(p Provider, password string, domains []string) error {
+	if p.Name == "" || p.Host == "" || strings.ContainsAny(p.Host, "\r\n /@") || p.Port < 1 || p.Port > 65535 || p.Username == "" || strings.ContainsAny(p.Username, "\r\n\x00") || password == "" || len(password) > 4096 {
+		return errors.New("invalid provider settings")
+	}
+	if p.Security != "starttls" && p.Security != "implicit_tls" {
+		return errors.New("provider requires starttls or implicit_tls")
+	}
+	if p.Timeout < time.Second || p.Timeout > 5*time.Minute || p.MaxConnections < 1 || p.MaxConnections > 32 {
+		return errors.New("provider timeout must be 1s..5m and connections 1..32")
+	}
+	if p.HourlyLimit < 0 || p.DailyLimit < 0 || p.HourlyLimit > 2147483647 || p.DailyLimit > 2147483647 {
+		return errors.New("provider limits must be 0 (unlimited) or positive 32-bit integers")
+	}
+	if len(domains) == 0 {
+		return errors.New("at least one sender domain is required")
+	}
+	for i, d := range domains {
+		d = strings.ToLower(strings.TrimSpace(d))
+		if d == "" || strings.ContainsAny(d, "\r\n @/:*") || net.ParseIP(d) != nil {
+			return errors.New("invalid sender domain")
+		}
+		domains[i] = d
+	}
+	return nil
 }

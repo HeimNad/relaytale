@@ -10,11 +10,13 @@ import (
 	"time"
 
 	"go.yaml.in/yaml/v3"
+	"relaytale/internal/api"
 	"relaytale/internal/encryption"
 	"relaytale/internal/resource"
 )
 
 type Config struct {
+	AdminAPIKeys            string `yaml:"-"`
 	SMTPMaxConnections      int    `yaml:"smtp_max_connections"`
 	SMTPMaxConnectionsPerIP int    `yaml:"smtp_max_connections_per_ip"`
 	SMTPAuthPerMinute       int    `yaml:"smtp_auth_per_minute"`
@@ -146,6 +148,21 @@ func Load(args []string) (Config, error) {
 	}
 	c.MasterKey = encryption.EnvironmentKey()
 	c.MetricsToken = os.Getenv("METRICS_BEARER_TOKEN")
+	c.AdminAPIKeys = os.Getenv("ADMIN_API_KEYS")
+	if _, err := api.ParsePrincipals(c.AdminAPIKeys); err != nil {
+		return c, err
+	}
+	if c.AdminAPIKeys != "" {
+		principals, _ := api.ParsePrincipals(c.AdminAPIKeys)
+		for _, p := range principals {
+			if p.Token == c.MetricsToken {
+				return c, errors.New("admin and metrics tokens must differ")
+			}
+		}
+		if _, err := encryption.New(c.MasterKey); err != nil {
+			return c, errors.New("management API requires a valid master key")
+		}
+	}
 	for name, target := range guardInts {
 		env := strings.ToUpper(strings.ReplaceAll(name, "-", "_"))
 		if raw, ok := os.LookupEnv(env); ok {

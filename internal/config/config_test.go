@@ -146,3 +146,20 @@ func TestProtectionBoundsAndTokenRedaction(t *testing.T) {
 		t.Fatal("invalid token leaked or accepted")
 	}
 }
+
+func TestManagementConfiguration(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://localhost/test")
+	t.Setenv("RELAYTALE_MASTER_KEY", "")
+	t.Setenv("ADMIN_API_KEYS", `[{"id":"owner","role":"admin","token":"`+strings.Repeat("a", 32)+`"}]`)
+	if _, err := Load(nil); err == nil {
+		t.Fatal("management accepted missing master key")
+	}
+	t.Setenv("RELAYTALE_MASTER_KEY", strings.Repeat("ab", 32))
+	if _, err := Load(nil); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("METRICS_BEARER_TOKEN", strings.Repeat("a", 32))
+	if _, err := Load(nil); err == nil {
+		t.Fatal("shared privilege token accepted")
+	}
+}

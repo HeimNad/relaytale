@@ -91,7 +91,18 @@ func run(log *slog.Logger) error {
 		return fmt.Errorf("HTTP listen: %w", err)
 	}
 	defer httpListener.Close()
-	srv := &http.Server{Handler: api.Handler(db, func() error { return storage.CheckWritable(cfg.StorageDir) }, &metrics.Handler{DB: db, Resources: resources, Token: cfg.MetricsToken}), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 60 * time.Second}
+	var adminBox *encryption.Box
+	if cfg.AdminAPIKeys != "" {
+		adminBox, err = encryption.New(cfg.MasterKey)
+		if err != nil {
+			return err
+		}
+	}
+	admin, err := (api.Management{DB: db, Box: adminBox}).Handler(cfg.AdminAPIKeys)
+	if err != nil {
+		return err
+	}
+	srv := &http.Server{Handler: api.Handler(db, func() error { return storage.CheckWritable(cfg.StorageDir) }, &metrics.Handler{DB: db, Resources: resources, Token: cfg.MetricsToken}, admin), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 60 * time.Second}
 	result := make(chan error, 2)
 	var shutdownSMTP func(context.Context) error
 	var closeSMTP func() error
@@ -138,7 +149,7 @@ func run(log *slog.Logger) error {
 	} else {
 		close(workersDone)
 	}
-	log.Info("relaytale started", "http_address", cfg.HTTPAddr, "smtp_address", cfg.SMTPAddr, "workers", cfg.WorkerCount, "phase", "5B.1", "automatic_retry", cfg.RetryEnabled, "automatic_failover", cfg.FailoverEnabled, "provider_health", cfg.HealthEnabled)
+	log.Info("relaytale started", "http_address", cfg.HTTPAddr, "smtp_address", cfg.SMTPAddr, "workers", cfg.WorkerCount, "phase", "5C", "automatic_retry", cfg.RetryEnabled, "automatic_failover", cfg.FailoverEnabled, "provider_health", cfg.HealthEnabled)
 	var serveErr error
 	select {
 	case serveErr = <-result:

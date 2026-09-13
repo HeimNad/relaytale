@@ -224,3 +224,8 @@ relaytale preflight-eml --storage-dir /data/eml --limit 1000 --max-message-bytes
 数据库来自 `DATABASE_URL`，根目录也可用 `EML_STORAGE_DIR`。大小参数默认 25 MiB，需显式匹配目标部署大小上限。本命令不执行迁移，不修改原文、不写事件、不重试邮件；扫描 AVAILABLE 且处于 QUEUED、TEMP_FAILED、SENDING、DELIVERY_UNKNOWN 的存档。检查路径约束、文件大小、CRLF 和 SHA-256；报告只包含 Gateway UUID 与原因码。
 
 JSON 中 `complete=true` 表示本批扫描完成，不代表所有分页完成。`has_more=true` 时，把 `next_after` 传给下一批 `--after-id`，直到没有更多。发现问题或执行失败均退出非零；已产生的 JSON 保留在 stdout，错误在 stderr。启动或数据库连接失败可能尚无 JSON。`complete=false` 不能作为通过证据。预检不自动修复历史邮件，不解除 UNKNOWN；在线并发写入时仅反映读取时状态，不能替代停写后的完整检查。
+
+
+## 最小管理入口（Phase 5C）
+
+管理 API 默认关闭，独立令牌和角色通过 `ADMIN_API_KEYS` 配置；启用、权限、字段、版本冲突和操作结果不确定时的处理见 [管理 API 手册](management-api.md)。它与 metrics Bearer 令牌、SMTP 账户、未来 HTTP 发信凭证相互独立。迁移 00008 增加 Provider revision 及自动递增触发器，回退需要显式计划；仍需按单实例升级约束部署。

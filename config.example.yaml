@@ -35,3 +35,6 @@ smtp_max_session_seconds: 300
 auth_concurrency: 2
 auth_memory_budget_bytes: 134217728
 # METRICS_BEARER_TOKEN is environment-only; never store a real token here.
+
+# Management credentials are environment-only: ADMIN_API_KEYS (default disabled).
+# See docs/management-api.md; do not place tokens in this YAML.
