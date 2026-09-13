@@ -34,7 +34,7 @@ func main() {
 	log := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	if err := run(log); err != nil {
 		// Connection errors can include credentials. Keep startup detail out of logs.
-		log.Error("relaytale stopped", "error", err.Error())
+		slog.New(slog.NewJSONHandler(os.Stderr, nil)).Error("relaytale stopped", "error", err.Error())
 		os.Exit(1)
 	}
 }
@@ -45,7 +45,7 @@ func run(log *slog.Logger) error {
 		case "license":
 			fmt.Print(project.LicenseText)
 			return nil
-		case "add-suppression", "release-suppression", "list-suppressions", "resolve-unknown", "export-records", "cleanup", "list-providers", "test-provider", "doctor":
+		case "preflight-eml", "add-suppression", "release-suppression", "list-suppressions", "resolve-unknown", "export-records", "cleanup", "list-providers", "test-provider", "doctor":
 			return runOperation(os.Args[1], os.Args[2:])
 		}
 	}
@@ -91,7 +91,7 @@ func run(log *slog.Logger) error {
 		return fmt.Errorf("HTTP listen: %w", err)
 	}
 	defer httpListener.Close()
-	srv := &http.Server{Handler: api.Handler(db, func() error { return storage.CheckWritable(cfg.StorageDir) }, &metrics.Handler{DB: db, Resources: resources}), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 60 * time.Second}
+	srv := &http.Server{Handler: api.Handler(db, func() error { return storage.CheckWritable(cfg.StorageDir) }, &metrics.Handler{DB: db, Resources: resources, Token: cfg.MetricsToken}), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 60 * time.Second}
 	result := make(chan error, 2)
 	var shutdownSMTP func(context.Context) error
 	var closeSMTP func() error
@@ -100,12 +100,12 @@ func run(log *slog.Logger) error {
 		if err != nil {
 			return errors.New("SMTP TLS certificate/key required; configure SMTP_TLS_CERT and SMTP_TLS_KEY")
 		}
-		accounts, err := auth.NewAccounts(db)
+		accounts, err := auth.NewAccountsWithConcurrency(db, cfg.AuthConcurrency)
 		if err != nil {
 			return err
 		}
 		receiver := message.Receiver{Resources: resources, Store: storage.LocalStore{Root: cfg.StorageDir, MaxBytes: cfg.MaxMessageBytes}, Repo: message.Postgres{DB: db}}
-		smtp := smtpserver.New(&smtpserver.Backend{Accounts: accounts, Receiver: receiver, Log: log, Timeout: 60 * time.Second}, cfg.SMTPDomain, cert, cfg.MaxMessageBytes)
+		smtp := smtpserver.New(&smtpserver.Backend{Accounts: accounts, Receiver: receiver, Log: log, Timeout: 60 * time.Second}, cfg.SMTPDomain, cert, cfg.MaxMessageBytes, smtpserver.Limits{Connections: cfg.SMTPMaxConnections, PerSource: cfg.SMTPMaxConnectionsPerIP, AuthPerMinute: cfg.SMTPAuthPerMinute, AuthBurst: cfg.SMTPAuthBurst, Lifetime: time.Duration(cfg.SMTPMaxSessionSeconds) * time.Second})
 		listener, err := net.Listen("tcp", cfg.SMTPAddr)
 		if err != nil {
 			return fmt.Errorf("SMTP listen: %w", err)
@@ -138,7 +138,7 @@ func run(log *slog.Logger) error {
 	} else {
 		close(workersDone)
 	}
-	log.Info("relaytale started", "http_address", cfg.HTTPAddr, "smtp_address", cfg.SMTPAddr, "workers", cfg.WorkerCount, "phase", "5B", "automatic_retry", cfg.RetryEnabled, "automatic_failover", cfg.FailoverEnabled, "provider_health", cfg.HealthEnabled)
+	log.Info("relaytale started", "http_address", cfg.HTTPAddr, "smtp_address", cfg.SMTPAddr, "workers", cfg.WorkerCount, "phase", "5B.1", "automatic_retry", cfg.RetryEnabled, "automatic_failover", cfg.FailoverEnabled, "provider_health", cfg.HealthEnabled)
 	var serveErr error
 	select {
 	case serveErr = <-result:

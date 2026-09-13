@@ -26,3 +26,12 @@ health_enabled: false
 memory_budget_bytes: 67108864
 spool_budget_bytes: 268435456
 snapshot_dir: ""
+
+smtp_max_connections: 128
+smtp_max_connections_per_ip: 8
+smtp_auth_per_minute: 60
+smtp_auth_burst: 20
+smtp_max_session_seconds: 300
+auth_concurrency: 2
+auth_memory_budget_bytes: 134217728
+# METRICS_BEARER_TOKEN is environment-only; never store a real token here.

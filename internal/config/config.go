@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"go.yaml.in/yaml/v3"
@@ -14,6 +15,15 @@ import (
 )
 
 type Config struct {
+	SMTPMaxConnections      int    `yaml:"smtp_max_connections"`
+	SMTPMaxConnectionsPerIP int    `yaml:"smtp_max_connections_per_ip"`
+	SMTPAuthPerMinute       int    `yaml:"smtp_auth_per_minute"`
+	SMTPAuthBurst           int    `yaml:"smtp_auth_burst"`
+	SMTPMaxSessionSeconds   int    `yaml:"smtp_max_session_seconds"`
+	AuthConcurrency         int    `yaml:"auth_concurrency"`
+	AuthMemoryBudget        int    `yaml:"auth_memory_budget_bytes"`
+	MetricsToken            string `yaml:"-"`
+
 	MemoryBudget int64  `yaml:"memory_budget_bytes"`
 	SpoolBudget  int64  `yaml:"spool_budget_bytes"`
 	SnapshotDir  string `yaml:"snapshot_dir"`
@@ -42,9 +52,21 @@ type Config struct {
 
 // Load applies defaults < YAML < environment < command-line flags.
 func Load(args []string) (Config, error) {
-	c := Config{MemoryBudget: resource.DefaultMemory, SpoolBudget: resource.DefaultSpool, EMLRetentionDays: 180, DebugRetentionDays: 30, CleanupBatch: 100, SMTPAddr: ":587", SMTPDomain: "localhost", MaxMessageBytes: 25 * 1024 * 1024, HTTPAddr: ":8080", StorageDir: "data/eml", ShutdownTimeout: 30 * time.Second}
+	c := Config{SMTPMaxConnections: 128, SMTPMaxConnectionsPerIP: 8, SMTPAuthPerMinute: 60, SMTPAuthBurst: 20, SMTPMaxSessionSeconds: 300, AuthConcurrency: 2, AuthMemoryBudget: 128 << 20, MemoryBudget: resource.DefaultMemory, SpoolBudget: resource.DefaultSpool, EMLRetentionDays: 180, DebugRetentionDays: 30, CleanupBatch: 100, SMTPAddr: ":587", SMTPDomain: "localhost", MaxMessageBytes: 25 * 1024 * 1024, HTTPAddr: ":8080", StorageDir: "data/eml", ShutdownTimeout: 30 * time.Second}
+	guardInts := map[string]*int{
+		"smtp-max-connections":        &c.SMTPMaxConnections,
+		"smtp-max-connections-per-ip": &c.SMTPMaxConnectionsPerIP,
+		"smtp-auth-per-minute":        &c.SMTPAuthPerMinute,
+		"smtp-auth-burst":             &c.SMTPAuthBurst,
+		"smtp-max-session-seconds":    &c.SMTPMaxSessionSeconds,
+		"auth-concurrency":            &c.AuthConcurrency,
+		"auth-memory-budget-bytes":    &c.AuthMemoryBudget,
+	}
 	var file string
 	pre := flag.NewFlagSet("relaytale", flag.ContinueOnError)
+	for name, target := range guardInts {
+		pre.Int(name, *target, "SMTP admission/authentication bound")
+	}
 	pre.Int64("memory-budget-bytes", c.MemoryBudget, "active working-set reservation budget")
 	pre.Int64("spool-budget-bytes", c.SpoolBudget, "maximum concurrent outbound snapshot bytes")
 	pre.String("snapshot-dir", "", "temporary snapshot directory; default OS temp directory")
@@ -123,6 +145,17 @@ func Load(args []string) (Config, error) {
 		c.SnapshotDir = raw
 	}
 	c.MasterKey = encryption.EnvironmentKey()
+	c.MetricsToken = os.Getenv("METRICS_BEARER_TOKEN")
+	for name, target := range guardInts {
+		env := strings.ToUpper(strings.ReplaceAll(name, "-", "_"))
+		if raw, ok := os.LookupEnv(env); ok {
+			value, err := strconv.Atoi(raw)
+			if err != nil {
+				return c, fmt.Errorf("invalid %s", env)
+			}
+			*target = value
+		}
+	}
 	if raw, ok := os.LookupEnv("RETRY_ENABLED"); ok {
 		value, err := strconv.ParseBool(raw)
 		if err != nil {
@@ -162,6 +195,10 @@ func Load(args []string) (Config, error) {
 	}
 
 	pre.Visit(func(f *flag.Flag) {
+		if target, ok := guardInts[f.Name]; ok {
+			*target, _ = strconv.Atoi(f.Value.String())
+			return
+		}
 		switch f.Name {
 		case "memory-budget-bytes":
 			c.MemoryBudget, _ = strconv.ParseInt(f.Value.String(), 10, 64)
@@ -207,6 +244,12 @@ func Load(args []string) (Config, error) {
 			c.ShutdownTimeout, _ = time.ParseDuration(f.Value.String())
 		}
 	})
+	if c.SMTPMaxConnections < 1 || c.SMTPMaxConnections > 4096 || c.SMTPMaxConnectionsPerIP < 1 || c.SMTPMaxConnectionsPerIP > c.SMTPMaxConnections || c.SMTPAuthPerMinute < 1 || c.SMTPAuthPerMinute > 6000 || c.SMTPAuthBurst < 1 || c.SMTPAuthBurst > 1000 || c.SMTPMaxSessionSeconds < 1 || c.SMTPMaxSessionSeconds > 3600 || c.AuthConcurrency < 2 || c.AuthConcurrency > 8 || c.AuthMemoryBudget < c.AuthConcurrency*(64<<20) || c.AuthMemoryBudget > 512<<20 {
+		return c, errors.New("invalid SMTP admission or authentication memory budget")
+	}
+	if c.MetricsToken != "" && (len(c.MetricsToken) < 32 || len(c.MetricsToken) > 512 || strings.ContainsAny(c.MetricsToken, " \t\r\n")) {
+		return c, errors.New("METRICS_BEARER_TOKEN must be 32..512 bytes without whitespace")
+	}
 	if c.FailoverEnabled && !c.RetryEnabled {
 		return c, errors.New("FAILOVER_ENABLED requires RETRY_ENABLED")
 	}

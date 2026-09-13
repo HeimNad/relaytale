@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -125,5 +126,23 @@ func TestResourceBudgetConfiguration(t *testing.T) {
 		if _, err := Load(args); err == nil {
 			t.Fatal("impossible work budget accepted", args)
 		}
+	}
+}
+
+func TestProtectionBoundsAndTokenRedaction(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://localhost/test")
+	t.Setenv("SMTP_MAX_CONNECTIONS", "32")
+	cfg, err := Load([]string{"--smtp-max-connections", "64"})
+	if err != nil || cfg.SMTPMaxConnections != 64 || cfg.AuthConcurrency != 2 {
+		t.Fatal("protection defaults/precedence", err)
+	}
+	for _, args := range [][]string{{"--auth-concurrency", "4"}, {"--smtp-max-connections", "0"}, {"--smtp-auth-per-minute", "0"}, {"--smtp-max-session-seconds", "0"}} {
+		if _, err = Load(args); err == nil {
+			t.Fatal("invalid protection bounds accepted", args)
+		}
+	}
+	t.Setenv("METRICS_BEARER_TOKEN", "secret-short")
+	if _, err = Load(nil); err == nil || strings.Contains(err.Error(), "secret-short") {
+		t.Fatal("invalid token leaked or accepted")
 	}
 }

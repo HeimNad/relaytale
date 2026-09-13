@@ -58,14 +58,22 @@ type Accounts struct {
 	dummy string
 }
 
-func NewAccounts(db *sql.DB) (*Accounts, error) {
+func NewAccounts(db *sql.DB) (*Accounts, error) { return NewAccountsWithConcurrency(db, 2) }
+func NewAccountsWithConcurrency(db *sql.DB, concurrency int) (*Accounts, error) {
+	if concurrency < 1 || concurrency > 8 {
+		return nil, errors.New("authentication concurrency must be 1..8")
+	}
+
 	dummy, err := Hash("unusable-dummy-password-for-timing")
 	if err != nil {
 		return nil, err
 	}
-	return &Accounts{DB: db, slots: make(chan struct{}, 4), dummy: dummy}, nil
+	return &Accounts{DB: db, slots: make(chan struct{}, concurrency), dummy: dummy}, nil
 }
 func (a *Accounts) Authenticate(ctx context.Context, username, password string) (Account, error) {
+	if err := ctx.Err(); err != nil {
+		return Account{}, err
+	}
 	select {
 	case a.slots <- struct{}{}:
 		defer func() { <-a.slots }()
@@ -88,6 +96,9 @@ func (a *Accounts) Authenticate(ctx context.Context, username, password string) 
 		return Account{}, err
 	}
 	valid := Verify(hash, password)
+	if err := ctx.Err(); err != nil {
+		return Account{}, err
+	}
 	if !valid || !enabled {
 		return Account{}, ErrCredentials
 	}

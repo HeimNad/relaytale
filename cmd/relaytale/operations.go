@@ -41,6 +41,33 @@ func runOperation(command string, args []string) error {
 	}
 	defer db.Close()
 	switch command {
+	case "preflight-eml":
+		fs := flag.NewFlagSet(command, flag.ContinueOnError)
+		root := fs.String("storage-dir", os.Getenv("EML_STORAGE_DIR"), "archive root")
+		after := fs.String("after-id", "", "exclusive message UUID cursor")
+		limit := fs.Int("limit", 1000, "maximum archives in this read-only batch (1..10000)")
+		maxBytes := fs.Int64("max-message-bytes", 25<<20, "target maximum raw message bytes")
+		if err := fs.Parse(args); err != nil {
+			return err
+		}
+		if fs.NArg() != 0 {
+			return errors.New("unexpected preflight arguments")
+		}
+		if *root == "" {
+			*root = "data/eml"
+		}
+		report, err := operations.Preflight(ctx, db, *root, *after, *limit, *maxBytes)
+		if writeErr := json.NewEncoder(os.Stdout).Encode(report); writeErr != nil {
+			return writeErr
+		}
+		if err != nil {
+			return errors.New("preflight incomplete; verify schema, archive root, cursor and bounds")
+		}
+		if len(report.Issues) > 0 {
+			return errors.New("preflight found archives requiring manual review")
+		}
+		return nil
+
 	case "add-suppression", "release-suppression", "list-suppressions":
 		return runSuppression(ctx, db, command, args)
 	case "resolve-unknown":

@@ -6,7 +6,7 @@ COPY . .
 RUN CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /relaytale ./cmd/relaytale
 
 FROM build AS test
-RUN apk add --no-cache gcc musl-dev
+RUN apk add --no-cache gcc musl-dev make
 CMD ["go", "test", "-race", "-count=1", "./..."]
 
 FROM alpine:3.21 AS runtime

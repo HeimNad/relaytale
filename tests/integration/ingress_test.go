@@ -32,6 +32,9 @@ func testDB(t *testing.T) *sql.DB {
 	t.Helper()
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {
+		if os.Getenv("REQUIRE_INTEGRATION_TESTS") == "1" {
+			t.Fatal("TEST_DATABASE_URL is required for CI integration tests")
+		}
 		t.Skip("TEST_DATABASE_URL not configured")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)

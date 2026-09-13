@@ -4,10 +4,13 @@ package metrics
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"crypto/subtle"
 	"database/sql"
 	"fmt"
 	"net/http"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 
@@ -15,6 +18,8 @@ import (
 )
 
 type Handler struct {
+	Token string
+
 	DB        *sql.DB
 	Resources *resource.Limiter
 	mu        sync.Mutex
@@ -23,6 +28,15 @@ type Handler struct {
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
+	if h.Token != "" {
+		scheme, value, ok := strings.Cut(r.Header.Get("Authorization"), " ")
+		expected, actual := sha256.Sum256([]byte(h.Token)), sha256.Sum256([]byte(value))
+		if !ok || !strings.EqualFold(scheme, "Bearer") || subtle.ConstantTimeCompare(expected[:], actual[:]) != 1 {
+			w.Header().Set("WWW-Authenticate", `Bearer realm="metrics"`)
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+	}
 	if !h.mu.TryLock() {
 		http.Error(w, "metrics scrape busy", http.StatusServiceUnavailable)
 		return

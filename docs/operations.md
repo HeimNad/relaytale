@@ -190,8 +190,37 @@ docker compose exec -T relaytale relaytale resolve-unknown \
 
 Compose 将快照放在 `/data/snapshots`，要求可写；快照打开后立即移除路径，关闭或进程退出后释放空间。路径为空时使用系统临时目录；若目录位于 tmpfs，其页也占用内存。预算不包含原始 EML 存档、数据库、文件系统缓存、认证及空闲连接开销。多实例预算逐进程生效，部署总量必须相加；目前不能将此视为完整的生产连接限流或内存保障。
 
-指标从内部 `http://relaytale:8080/metrics` 抓取，默认 Caddy 对 `/metrics` 及子路径返回 404。独立部署需自行限制 HTTP 监听与网络访问。指标无管理员认证，不能直接暴露公网。建议从 30 秒抓取周期开始；单次数据库采集超时 2 秒，重叠采集返回 503。
+指标从内部 `http://relaytale:8080/metrics` 抓取，默认 Caddy 对 `/metrics` 及子路径返回 404。独立部署需自行限制 HTTP 监听与网络访问。可设置 `METRICS_BEARER_TOKEN` 启用独立 Bearer 验证；空值保持无认证，不能直接暴露公网。建议从 30 秒抓取周期开始；单次数据库采集超时 2 秒，重叠采集返回 503。
 
 消息状态数量、最老 QUEUED 年龄、24 小时尝试结果、Provider 配额耗尽与熔断、资源预算/等待数、Go 堆和数据库连接均为聚合指标，无邮箱/消息 ID 标签。24 小时结果是 gauge，不能对它使用 counter 的 `rate()` 推导精确吞吐；无记录的状态标签不输出。数据库指标在多个实例上是重复的全局视图，不能按实例简单相加。`SMTP_ACCEPTED` 仍不表示收件箱投递成功。
 
 复现负载测试、观测数据及剩余限制见 [5B 验收报告](phase-5b-resources.md)。
+
+
+## SMTP 准入与部署预算（Phase 5B.1）
+
+默认总连接 128、单来源 8；来源按 TCP 对端 IPv4 地址或 IPv6 /64 聚合，不信任邮件头。每来源连接建立桶为突发 32、每秒恢复 1；来源状态最多 4096 条，空闲至少五分钟后周期回收，满表拒绝新来源。连接超额在问候前关闭。每来源最多一个 AUTH 正在执行，默认突发 20、每分钟恢复 60 次，超额返回临时 454。会话绝对时长默认 300 秒，不能靠持续发送命令延长。
+
+对应设置为 `SMTP_MAX_CONNECTIONS`、`SMTP_MAX_CONNECTIONS_PER_IP`（IPv6 实际按 /64）、`SMTP_AUTH_PER_MINUTE`、`SMTP_AUTH_BURST`、`SMTP_MAX_SESSION_SECONDS`。NAT 后的客户端或反向代理会共享来源额度，部署前按真实拓扑调整。这些保护按进程生效，不能保证抵御分布式攻击或来源表耗尽。
+
+`AUTH_CONCURRENCY` 默认 2，允许 2–8；每次 Argon2 使用 64 MiB，`AUTH_MEMORY_BUDGET_BYTES` 默认 128 MiB，必须覆盖并发数乘以 64 MiB，最大 512 MiB。这是活跃密码计算预算，不是认证全部 RSS：GC、TLS、连接、工作缓冲及运行时仍需余量。计算开始后不能立即取消，但请求取消不会继续认证成功。
+
+Compose 默认进程容器内存硬限制 512 MiB、CPU 2，Go 软内存目标 384 MiB。可通过 `RELAYTALE_MEMORY_LIMIT`、`RELAYTALE_CPU_LIMIT`、`RELAYTALE_GO_MEMORY_LIMIT` 调整。提高认证并发时必须同时评估这些限制；Go 软目标不会替代容器硬上限，硬上限不足仍可能触发 OOM。数据库容器需另行规划资源。
+
+默认工作内存 64 MiB、每个出站预留 8 MiB，因此最多八个出站操作同时持有预算。把 worker 设成 32 不会提高这个上限，多余 worker 等待准入；入站共享预算会进一步降低可用出站容量。临时磁盘预算除以单封大小上限也限制并发。提高 worker 数前应同时评估两种预算与实际负载。
+
+## 指标令牌
+
+`METRICS_BEARER_TOKEN` 仅从环境读取，非空时需 32–512 字节且不能包含空白；使用随机令牌。抓取请求携带 `Authorization: Bearer <token>`，缺失或错误返回 401，验证发生在数据库采集之前。该令牌不是管理 API 账户。Caddy 的默认 404 规则仍保留，令牌也不能替代 TLS 和网络隔离；不要把真实令牌放进 Git、URL 或共享日志。
+
+## 升级前只读 EML 预检
+
+旧存档若存在裸 CR，新的发送检查会暂停它。升级前暂停投递和入站变更，备份后运行目标版本的预检命令，连接现有数据库并挂载同一存档路径：
+
+```sh
+relaytale preflight-eml --storage-dir /data/eml --limit 1000 --max-message-bytes 26214400 > preflight.json
+```
+
+数据库来自 `DATABASE_URL`，根目录也可用 `EML_STORAGE_DIR`。大小参数默认 25 MiB，需显式匹配目标部署大小上限。本命令不执行迁移，不修改原文、不写事件、不重试邮件；扫描 AVAILABLE 且处于 QUEUED、TEMP_FAILED、SENDING、DELIVERY_UNKNOWN 的存档。检查路径约束、文件大小、CRLF 和 SHA-256；报告只包含 Gateway UUID 与原因码。
+
+JSON 中 `complete=true` 表示本批扫描完成，不代表所有分页完成。`has_more=true` 时，把 `next_after` 传给下一批 `--after-id`，直到没有更多。发现问题或执行失败均退出非零；已产生的 JSON 保留在 stdout，错误在 stderr。启动或数据库连接失败可能尚无 JSON。`complete=false` 不能作为通过证据。预检不自动修复历史邮件，不解除 UNKNOWN；在线并发写入时仅反映读取时状态，不能替代停写后的完整检查。

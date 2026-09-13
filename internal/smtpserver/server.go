@@ -24,13 +24,22 @@ type Receiver interface {
 	Receive(context.Context, message.Envelope, io.Reader) (string, error)
 }
 type Backend struct {
-	Accounts Authenticator
-	Receiver Receiver
-	Log      *slog.Logger
-	Timeout  time.Duration
+	Accounts  Authenticator
+	Receiver  Receiver
+	Log       *slog.Logger
+	Timeout   time.Duration
+	admission *admission
 }
 
-func New(b *Backend, domain string, cert tls.Certificate, maxBytes int64) *Server {
+func New(b *Backend, domain string, cert tls.Certificate, maxBytes int64, limits ...Limits) *Server {
+	limit := DefaultLimits()
+	if len(limits) > 0 {
+		limit = limits[0]
+	}
+	if limit.Connections < 1 || limit.PerSource < 1 || limit.PerSource > limit.Connections || limit.AuthPerMinute < 1 || limit.AuthBurst < 1 || limit.Lifetime <= 0 {
+		panic("invalid SMTP admission limits")
+	}
+	b.admission = newAdmission(limit)
 	s := smtp.NewServer(b)
 	s.Domain = domain
 	s.MaxRecipients = 100
@@ -39,7 +48,7 @@ func New(b *Backend, domain string, cert tls.Certificate, maxBytes int64) *Serve
 	s.WriteTimeout = 60 * time.Second
 	s.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{cert}}
 	s.ErrorLog = safeLogger{b.Log}
-	return &Server{Server: s, connections: make(map[net.Conn]struct{})}
+	return &Server{Server: s, connections: make(map[net.Conn]struct{}), admission: b.admission}
 }
 
 // Library errors can include untrusted protocol data. No raw AUTH transcript
@@ -89,6 +98,12 @@ func (s *session) Auth(mech string) (sasl.Server, error) {
 	}
 }
 func (s *session) authenticate(username, password string) error {
+	release, ok := s.backend.admission.authenticate(sourceKey(s.conn.Conn().RemoteAddr()))
+	if !ok {
+		return &smtp.SMTPError{Code: 454, EnhancedCode: smtp.EnhancedCode{4, 7, 0}, Message: "Authentication temporarily unavailable"}
+	}
+	defer release()
+
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	a, err := s.backend.Accounts.Authenticate(ctx, username, password)
@@ -189,6 +204,7 @@ type Server struct {
 	*smtp.Server
 	mu          sync.Mutex
 	connections map[net.Conn]struct{}
+	admission   *admission
 }
 
 func (s *Server) Serve(l net.Listener) error {
@@ -217,25 +233,53 @@ type trackingListener struct {
 }
 
 func (l *trackingListener) Accept() (net.Conn, error) {
-	c, err := l.Listener.Accept()
-	if err != nil {
-		return nil, err
+	for {
+		c, err := l.Listener.Accept()
+		if err != nil {
+			return nil, err
+		}
+		release, ok := l.server.admission.connect(sourceKey(c.RemoteAddr()))
+		if !ok {
+			_ = c.Close()
+			continue
+		}
+		tracked := &trackedConn{Conn: c, server: l.server, release: release, expires: time.Now().Add(l.server.admission.limits.Lifetime)}
+		l.server.mu.Lock()
+		l.server.connections[tracked] = struct{}{}
+		l.server.mu.Unlock()
+		return tracked, nil
 	}
-	l.server.mu.Lock()
-	l.server.connections[c] = struct{}{}
-	l.server.mu.Unlock()
-	return &trackedConn{Conn: c, server: l.server}, nil
 }
 
 type trackedConn struct {
 	net.Conn
-	server *Server
+	server   *Server
+	release  func()
+	expires  time.Time
+	once     sync.Once
+	closeErr error
 }
 
 func (c *trackedConn) Close() error {
-	err := c.Conn.Close()
-	c.server.mu.Lock()
-	delete(c.server.connections, c.Conn)
-	c.server.mu.Unlock()
-	return err
+	c.once.Do(func() {
+		c.closeErr = c.Conn.Close()
+		c.server.mu.Lock()
+		delete(c.server.connections, c)
+		c.server.mu.Unlock()
+		c.release()
+	})
+	return c.closeErr
+}
+func (c *trackedConn) deadline(t time.Time) time.Time {
+	if t.IsZero() || t.After(c.expires) {
+		return c.expires
+	}
+	return t
+}
+func (c *trackedConn) SetDeadline(t time.Time) error { return c.Conn.SetDeadline(c.deadline(t)) }
+func (c *trackedConn) SetReadDeadline(t time.Time) error {
+	return c.Conn.SetReadDeadline(c.deadline(t))
+}
+func (c *trackedConn) SetWriteDeadline(t time.Time) error {
+	return c.Conn.SetWriteDeadline(c.deadline(t))
 }

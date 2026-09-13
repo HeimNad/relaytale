@@ -7,6 +7,8 @@ import (
 	"io"
 )
 
+var ErrNonCanonical = errors.New("EML must use CRLF and end with CRLF")
+
 // validatePayload checks CRLF and the final line boundary without a message-sized
 // buffer, then rewinds the immutable snapshot. It is always before SMTP/DATA.
 func validatePayload(ctx context.Context, r io.ReadSeeker) error {
@@ -15,6 +17,19 @@ func validatePayload(ctx context.Context, r io.ReadSeeker) error {
 	}
 	if _, err := r.Seek(0, io.SeekStart); err != nil {
 		return err
+	}
+	if err := ValidateCanonical(ctx, r); err != nil {
+		return err
+	}
+	_, err := r.Seek(0, io.SeekStart)
+	return err
+}
+
+// ValidateCanonical checks raw SMTP DATA line boundaries without rewriting MIME.
+// Callers must bound the reader and independently verify archive integrity.
+func ValidateCanonical(ctx context.Context, r io.Reader) error {
+	if r == nil {
+		return errors.New("missing payload")
 	}
 	buf := make([]byte, 32*1024)
 	previousCR, lastLF, any := false, false, false
@@ -25,7 +40,7 @@ func validatePayload(ctx context.Context, r io.ReadSeeker) error {
 		n, err := r.Read(buf)
 		for _, b := range buf[:n] {
 			if previousCR && b != '\n' || b == '\n' && !previousCR {
-				return errors.New("EML must use CRLF")
+				return ErrNonCanonical
 			}
 			previousCR = b == '\r'
 			lastLF = b == '\n'
@@ -42,10 +57,9 @@ func validatePayload(ctx context.Context, r io.ReadSeeker) error {
 		}
 	}
 	if !any || !lastLF {
-		return errors.New("EML must end with CRLF")
+		return ErrNonCanonical
 	}
-	_, err := r.Seek(0, io.SeekStart)
-	return err
+	return nil
 }
 
 // streamDATA only emits the terminator after the entire source has been read
