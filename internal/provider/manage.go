@@ -39,7 +39,7 @@ func (s Settings) provider() Provider {
 // Manage serializes provider changes without locking messages (worker order is
 // message -> provider). A committed update applies to future claims only.
 func Manage(ctx context.Context, db *sql.DB, box *encryption.Box, action, id string, expected int64, s Settings, password, actor, reason string) (int64, error) {
-	if _, err := uuid.Parse(id); err != nil {
+	if parsed, err := uuid.Parse(id); err != nil || parsed == uuid.Nil || !strings.EqualFold(parsed.String(), id) {
 		return 0, ErrInvalid
 	}
 	if strings.TrimSpace(actor) == "" || len(actor) > 128 || strings.TrimSpace(reason) == "" || len(reason) > 2048 || !utf8.ValidString(actor+reason) || strings.ContainsRune(actor+reason, 0) {
