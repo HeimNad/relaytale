@@ -38,3 +38,6 @@ auth_memory_budget_bytes: 134217728
 
 # Management credentials are environment-only: ADMIN_API_KEYS (default disabled).
 # See docs/management-api.md; do not place tokens in this YAML.
+
+# Browser UI is environment-only and disabled by default:
+# WEB_UI_ORIGIN and WEB_UI_USERS; see docs/web-ui.md.

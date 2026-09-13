@@ -72,35 +72,17 @@ type Management struct {
 	Box *encryption.Box
 }
 
-func (a Management) Handler(raw string) (http.Handler, error) {
+func (a Management) Handler(raw string, web ...WebConfig) (http.Handler, error) {
 	principals, err := ParsePrincipals(raw)
 	if err != nil {
 		return nil, err
-	}
-	if len(principals) == 0 {
-		return http.NotFoundHandler(), nil
 	}
 	creds := make([]credential, 0, len(principals))
 	for _, p := range principals {
 		creds = append(creds, credential{p.ID, p.Role, sha256.Sum256([]byte(p.Token))})
 	}
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /admin/v1/providers", a.providers)
-	mux.HandleFunc("GET /admin/v1/providers/{id}", a.provider)
-	mux.HandleFunc("POST /admin/v1/providers", a.createProvider)
-	mux.HandleFunc("PUT /admin/v1/providers/{id}", a.configureProvider)
-	mux.HandleFunc("POST /admin/v1/providers/{id}/credentials", a.rotateProvider)
-	mux.HandleFunc("GET /admin/v1/messages", a.messages)
-	mux.HandleFunc("GET /admin/v1/messages/{id}", a.message)
-	mux.HandleFunc("GET /admin/v1/messages/{id}/recipients", a.recipients)
-	mux.HandleFunc("GET /admin/v1/messages/{id}/attempts", a.attempts)
-	mux.HandleFunc("GET /admin/v1/messages/{id}/events", a.events)
-	mux.HandleFunc("GET /admin/v1/suppressions", a.suppressions)
-	mux.HandleFunc("POST /admin/v1/suppressions", a.addSuppression)
-	mux.HandleFunc("POST /admin/v1/suppressions/{id}/release", a.releaseSuppression)
-	mux.HandleFunc("POST /admin/v1/recipients/{id}/resolve-unknown", a.resolve)
-	slots := make(chan struct{}, 8)
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	operations := a.operations()
+	bearer := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		scheme, token, ok := strings.Cut(r.Header.Get("Authorization"), " ")
@@ -126,6 +108,43 @@ func (a Management) Handler(raw string) (http.Handler, error) {
 			respond(w, 403, "browser_origin_not_supported")
 			return
 		}
+		operations.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), principalKey{}, who)))
+	})
+	if len(web) > 0 {
+		if _, err := ValidateWeb(web[0]); err != nil {
+			return nil, err
+		}
+	}
+	if len(web) > 0 && web[0].Origin != "" {
+		return a.browser(web[0], operations, bearer)
+	}
+	if len(principals) == 0 {
+		return http.NotFoundHandler(), nil
+	}
+	return bearer, nil
+}
+
+type principalKey struct{}
+
+func (a Management) operations() http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /admin/v1/providers", a.providers)
+	mux.HandleFunc("GET /admin/v1/providers/{id}", a.provider)
+	mux.HandleFunc("POST /admin/v1/providers", a.createProvider)
+	mux.HandleFunc("PUT /admin/v1/providers/{id}", a.configureProvider)
+	mux.HandleFunc("POST /admin/v1/providers/{id}/credentials", a.rotateProvider)
+	mux.HandleFunc("GET /admin/v1/messages", a.messages)
+	mux.HandleFunc("GET /admin/v1/messages/{id}", a.message)
+	mux.HandleFunc("GET /admin/v1/messages/{id}/recipients", a.recipients)
+	mux.HandleFunc("GET /admin/v1/messages/{id}/attempts", a.attempts)
+	mux.HandleFunc("GET /admin/v1/messages/{id}/events", a.events)
+	mux.HandleFunc("GET /admin/v1/suppressions", a.suppressions)
+	mux.HandleFunc("POST /admin/v1/suppressions", a.addSuppression)
+	mux.HandleFunc("POST /admin/v1/suppressions/{id}/release", a.releaseSuppression)
+	mux.HandleFunc("POST /admin/v1/recipients/{id}/resolve-unknown", a.resolve)
+	slots := make(chan struct{}, 8)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		who := r.Context().Value(principalKey{}).(credential)
 		if r.Method != "GET" && r.Method != "HEAD" {
 			if who.role == "viewer" || (strings.HasPrefix(r.URL.Path, "/admin/v1/providers") && who.role != "admin") {
 				respond(w, 403, "forbidden")
@@ -142,7 +161,7 @@ func (a Management) Handler(raw string) (http.Handler, error) {
 		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 		defer cancel()
 		mux.ServeHTTP(w, r.WithContext(context.WithValue(ctx, actorKey{}, who.id)))
-	}), nil
+	})
 }
 func actor(r *http.Request) string { return r.Context().Value(actorKey{}).(string) }
 func output(w http.ResponseWriter, code int, v any) {

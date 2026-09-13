@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <title>RelayTale · 投递工作台</title>
+    <link rel="stylesheet" href="/console/app.css" />
+    <script defer src="/console/app.js"></script>
+  </head>
+  <body>
+    <a class="skip" href="#main">跳到主要内容</a>
+    <div id="login" class="login-layout" hidden>
+      <section class="welcome">
+        <a class="brand" href="#"
+          ><span class="brand-mark" aria-hidden="true">r</span>relaytale<span
+            class="brand-dot"
+          ></span
+        ></a>
+        <div class="welcome-copy">
+          <p class="quiet">每一次投递，都有迹可循。</p>
+          <h1>看清邮件<br />走到了哪一步。</h1>
+          <p>
+            从可靠接收到人工确认，保留每一次尝试的事实。让异常有依据，让处理有记录。
+          </p>
+          <div class="route-art" aria-hidden="true">
+            <div><i></i><span>网关接收</span></div>
+            <b></b>
+            <div><i></i><span>SMTP 接受</span></div>
+            <b></b>
+            <div><i class="unconfirmed"></i><span>收件确认</span></div>
+          </div>
+        </div>
+        <p class="welcome-footer">RelayTale / Email Flight Recorder</p>
+      </section>
+      <section class="login-side">
+        <form id="login-form" class="login-form">
+          <span class="small-mark">投递工作台</span>
+          <h2>登录 RelayTale</h2>
+          <p>使用管理员为你配置的工作台账户。</p>
+          <label
+            >账户<input
+              name="id"
+              autocomplete="username"
+              required
+              maxlength="128"
+              placeholder="你的账户名称" /></label
+          ><label
+            >密码<input
+              name="password"
+              type="password"
+              autocomplete="current-password"
+              required
+              maxlength="1024"
+              placeholder="输入登录密码"
+          /></label>
+          <p id="login-error" class="form-error" role="alert"></p>
+          <button class="primary" type="submit">登录工作台</button>
+          <p class="login-note">
+            此账户独立于 SMTP 和管理 API 凭证。<br />需要开通权限？请联系部署管理员。
+          </p>
+        </form>
+        <a class="license" href="/license">AGPL-3.0 许可证</a>
+      </section>
+    </div>
+    <div id="shell" class="shell" hidden>
+      <aside class="sidebar">
+        <a class="brand" href="#messages"
+          ><span class="brand-mark" aria-hidden="true">r</span>relaytale<span
+            class="brand-dot"
+          ></span
+        ></a>
+        <p class="workspace-label">投递工作台</p>
+        <nav aria-label="主导航">
+          <a href="#messages" data-view="messages"
+            ><span aria-hidden="true">✉</span>邮件记录</a
+          ><a href="#providers" data-view="providers"
+            ><span aria-hidden="true">⇄</span>发送通道</a
+          ><a href="#suppressions" data-view="suppressions"
+            ><span aria-hidden="true">⊘</span>地址抑制</a
+          ><a href="#access" data-view="access"
+            ><span aria-hidden="true">◈</span>访问与说明</a
+          >
+        </nav>
+        <div class="sidebar-bottom">
+          <p>保留事实，谨慎重试。</p>
+          <div class="identity">
+            <span class="avatar" id="avatar"></span>
+            <div><strong id="identity"></strong><small id="role"></small></div>
+          </div>
+          <button id="logout" class="text-button">退出登录</button>
+        </div>
+      </aside>
+      <div class="workspace">
+        <header class="topbar">
+          <span
+            >RelayTale <span class="slash">/</span>
+            <span id="breadcrumb">邮件记录</span></span
+          ><span class="session-label"><i></i> 已登录</span>
+        </header>
+        <main id="main" tabindex="-1">
+          <div id="notice" role="alert" hidden></div>
+          <section id="view" aria-live="polite"></section>
+        </main>
+        <footer class="app-footer">
+          <span>SMTP 接受不等于收件人已收到。</span
+          ><a href="/license">AGPL-3.0</a>
+        </footer>
+      </div>
+    </div>
+    <dialog id="modal" aria-labelledby="dialog-title"></dialog>
+    <div id="boot" class="boot" role="status">正在连接工作台…</div>
+  </body>
+</html>

@@ -17,6 +17,8 @@ import (
 
 type Config struct {
 	AdminAPIKeys            string `yaml:"-"`
+	WebUIOrigin             string `yaml:"-"`
+	WebUIUsers              string `yaml:"-"`
 	SMTPMaxConnections      int    `yaml:"smtp_max_connections"`
 	SMTPMaxConnectionsPerIP int    `yaml:"smtp_max_connections_per_ip"`
 	SMTPAuthPerMinute       int    `yaml:"smtp_auth_per_minute"`
@@ -149,6 +151,17 @@ func Load(args []string) (Config, error) {
 	c.MasterKey = encryption.EnvironmentKey()
 	c.MetricsToken = os.Getenv("METRICS_BEARER_TOKEN")
 	c.AdminAPIKeys = os.Getenv("ADMIN_API_KEYS")
+	c.WebUIOrigin = os.Getenv("WEB_UI_ORIGIN")
+	c.WebUIUsers = os.Getenv("WEB_UI_USERS")
+	if _, err := api.ValidateWeb(api.WebConfig{Origin: c.WebUIOrigin, Users: c.WebUIUsers}); err != nil {
+		return c, err
+	}
+	if c.WebUIOrigin != "" {
+		if _, err := encryption.New(c.MasterKey); err != nil {
+			return c, errors.New("Web UI requires a valid master key")
+		}
+	}
+
 	if _, err := api.ParsePrincipals(c.AdminAPIKeys); err != nil {
 		return c, err
 	}

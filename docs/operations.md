@@ -229,3 +229,8 @@ JSON 中 `complete=true` 表示本批扫描完成，不代表所有分页完成�
 ## 最小管理入口（Phase 5C）
 
 管理 API 默认关闭，独立令牌和角色通过 `ADMIN_API_KEYS` 配置；启用、权限、字段、版本冲突和操作结果不确定时的处理见 [管理 API 手册](management-api.md)。它与 metrics Bearer 令牌、SMTP 账户、未来 HTTP 发信凭证相互独立。迁移 00008 增加 Provider revision 及自动递增触发器，回退需要显式计划；仍需按单实例升级约束部署。
+
+
+## 浏览器工作台（Phase 6）
+
+通过独立 WEB_UI_ORIGIN/WEB_UI_USERS 配置启用 `/console/`，无需开放长期 API 令牌给浏览器。会话、HTTPS、额外 64 MiB 登录工作量、反向代理共享登录限额及完整操作边界见 [Web UI 手册](web-ui.md)。本阶段不新增数据库迁移。

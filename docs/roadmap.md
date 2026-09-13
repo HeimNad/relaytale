@@ -1,10 +1,10 @@
 # 开发路线图
 
-更新：2026-09-12。当前推进至 Phase 5C 最小管理 API；这不等于生产就绪。后续按本文件排期，已完成阶段的实现与验收记录保留，不重编号或移动已有 Git 标签。
+更新：2026-09-13。当前推进至 Phase 6 Web UI；这不等于生产就绪。后续按本文件排期，已完成阶段的实现与验收记录保留，不重编号或移动已有 Git 标签。
 
 项目统一命名为 **RelayTale**，改名不改变投递语义或历史阶段标签。升级边界见 [改名说明](rename-relaytale.md)。
 
-下一阶段：**Phase 6 Web UI**。5C 的接口与权限边界见 [管理 API](management-api.md)。5B 已完成流式出站、资源预算、指标及本地负载验收，并修复收尾锁升级死锁，见 [验收报告](phase-5b-resources.md)。
+下一阶段：**Phase 7 DSN / Bounce 自动化**。Phase 6 的界面、会话与浏览器验收见 [阶段报告](phase-6-web-ui.md)。5C 的接口与权限边界见 [管理 API](management-api.md)。5B 已完成流式出站、资源预算、指标及本地负载验收，并修复收尾锁升级死锁，见 [验收报告](phase-5b-resources.md)。
 
 ## Phase 0 · 基础服务（已完成）
 
@@ -85,7 +85,7 @@ Generic SMTP（STARTTLS / implicit TLS）、Provider 凭证加密、priority 与
 
 **验收条件：** 未授权访问、敏感字段泄漏、并发覆盖、重复人工操作和审计失败均有测试；API 操作与现有 CLI 语义一致。本阶段不开放 HTTP 发信，不做完整 Dashboard。
 
-## Phase 6 · Web UI
+## Phase 6 · Web UI（已完成本地验收）
 
 基于管理 API 实现 Provider、Messages、事件时间线、健康/用量、suppression 与 UNKNOWN 处置页面。明确区分 SMTP_ACCEPTED、用户确认收到、BOUNCED 和 UNKNOWN，不把 250 显示成入箱成功。
 

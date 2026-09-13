@@ -1,0 +1,12 @@
+{
+  "name": "relaytale-browser-tests",
+  "private": true,
+  "scripts": {
+    "test:browser": "playwright test",
+    "check:ui": "prettier --check internal/api/web tests/browser playwright.config.js package.json"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "prettier": "3.9.6"
+  }
+}

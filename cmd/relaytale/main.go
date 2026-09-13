@@ -42,6 +42,8 @@ func main() {
 func run(log *slog.Logger) error {
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
+		case "hash-web-password":
+			return hashWebPassword(os.Args[2:])
 		case "license":
 			fmt.Print(project.LicenseText)
 			return nil
@@ -92,13 +94,13 @@ func run(log *slog.Logger) error {
 	}
 	defer httpListener.Close()
 	var adminBox *encryption.Box
-	if cfg.AdminAPIKeys != "" {
+	if cfg.AdminAPIKeys != "" || cfg.WebUIOrigin != "" {
 		adminBox, err = encryption.New(cfg.MasterKey)
 		if err != nil {
 			return err
 		}
 	}
-	admin, err := (api.Management{DB: db, Box: adminBox}).Handler(cfg.AdminAPIKeys)
+	admin, err := (api.Management{DB: db, Box: adminBox}).Handler(cfg.AdminAPIKeys, api.WebConfig{Origin: cfg.WebUIOrigin, Users: cfg.WebUIUsers})
 	if err != nil {
 		return err
 	}
@@ -149,7 +151,7 @@ func run(log *slog.Logger) error {
 	} else {
 		close(workersDone)
 	}
-	log.Info("relaytale started", "http_address", cfg.HTTPAddr, "smtp_address", cfg.SMTPAddr, "workers", cfg.WorkerCount, "phase", "5C", "automatic_retry", cfg.RetryEnabled, "automatic_failover", cfg.FailoverEnabled, "provider_health", cfg.HealthEnabled)
+	log.Info("relaytale started", "http_address", cfg.HTTPAddr, "smtp_address", cfg.SMTPAddr, "workers", cfg.WorkerCount, "phase", "6", "automatic_retry", cfg.RetryEnabled, "automatic_failover", cfg.FailoverEnabled, "provider_health", cfg.HealthEnabled)
 	var serveErr error
 	select {
 	case serveErr = <-result:

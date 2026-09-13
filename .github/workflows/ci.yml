@@ -37,3 +37,15 @@ jobs:
           go-version-file: go.mod
       - name: Format, vet, build and race tests with PostgreSQL
         run: make ci
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Install browser test dependencies
+        run: npm ci --ignore-scripts
+      - name: Check UI formatting
+        run: npm run check:ui
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Browser workflows with isolated PostgreSQL and Fake SMTP
+        run: sh scripts/test-browser.sh

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"time"
@@ -86,4 +87,27 @@ func manage(args []string) error {
 	default:
 		return errors.New("unknown management command")
 	}
+}
+
+// hash-web-password never requires a database or emits the supplied password.
+func hashWebPassword(args []string) error {
+	fs := flag.NewFlagSet("hash-web-password", flag.ContinueOnError)
+	stdin := fs.Bool("password-stdin", false, "read password from stdin")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if !*stdin || fs.NArg() != 0 {
+		return errors.New("use --password-stdin")
+	}
+	raw, err := io.ReadAll(io.LimitReader(os.Stdin, 1027))
+	if err != nil {
+		return errors.New("cannot read password")
+	}
+	password := strings.TrimSuffix(strings.TrimSuffix(string(raw), "\n"), "\r")
+	hash, err := auth.Hash(password)
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintln(os.Stdout, hash)
+	return err
 }

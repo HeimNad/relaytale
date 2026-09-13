@@ -12,7 +12,7 @@ Your Apps → SMTP ingress → Durable queue + EML archive → Provider router
                             Event ledger         Your existing SMTP providers
 ```
 
-## 当前进度：Phase 5C（最小管理 API）
+## 当前进度：Phase 6（Web UI）
 
 已实现 Go 服务入口、配置优先级、PostgreSQL 连接、内嵌 Goose 迁移、核心数据库表、存储可写检查、健康接口、JSON 日志、优雅退出和 Docker Compose。
 
@@ -20,7 +20,7 @@ Your Apps → SMTP ingress → Durable queue + EML archive → Provider router
 
 已实现 Generic SMTP Provider 投递、加密凭证、PostgreSQL 队列 worker、逐收件人投递结果和租约恢复。支持 STARTTLS 与隐式 TLS，严格验证 Provider 证书。
 
-**默认 `WORKER_COUNT=0`，只接收不投递。** 配置主密钥、Provider 并显式启用 worker 后才开始发送。当前没有管理 UI；自动重试和安全跨 Provider 切换需分别显式启用，默认失败与不确定邮件暂停。真实 Provider 首轮 SMTP 接受层已通过，Gmail / QQ / iCloud 共 12 份收到的原始邮件已核对，Message-ID 与 MIME 内容保持；认证差异见验收报告。
+**默认 `WORKER_COUNT=0`，只接收不投递。** 配置主密钥、Provider 并显式启用 worker 后才开始发送。管理工作台需单独配置账户启用；自动重试和安全跨 Provider 切换需分别显式启用，默认失败与不确定邮件暂停。真实 Provider 首轮 SMTP 接受层已通过，Gmail / QQ / iCloud 共 12 份收到的原始邮件已核对，Message-ID 与 MIME 内容保持；认证差异见验收报告。
 
 ## 启动
 
@@ -252,7 +252,7 @@ Phase 3 测试覆盖导出原子发布/不覆盖、过滤与敏感字段排除�
 
 ## 后续开发顺序
 
-Phase 5A 已实现 suppression 与人工解除、可信退信设计及身份验收边界说明；5B 已实现流式出站、在途资源背压与基础指标；持续负载中发现的收尾死锁已修复并通过回归，执行记录及容量限制见 [资源加固报告](docs/phase-5b-resources.md)。5B.1 增加 CI、SMTP 来源与认证准入、可选指标令牌和只读 EML 升级预检，见 [安全门禁报告](docs/phase-5b1-safety-gates.md)。5C 已接入独立角色令牌、分页查询和受控管理写入，见 [管理 API](docs/management-api.md)。接下来做 **6 Web UI**。完整 DSN 自动化、HTTP 发信 API 与生产运维分别验收。已完成本地故障测试不代表生产就绪；当前功能、阶段验收条件与剩余缺口以 [开发路线图](docs/roadmap.md) 为准。
+Phase 5A 已实现 suppression 与人工解除、可信退信设计及身份验收边界说明；5B 已实现流式出站、在途资源背压与基础指标；持续负载中发现的收尾死锁已修复并通过回归，执行记录及容量限制见 [资源加固报告](docs/phase-5b-resources.md)。5B.1 增加 CI、SMTP 来源与认证准入、可选指标令牌和只读 EML 升级预检，见 [安全门禁报告](docs/phase-5b1-safety-gates.md)。5C 已接入独立角色令牌、分页查询和受控管理写入，见 [管理 API](docs/management-api.md)。Phase 6 提供浏览器工作台，默认关闭，启用与会话边界见 [Web UI 手册](docs/web-ui.md)。接下来继续 **7 DSN / Bounce 自动化**。完整 DSN 自动化、HTTP 发信 API 与生产运维分别验收。已完成本地故障测试不代表生产就绪；当前功能、阶段验收条件与剩余缺口以 [开发路线图](docs/roadmap.md) 为准。
 
 ### 持续检查
 

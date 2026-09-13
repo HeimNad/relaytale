@@ -29,3 +29,8 @@ __pycache__/
 
 # Private received-mail validation artifacts
 /temp/
+
+# Browser test dependencies and output
+/node_modules/
+/test-results/
+/playwright-report/

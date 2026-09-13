@@ -22,7 +22,7 @@
 | operator | 是 | 是 | 否 |
 | admin | 是 | 是 | 是 |
 
-所有角色都能读取邮件元数据和收件人地址，因此 viewer 也必须可信。当前不开放 CORS，带 Origin 或跨站 Fetch 标记的请求被拒绝，包括浏览器同源 Origin；后续 Web UI 必须设计独立会话/CSRF 边界，不能直接把长期管理令牌放进浏览器。
+所有角色都能读取邮件元数据和收件人地址，因此 viewer 也必须可信。当前不开放 CORS，带 Origin 或跨站 Fetch 标记的请求被拒绝，包括浏览器同源 Origin；Phase 6 已提供独立的工作台会话/CSRF 入口，见 [Web UI](web-ui.md)；本节 Bearer API 的来源限制保持不变。
 
 ## 请求和响应约束
 

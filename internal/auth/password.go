@@ -42,3 +42,17 @@ func Verify(encoded, password string) bool {
 	actual := argon2.IDKey([]byte(password), salt, 3, 64*1024, 2, 32)
 	return subtle.ConstantTimeCompare(actual, key) == 1
 }
+
+// ValidHash validates the fixed-cost password representation without hashing.
+func ValidHash(encoded string) bool {
+	if !strings.HasPrefix(encoded, hashPrefix) {
+		return false
+	}
+	parts := strings.Split(strings.TrimPrefix(encoded, hashPrefix), "$")
+	if len(parts) != 2 {
+		return false
+	}
+	salt, e1 := base64.RawStdEncoding.DecodeString(parts[0])
+	key, e2 := base64.RawStdEncoding.DecodeString(parts[1])
+	return e1 == nil && e2 == nil && len(salt) == 16 && len(key) == 32
+}
