@@ -41,6 +41,8 @@ func runOperation(command string, args []string) error {
 	}
 	defer db.Close()
 	switch command {
+	case "import-feedback", "list-feedback", "show-feedback", "dismiss-feedback":
+		return runFeedback(ctx, db, command, args)
 	case "preflight-eml":
 		fs := flag.NewFlagSet(command, flag.ContinueOnError)
 		root := fs.String("storage-dir", os.Getenv("EML_STORAGE_DIR"), "archive root")

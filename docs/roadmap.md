@@ -1,10 +1,10 @@
 # 开发路线图
 
-更新：2026-09-13。当前推进至 Phase 6 Web UI；这不等于生产就绪。后续按本文件排期，已完成阶段的实现与验收记录保留，不重编号或移动已有 Git 标签。
+更新：2026-09-15。当前推进至 Phase 7A DSN 解析与反馈待查；这不等于生产就绪。后续按本文件排期，已完成阶段的实现与验收记录保留，不重编号或移动已有 Git 标签。
 
 项目统一命名为 **RelayTale**，改名不改变投递语义或历史阶段标签。升级边界见 [改名说明](rename-relaytale.md)。
 
-下一阶段：**Phase 7 DSN / Bounce 自动化**。Phase 6 的界面、会话与浏览器验收见 [阶段报告](phase-6-web-ui.md)。5C 的接口与权限边界见 [管理 API](management-api.md)。5B 已完成流式出站、资源预算、指标及本地负载验收，并修复收尾锁升级死锁，见 [验收报告](phase-5b-resources.md)。
+下一阶段：**Phase 7B 可信反馈通道与自动处理**。7A 的离线解析与隔离队列见 [阶段说明](phase-7a-feedback.md)。Phase 6 的界面、会话与浏览器验收见 [阶段报告](phase-6-web-ui.md)。5C 的接口与权限边界见 [管理 API](management-api.md)。5B 已完成流式出站、资源预算、指标及本地负载验收，并修复收尾锁升级死锁，见 [验收报告](phase-5b-resources.md)。
 
 ## Phase 0 · 基础服务（已完成）
 
@@ -43,7 +43,7 @@ Generic SMTP（STARTTLS / implicit TLS）、Provider 凭证加密、priority 与
 
 ## Phase 4C · Provider Health、熔断与配额（已完成本地验收，熔断默认关闭）
 
-最近 10 分钟的 Provider 可用性样本、故障归属、60 秒熔断与单半开尝试；滚动 1h / 24h 收件人尝试配额、分批、原子预留和崩溃不退款。list-providers 输出健康/用量，熔断执行默认关闭。见 [4C 方案](phase-4c-plan.md)。管理界面与指标面板仍未实现。
+最近 10 分钟的 Provider 可用性样本、故障归属、60 秒熔断与单半开尝试；滚动 1h / 24h 收件人尝试配额、分批、原子预留和崩溃不退款。list-providers 输出健康/用量，熔断执行默认关闭。见 [4C 方案](phase-4c-plan.md)。后续 5B 已增加聚合指标，Phase 6 已增加管理界面。
 
 ## Phase 5A · 信誉保护基础（已完成本地验收）
 
@@ -93,7 +93,11 @@ Generic SMTP（STARTTLS / implicit TLS）、Provider 凭证加密、priority 与
 
 **验收条件：** 覆盖从查询到人工处置的端到端流程、权限边界、邮件内容隔离，以及失败/空状态；界面不能扩大后台授权或绕过安全确认。
 
-## Phase 7 · DSN / Bounce 自动化
+## Phase 7 · DSN / Bounce 自动化（分段推进）
+
+**7A：DSN 解析与反馈待查。** 已实现限额内离线导入、原始证据、逐收件人声明解析、幂等与内容冲突展示、人工关闭和追加审计。始终 UNVERIFIED，不触发投递状态或 suppression。说明、资源限制和验收见 [7A 报告](phase-7a-feedback.md)。
+
+**7B：可信通道与自动处理（待实现）。** 必须先验收来源认证、账号归属与 attempt/recipient 关联，不通过人工传入 trusted 标记启用自动封禁。完整 Phase 7 的目标仍是：
 
 在 5A 的可信来源与关联设计基础上，实现已选定通道的接收、解析、去重、逐收件人反馈状态及保守自动抑制。可根据可用 Provider 通道在 UI 开发期间推进，但完整 UI 不是其安全依赖。
 
