@@ -14,10 +14,19 @@ import (
 func runFeedback(ctx context.Context, db *sql.DB, command string, args []string) error {
 	fs := flag.NewFlagSet(command, flag.ContinueOnError)
 	s := feedback.Service{DB: db}
+	var inspect feedback.InspectRequest
 	var v feedback.ImportRequest
 	var id, digest, after, path string
 	limit := 100
 	switch command {
+	case "inspect-feedback":
+		fs.StringVar(&inspect.FeedbackID, "id", "", "feedback UUID")
+		fs.StringVar(&inspect.ExpectedSHA256, "expected-sha256", "", "digest of inspected evidence")
+		fs.StringVar(&inspect.MessageID, "message-id", "", "candidate Gateway message UUID")
+		fs.StringVar(&inspect.ProviderID, "provider-id", "", "candidate provider UUID, not source authentication")
+		fs.StringVar(&inspect.AttemptID, "attempt-id", "", "candidate attempt UUID")
+		fs.StringVar(&inspect.RecipientID, "recipient-id", "", "candidate recipient UUID")
+		fs.IntVar(&inspect.ReportIndex, "report-index", 0, "zero-based recipient block in report")
 	case "import-feedback":
 		fs.StringVar(&path, "file", "", "local raw DSN file (at most 1 MiB); never treated as trusted")
 		fs.StringVar(&v.Source, "source", "", "operator-defined source/account label, not authentication")
@@ -45,6 +54,12 @@ func runFeedback(ctx context.Context, db *sql.DB, command string, args []string)
 	}
 	var result any
 	switch command {
+	case "inspect-feedback":
+		inspection, err := s.Inspect(ctx, inspect)
+		if err != nil {
+			return errors.New("feedback inspection failed; verify IDs, digest, report index and schema")
+		}
+		result = inspection
 	case "import-feedback":
 		f, err := os.Open(path)
 		if err != nil {

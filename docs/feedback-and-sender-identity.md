@@ -33,6 +33,8 @@ DMARC 需要通过且与 Header From 对齐的 SPF 或 DKIM 路径；不是要�
 
 计划采用单独的反馈令牌密钥（支持 key ID 与轮换），令牌不公开邮箱或原始邮件，绑定 Provider、Gateway ID、attempt、recipient、有效期及用途。它只是关联条件，不单独作为真实性证明。是否采用 VERP、Provider 元数据或 SMTP ENVID 取决于实际通道能力；改变信封发件人需要单独设计与验收，不偷偷改变 transparent mode。
 
+7B.1 已交付候选关系与决策的只读预检，见 [安全基础](phase-7b-feedback-safety.md)。它不证明来源身份，也不是后续自动写入的授权依据。
+
 ## 关联与状态处理设计
 
 未来消费者先持久化原反馈、来源验证结果和去重键，然后按以下条件处理：

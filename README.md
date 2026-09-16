@@ -12,7 +12,7 @@ Your Apps → SMTP ingress → Durable queue + EML archive → Provider router
                             Event ledger         Your existing SMTP providers
 ```
 
-## 当前进度：Phase 7A（DSN 解析与反馈待查）
+## 当前进度：Phase 7B.1（反馈关联安全基础）
 
 已实现 Go 服务入口、配置优先级、PostgreSQL 连接、内嵌 Goose 迁移、核心数据库表、存储可写检查、健康接口、JSON 日志、优雅退出和 Docker Compose。
 
@@ -252,7 +252,7 @@ Phase 3 测试覆盖导出原子发布/不覆盖、过滤与敏感字段排除�
 
 ## 后续开发顺序
 
-Phase 5A 已实现 suppression 与人工解除、可信退信设计及身份验收边界说明；5B 已实现流式出站、在途资源背压与基础指标；持续负载中发现的收尾死锁已修复并通过回归，执行记录及容量限制见 [资源加固报告](docs/phase-5b-resources.md)。5B.1 增加 CI、SMTP 来源与认证准入、可选指标令牌和只读 EML 升级预检，见 [安全门禁报告](docs/phase-5b1-safety-gates.md)。5C 已接入独立角色令牌、分页查询和受控管理写入，见 [管理 API](docs/management-api.md)。Phase 6 提供浏览器工作台，默认关闭，启用与会话边界见 [Web UI 手册](docs/web-ui.md)。Phase 7A 增加离线 DSN 导入、原始证据、幂等/冲突与人工待查，见 [反馈手册](docs/phase-7a-feedback.md)。接下来推进 **7B 可信反馈通道与自动处理**；未验证的退信不会自动关联或封禁地址。完整 DSN 自动化、HTTP 发信 API 与生产运维分别验收。已完成本地故障测试不代表生产就绪；当前功能、阶段验收条件与剩余缺口以 [开发路线图](docs/roadmap.md) 为准。
+Phase 5A 已实现 suppression 与人工解除、可信退信设计及身份验收边界说明；5B 已实现流式出站、在途资源背压与基础指标；持续负载中发现的收尾死锁已修复并通过回归，执行记录及容量限制见 [资源加固报告](docs/phase-5b-resources.md)。5B.1 增加 CI、SMTP 来源与认证准入、可选指标令牌和只读 EML 升级预检，见 [安全门禁报告](docs/phase-5b1-safety-gates.md)。5C 已接入独立角色令牌、分页查询和受控管理写入，见 [管理 API](docs/management-api.md)。Phase 6 提供浏览器工作台，默认关闭，启用与会话边界见 [Web UI 手册](docs/web-ui.md)。Phase 7A 增加离线 DSN 导入、原始证据、幂等/冲突与人工待查，见 [反馈手册](docs/phase-7a-feedback.md)。7B.1 已提供只读关联与决策预检，见 [安全基础说明](docs/phase-7b-feedback-safety.md)。接下来仍需接入并验收 **7B 可信反馈通道与自动处理**；未验证的退信不会自动关联或封禁地址。完整 DSN 自动化、HTTP 发信 API 与生产运维分别验收。已完成本地故障测试不代表生产就绪；当前功能、阶段验收条件与剩余缺口以 [开发路线图](docs/roadmap.md) 为准。
 
 ### 持续检查
 
