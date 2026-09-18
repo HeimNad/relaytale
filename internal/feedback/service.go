@@ -68,6 +68,25 @@ func (s Service) Import(ctx context.Context, v ImportRequest, r io.Reader) (Impo
 	if err != nil {
 		return ImportResult{}, err
 	}
+	tx, err := begin(ctx, s.DB)
+	if err != nil {
+		return ImportResult{}, err
+	}
+	defer tx.Rollback()
+	id, duplicate, err := importRaw(ctx, tx, v, raw)
+	if err != nil {
+		return ImportResult{}, err
+	}
+	if err = tx.Commit(); err != nil {
+		return ImportResult{}, err
+	}
+	e, err := s.Get(ctx, id)
+	return ImportResult{Entry: e, Duplicate: duplicate}, err
+}
+
+// importRaw shares the caller's transaction so collectors can atomically commit
+// evidence, its audit record and their checkpoint. Callers bound/validate input.
+func importRaw(ctx context.Context, tx *sql.Tx, v ImportRequest, raw []byte) (string, bool, error) {
 	sum := sha256.Sum256(raw)
 	digest := hex.EncodeToString(sum[:])
 	if v.ExternalID == "" {
@@ -79,37 +98,27 @@ func (s Service) Import(ctx context.Context, v ImportRequest, r io.Reader) (Impo
 	if parseErr != nil {
 		state = "UNSUPPORTED"
 	} else {
+		var err error
 		payload, err = json.Marshal(parsed)
 		if err != nil {
-			return ImportResult{}, err
+			return "", false, err
 		}
 	}
-	tx, err := begin(ctx, s.DB)
-	if err != nil {
-		return ImportResult{}, err
-	}
-	defer tx.Rollback()
 	id := uuid.Must(uuid.NewV7()).String()
 	res, err := tx.ExecContext(ctx, `INSERT INTO feedback_reports(id,source,external_id,sha256,raw,parsed,parse_state,actor,reason) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT(source,external_id,sha256) DO NOTHING`, id, v.Source, v.ExternalID, digest, raw, string(payload), state, v.Actor, v.Reason)
 	if err != nil {
-		return ImportResult{}, err
+		return "", false, err
 	}
 	n, err := res.RowsAffected()
 	if err != nil {
-		return ImportResult{}, err
+		return "", false, err
 	}
 	if n == 0 {
-		if err = tx.QueryRowContext(ctx, `SELECT id FROM feedback_reports WHERE source=$1 AND external_id=$2 AND sha256=$3`, v.Source, v.ExternalID, digest).Scan(&id); err != nil {
-			return ImportResult{}, err
-		}
-	} else if err = audit(ctx, tx, "FEEDBACK_QUARANTINED", v.Actor, map[string]string{"id": id, "sha256": digest, "source": v.Source, "reason": v.Reason, "trust": "UNVERIFIED"}); err != nil {
-		return ImportResult{}, err
+		err = tx.QueryRowContext(ctx, `SELECT id FROM feedback_reports WHERE source=$1 AND external_id=$2 AND sha256=$3`, v.Source, v.ExternalID, digest).Scan(&id)
+	} else {
+		err = audit(ctx, tx, "FEEDBACK_QUARANTINED", v.Actor, map[string]string{"id": id, "sha256": digest, "source": v.Source, "reason": v.Reason, "trust": "UNVERIFIED"})
 	}
-	if err = tx.Commit(); err != nil {
-		return ImportResult{}, err
-	}
-	e, err := s.Get(ctx, id)
-	return ImportResult{Entry: e, Duplicate: n == 0}, err
+	return id, n == 0, err
 }
 
 const columns = `f.id,f.source,f.external_id,f.sha256,f.parse_state,f.trust,

@@ -42,6 +42,10 @@ func main() {
 func run(log *slog.Logger) error {
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
+		case "feedback-collection-status":
+			return feedbackCollectionStatus(os.Args[2:])
+		case "collect-feedback":
+			return collectFeedback(os.Args[2:])
 		case "hash-web-password":
 			return hashWebPassword(os.Args[2:])
 		case "license":
