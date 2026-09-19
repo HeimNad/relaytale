@@ -99,7 +99,7 @@ Generic SMTP（STARTTLS / implicit TLS）、Provider 凭证加密、priority 与
 
 **7B.1：关联与决策安全基础。** 已提供只读预检，验证候选 message/provider/attempt/recipient 关系、地址改写、多报告歧义与更新尝试；不授予可信身份、不改 UNKNOWN、不自动抑制。见 [阶段说明](phase-7b-feedback-safety.md)。
 
-**7B.2：只读 IMAP 收集。** 已实现专用文件夹读取、UIDVALIDITY/UID 游标、原件与审计原子提交、大小/批量/时间/存储限制以及异常回执；默认不开启，不改变邮箱、不授予来源信任。见 [收集手册](phase-7b2-imap-collection.md)。已完成 [两家真实 INBOX 的限定范围验收](real-imap-validation.md)，Purelymail DSN 样本与可信来源/关联仍待验证。
+**7B.2：只读 IMAP 收集。** 已实现专用文件夹读取、UIDVALIDITY/UID 游标、原件与审计原子提交、大小/批量/时间/存储限制以及异常回执；默认不开启，不改变邮箱、不授予来源信任。见 [收集手册](phase-7b2-imap-collection.md)。已完成 [两家真实 INBOX 的限定范围验收](real-imap-validation.md)，已确认 Purelymail 当前样本是欢迎信，并增加真实结构对应的合成回归测试；Purelymail DSN 样本与可信来源/关联仍待验证。
 
 **7B：可信通道与自动处理（其余部分待实现）。** 必须先验收来源认证、账号归属与 attempt/recipient 关联，不通过人工传入 trusted 标记启用自动封禁。完整 Phase 7 的目标仍是：
 
