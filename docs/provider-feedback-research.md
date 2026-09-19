@@ -28,4 +28,4 @@
 - 不因 From、Authentication-Results 字符串、DKIM 字段或匹配令牌就自动授予信任。令牌也可能被收件人看到，它提供关联线索而不是不可伪造的退信来源。
 - 后续独立验证：授权的 MAIL FROM、返回后的实际 Return-Path、令牌经过路由后的保存位置、真实 DSN 的机器字段和来源证据、同一邮件的多收件人反馈。没有可信来源时继续人工处置。
 
-调查后的实现进度：已增加 [Phase 7B.2 只读 IMAP 收集器](phase-7b2-imap-collection.md)，显式启用后把原件存入 UNVERIFIED 待查队列。真实 Provider IMAP 尚未验收，透明模式保持不变；自动抑制继续作为后续独立验收项。
+调查后的实现进度：已增加 [Phase 7B.2 只读 IMAP 收集器](phase-7b2-imap-collection.md)，显式启用后把原件存入 UNVERIFIED 待查队列。2026-09-18 已完成 [限定范围真实 IMAP 验收](real-imap-validation.md)，透明模式保持不变；自动抑制继续作为后续独立验收项。

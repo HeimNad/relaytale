@@ -6,7 +6,7 @@
 
 先启动升级后的 RelayTale，使迁移 `00010_feedback_imap.sql` 完成，再运行独立收集命令。常规服务不会自动启动收集器。凭证从环境读取，不支持密码命令行参数；建议使用专用邮箱与应用密码，避免将个人收件箱全部存入数据库。
 
-配置环境变量 `DATABASE_URL`、`FEEDBACK_IMAP_HOST`、`FEEDBACK_IMAP_USERNAME`、`FEEDBACK_IMAP_PASSWORD`，通过本地秘密配置或进程管理器注入。SpaceMail / Purelymail 的公开地址见 [调查记录](provider-feedback-research.md)，本阶段未使用真实账号验证 IMAP。
+配置环境变量 `DATABASE_URL`、`FEEDBACK_IMAP_HOST`、`FEEDBACK_IMAP_USERNAME`、`FEEDBACK_IMAP_PASSWORD`，通过本地秘密配置或进程管理器注入。SpaceMail / Purelymail 的公开地址见 [调查记录](provider-feedback-research.md)，随后已完成限定范围的 [真实 IMAP 验收](real-imap-validation.md)。
 
 ```sh
 # 文件夹必须明确指定；Bounces 只是示例，需要先由操作者创建/配置路由。
@@ -60,6 +60,6 @@ relaytale feedback-collection-status --source purelymail-bounces --uidvalidity 4
 
 协议测试覆盖 TLS 证书拒绝、认证错误脱敏、EXAMINE、BODY.PEEK、超大 literal、中途超时和整体响应预算。PostgreSQL 测试覆盖中断后的逐封恢复、重复执行、超大/空/消失邮件、UID 间隙、身份冲突、epoch 变化及显式确认、容量停止、并发来源互斥、取消释放锁，以及审计失败/最终 COMMIT 失败时证据与游标共同回滚。
 
-本地验收通过：在独立 Compose 项目 `relaytale-7b2-test` 中运行 `make ci`，格式检查、go vet、构建、全仓库 race 测试均通过，最终 PostgreSQL 集成测试耗时约 80.5 秒。暂存差异检查及 Gitleaks 扫描通过。未完成真实 SpaceMail/Purelymail IMAP、账号权限及退信路由验收，不能把本阶段称为可信 DSN 自动化完成。
+本地验收通过：在独立 Compose 项目 `relaytale-7b2-test` 中运行 `make ci`，格式检查、go vet、构建、全仓库 race 测试均通过，最终 PostgreSQL 集成测试耗时约 80.5 秒。暂存差异检查及 Gitleaks 扫描通过。2026-09-18 已补充两家真实 IMAP 的登录、只读取件与存档验收，见 [结果记录](real-imap-validation.md)；可信来源、关联与 Purelymail DSN 仍待验证，不能把本阶段称为可信 DSN 自动化完成。
 
-下一步是在限定文件夹与范围内验收真实 IMAP 和 DSN 样本，再决定可信来源与逐收件人关联方案。没有可信证据时保持人工处理。
+下一步是补充 Purelymail DSN 样本，再验证可信来源与逐收件人关联方案。没有可信证据时保持人工处理。
