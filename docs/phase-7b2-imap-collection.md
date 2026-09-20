@@ -60,6 +60,6 @@ relaytale feedback-collection-status --source purelymail-bounces --uidvalidity 4
 
 协议测试覆盖 TLS 证书拒绝、认证错误脱敏、EXAMINE、BODY.PEEK、超大 literal、中途超时和整体响应预算。PostgreSQL 测试覆盖中断后的逐封恢复、重复执行、超大/空/消失邮件、UID 间隙、身份冲突、epoch 变化及显式确认、容量停止、并发来源互斥、取消释放锁，以及审计失败/最终 COMMIT 失败时证据与游标共同回滚。
 
-本地验收通过：在独立 Compose 项目 `relaytale-7b2-test` 中运行 `make ci`，格式检查、go vet、构建、全仓库 race 测试均通过，最终 PostgreSQL 集成测试耗时约 80.5 秒。暂存差异检查及 Gitleaks 扫描通过。2026-09-18 已补充两家真实 IMAP 的登录、只读取件与存档验收，见 [结果记录](real-imap-validation.md)；可信来源、关联与 Purelymail DSN 仍待验证，不能把本阶段称为可信 DSN 自动化完成。
+本地验收通过：在独立 Compose 项目 `relaytale-7b2-test` 中运行 `make ci`，格式检查、go vet、构建、全仓库 race 测试均通过，最终 PostgreSQL 集成测试耗时约 80.5 秒。暂存差异检查及 Gitleaks 扫描通过。2026-09-18 已补充两家真实 IMAP 的登录、只读取件与存档验收，见 [结果记录](real-imap-validation.md)；Purelymail 随后已取得受控真实 DSN，但格式兼容、可信来源与关联仍待验证，不能把本阶段称为可信 DSN 自动化完成。
 
-下一步是补充 Purelymail DSN 样本，再验证可信来源与逐收件人关联方案。没有可信证据时保持人工处理。
+下一步依据 [Purelymail 单封退信实验](purelymail-dsn-validation.md) 设计带格式问题说明的兼容解析，再验证可信来源与逐收件人关联方案。没有可信证据时保持人工处理。

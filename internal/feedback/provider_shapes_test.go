@@ -32,3 +32,22 @@ func TestProviderWelcomeMessageIsNotFeedback(t *testing.T) {
 		t.Fatal("ordinary welcome message accepted as DSN", err)
 	}
 }
+
+// Preserve conservative handling of the independently observed deviations in
+// the controlled Purelymail DSN. Do not derive structured fields from prose.
+func TestNonstandardProviderDSNStaysUnsupported(t *testing.T) {
+	cases := map[string]string{
+		"untyped-recipient":               strings.Replace(sample(failed), "Final-Recipient: rfc822; ", "Final-Recipient: ", 1),
+		"smtp-status-instead-of-enhanced": strings.Replace(sample(failed), "Status: 5.1.1", "Status: 554", 1),
+		"split-remote-fields":             sample(failed + "\r\nRemote-MTA: dns; mx.example.test\r\nLast-Attempt-Date: Fri, 18 Sep 2026 00:00:00 +0000\r\n"),
+	}
+	combined := "Final-Recipient: target@example.test\r\nAction: failed\r\nStatus: 554\r\nDiagnostic-Code: error; SMTPAddressFailedException: 554 5.1.1 rejected\r\n\r\nRemote-MTA: dns; mx.example.test\r\nLast-Attempt-Date: Fri, 18 Sep 2026 00:00:00 +0000\r\n"
+	cases["combined-provider-shape"] = sample(combined)
+	for name, raw := range cases {
+		t.Run(name, func(t *testing.T) {
+			if _, err := Parse([]byte(raw)); !errors.Is(err, ErrFormat) {
+				t.Fatal("nonstandard report silently repaired", err)
+			}
+		})
+	}
+}
