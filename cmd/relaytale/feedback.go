@@ -14,11 +14,18 @@ import (
 func runFeedback(ctx context.Context, db *sql.DB, command string, args []string) error {
 	fs := flag.NewFlagSet(command, flag.ContinueOnError)
 	s := feedback.Service{DB: db}
+	var search feedback.CandidateRequest
 	var inspect feedback.InspectRequest
 	var v feedback.ImportRequest
 	var id, digest, after, path string
 	limit := 100
 	switch command {
+	case "find-feedback-candidates":
+		fs.StringVar(&search.FeedbackID, "id", "", "feedback UUID")
+		fs.StringVar(&search.ExpectedSHA256, "expected-sha256", "", "evidence digest")
+		fs.StringVar(&search.RFCMessageID, "rfc-message-id", "", "exact original Message-ID search hint")
+		fs.IntVar(&search.ReportIndex, "report-index", 0, "strict recipient report index")
+		fs.IntVar(&search.Limit, "limit", 20, "candidate cap 1..50")
 	case "explain-feedback":
 		fs.StringVar(&id, "id", "", "feedback UUID")
 		fs.StringVar(&digest, "expected-sha256", "", "digest of evidence")
@@ -57,6 +64,12 @@ func runFeedback(ctx context.Context, db *sql.DB, command string, args []string)
 	}
 	var result any
 	switch command {
+	case "find-feedback-candidates":
+		found, err := s.Candidates(ctx, search)
+		if err != nil {
+			return errors.New("candidate search failed; verify evidence, hint, bounds and database")
+		}
+		result = found
 	case "explain-feedback":
 		explanation, err := s.ExplainStored(ctx, id, digest)
 		if err != nil {

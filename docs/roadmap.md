@@ -103,6 +103,8 @@ Generic SMTP（STARTTLS / implicit TLS）、Provider 凭证加密、priority 与
 
 **7B.3：非标准退信兼容说明。** 已提供只读 explain-feedback，分开保留原始字段、格式问题与辅助提示；旧 UNSUPPORTED 状态不变，说明不进入关联决策，不触发抑制。详见 [阶段说明](phase-7b3-feedback-explanation.md)。
 
+**7B.4：退信关联候选查询。** 已实现按操作者提供的 Message-ID 线索，在统一只读快照中列出消息/尝试/收件人候选并复用预检规则；重复 Message-ID、超限和 UNKNOWN 均显式说明，不授予信任或自动处置权限。见 [阶段说明](phase-7b4-feedback-candidates.md)。
+
 **7B：可信通道与自动处理（其余部分待实现）。** 必须先验收来源认证、账号归属与 attempt/recipient 关联，不通过人工传入 trusted 标记启用自动封禁。完整 Phase 7 的目标仍是：
 
 在 5A 的可信来源与关联设计基础上，实现已选定通道的接收、解析、去重、逐收件人反馈状态及保守自动抑制。可根据可用 Provider 通道在 UI 开发期间推进，但完整 UI 不是其安全依赖。

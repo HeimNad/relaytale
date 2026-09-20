@@ -45,6 +45,20 @@ func (s Service) Inspect(ctx context.Context, v InspectRequest) (Inspection, err
 		return Inspection{}, err
 	}
 	defer tx.Rollback()
+	out, err := inspectSnapshot(ctx, tx, v)
+	if err != nil {
+		return Inspection{}, err
+	}
+	if err = tx.Commit(); err != nil {
+		return Inspection{}, err
+	}
+	return out, nil
+}
+
+// inspectSnapshot is shared by explicit inspection and candidate discovery so
+// every candidate uses the same rules and database snapshot.
+func inspectSnapshot(ctx context.Context, tx *sql.Tx, v InspectRequest) (Inspection, error) {
+	var err error
 	var out Inspection
 	out.Request = v
 	if err = tx.QueryRowContext(ctx, `SELECT transaction_timestamp()`).Scan(&out.SnapshotAt); err != nil {
@@ -91,8 +105,5 @@ func (s Service) Inspect(ctx context.Context, v InspectRequest) (Inspection, err
 	out.CurrentStatus = e.CurrentStatus
 	out.AttemptStatus = e.AttemptStatus
 	out.Assessment = Assess(e)
-	if err = tx.Commit(); err != nil {
-		return Inspection{}, err
-	}
 	return out, nil
 }
