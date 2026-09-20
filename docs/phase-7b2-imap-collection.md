@@ -62,4 +62,4 @@ relaytale feedback-collection-status --source purelymail-bounces --uidvalidity 4
 
 本地验收通过：在独立 Compose 项目 `relaytale-7b2-test` 中运行 `make ci`，格式检查、go vet、构建、全仓库 race 测试均通过，最终 PostgreSQL 集成测试耗时约 80.5 秒。暂存差异检查及 Gitleaks 扫描通过。2026-09-18 已补充两家真实 IMAP 的登录、只读取件与存档验收，见 [结果记录](real-imap-validation.md)；Purelymail 随后已取得受控真实 DSN，但格式兼容、可信来源与关联仍待验证，不能把本阶段称为可信 DSN 自动化完成。
 
-下一步依据 [Purelymail 单封退信实验](purelymail-dsn-validation.md) 设计带格式问题说明的兼容解析，再验证可信来源与逐收件人关联方案。没有可信证据时保持人工处理。
+已依据 [Purelymail 单封退信实验](purelymail-dsn-validation.md) 完成 [7B.3 只读兼容说明](phase-7b3-feedback-explanation.md)，下一步仍需验证可信来源与逐收件人关联方案。没有可信证据时保持人工处理。

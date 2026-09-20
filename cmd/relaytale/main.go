@@ -51,7 +51,7 @@ func run(log *slog.Logger) error {
 		case "license":
 			fmt.Print(project.LicenseText)
 			return nil
-		case "inspect-feedback", "import-feedback", "list-feedback", "show-feedback", "dismiss-feedback", "preflight-eml", "add-suppression", "release-suppression", "list-suppressions", "resolve-unknown", "export-records", "cleanup", "list-providers", "test-provider", "doctor":
+		case "explain-feedback", "inspect-feedback", "import-feedback", "list-feedback", "show-feedback", "dismiss-feedback", "preflight-eml", "add-suppression", "release-suppression", "list-suppressions", "resolve-unknown", "export-records", "cleanup", "list-providers", "test-provider", "doctor":
 			return runOperation(os.Args[1], os.Args[2:])
 		}
 	}

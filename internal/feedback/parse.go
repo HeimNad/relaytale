@@ -50,9 +50,19 @@ func Read(r io.Reader) ([]byte, error) {
 // Parse accepts a top-level RFC 3464 report only, never a forwarded/nested DSN.
 // Human-readable and returned-message parts are opaque and cannot supply fields.
 func Parse(raw []byte) (Report, error) {
-	bad := func() (Report, error) { return Report{}, ErrFormat }
+	body, err := statusBody(raw)
+	if err != nil {
+		return Report{}, err
+	}
+	return parseStatus(body)
+}
+
+// statusBody enforces the same bounded MIME envelope for strict parsing and
+// advisory explanation. Returned-message and human-readable parts stay opaque.
+func statusBody(raw []byte) ([]byte, error) {
+	bad := func() ([]byte, error) { return nil, ErrFormat }
 	if len(raw) == 0 || len(raw) > MaxBytes {
-		return Report{}, ErrSize
+		return nil, ErrSize
 	}
 	m, err := mail.ReadMessage(bytes.NewReader(raw))
 	if err != nil {
@@ -66,7 +76,7 @@ func Parse(raw []byte) (Report, error) {
 		return bad()
 	}
 	parts := multipart.NewReader(m.Body, params["boundary"])
-	var report Report
+	var status []byte
 	count := 0
 	for {
 		p, e := parts.NextRawPart()
@@ -97,10 +107,7 @@ func Parse(raw []byte) (Report, error) {
 			if e != nil || len(body) > maxStatusBytes {
 				return bad()
 			}
-			report, e = parseStatus(body)
-			if e != nil {
-				return bad()
-			}
+			status = body
 		case 3:
 			if typ != "message/rfc822" && typ != "text/rfc822-headers" {
 				return bad()
@@ -113,7 +120,7 @@ func Parse(raw []byte) (Report, error) {
 	if count < 2 {
 		return bad()
 	}
-	return report, nil
+	return status, nil
 }
 func plainEncoding(h textproto.MIMEHeader) bool {
 	if len(h["Content-Transfer-Encoding"]) > 1 {

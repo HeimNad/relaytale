@@ -19,6 +19,9 @@ func runFeedback(ctx context.Context, db *sql.DB, command string, args []string)
 	var id, digest, after, path string
 	limit := 100
 	switch command {
+	case "explain-feedback":
+		fs.StringVar(&id, "id", "", "feedback UUID")
+		fs.StringVar(&digest, "expected-sha256", "", "digest of evidence")
 	case "inspect-feedback":
 		fs.StringVar(&inspect.FeedbackID, "id", "", "feedback UUID")
 		fs.StringVar(&inspect.ExpectedSHA256, "expected-sha256", "", "digest of inspected evidence")
@@ -54,6 +57,12 @@ func runFeedback(ctx context.Context, db *sql.DB, command string, args []string)
 	}
 	var result any
 	switch command {
+	case "explain-feedback":
+		explanation, err := s.ExplainStored(ctx, id, digest)
+		if err != nil {
+			return errors.New("feedback explanation unavailable; verify ID, digest and bounded DSN structure")
+		}
+		result = explanation
 	case "inspect-feedback":
 		inspection, err := s.Inspect(ctx, inspect)
 		if err != nil {
