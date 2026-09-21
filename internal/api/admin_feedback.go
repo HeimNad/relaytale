@@ -163,3 +163,15 @@ func (a Management) feedbackCandidates(w http.ResponseWriter, r *http.Request) {
 	}
 	output(w, 200, result)
 }
+
+func (a Management) feedbackCapacity(w http.ResponseWriter, r *http.Request) {
+	if _, ok := feedbackQuery(w, r); !ok {
+		return
+	}
+	value, err := (feedback.Service{DB: a.DB}).Capacity(r.Context())
+	if err != nil {
+		failure(w, err)
+		return
+	}
+	output(w, 200, value)
+}

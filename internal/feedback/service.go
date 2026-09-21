@@ -13,6 +13,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 type Service struct{ DB *sql.DB }
@@ -107,6 +108,10 @@ func importRaw(ctx context.Context, tx *sql.Tx, v ImportRequest, raw []byte) (st
 	id := uuid.Must(uuid.NewV7()).String()
 	res, err := tx.ExecContext(ctx, `INSERT INTO feedback_reports(id,source,external_id,sha256,raw,parsed,parse_state,actor,reason) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT(source,external_id,sha256) DO NOTHING`, id, v.Source, v.ExternalID, digest, raw, string(payload), state, v.Actor, v.Reason)
 	if err != nil {
+		var pgerr *pgconn.PgError
+		if errors.As(err, &pgerr) && pgerr.Code == "P7501" {
+			return "", false, ErrCapacity
+		}
 		return "", false, err
 	}
 	n, err := res.RowsAffected()

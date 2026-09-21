@@ -16,7 +16,7 @@ import (
 
 var ErrCollectorBusy = errors.New("feedback collector already running for this source")
 var ErrMailboxChanged = errors.New("mailbox identity or UID epoch changed; manual review required")
-var ErrCapacity = errors.New("feedback collection storage quota reached")
+var ErrCapacity = errors.New("feedback evidence or collector storage quota reached")
 var sourceName = regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`)
 
 const CollectorMaxBytes = 100 << 20

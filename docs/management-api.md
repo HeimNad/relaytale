@@ -55,6 +55,8 @@
 
 Phase 7B.5 新增 `/feedback` 列表、`/feedback/{id}` 详情，以及其 `/explanation` 和 `/candidates` 子路径。它们允许所有管理角色只读查询；反馈解析字段及诊断文字属于新增可读范围，可能含收件人信息，不能视为可信事实。完整参数、错误码和隐私边界见 [反馈工作台](phase-7b5-feedback-workspace.md)。
 
+新增 `GET /feedback-capacity` 返回全局证据 records、stored_bytes、max_records、max_bytes 和 at_limit，所有管理角色只读访问，不接受参数。逻辑字节不等于物理磁盘用量，详见 [总容量保护](phase-7b6-feedback-capacity.md)。
+
 ## Provider 写入
 
 创建：`POST /providers`，请求含客户端生成的 UUID `id`、`settings`、`password`、`reason`。重复 UUID/名称返回 409，避免网络结果不确定后重复创建。新 ID 必须由客户端保存，失败后先查询再决定下一步。
