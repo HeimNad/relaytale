@@ -3,20 +3,22 @@ package integration
 import (
 	"context"
 	"encoding/json"
-	"github.com/google/uuid"
 	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"os/signal"
-	"relaytale/internal/database"
 	"strings"
 	"syscall"
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+
 	"relaytale/internal/api"
 	"relaytale/internal/auth"
+	"relaytale/internal/database"
+	"relaytale/internal/feedback"
 	"relaytale/internal/testsmtp"
 )
 
@@ -54,6 +56,16 @@ func TestBrowserWorkspaceFixture(t *testing.T) {
 	third := f.seed(t)
 	mustExec(t, f, `UPDATE messages SET subject=$2 WHERE id=$1`, third, "欢迎使用 RelayTale / 集成验证")
 	mustExec(t, f, `UPDATE providers SET name='本地验证通道' WHERE from_domains=ARRAY[$1]`, f.domain)
+	mustExec(t, f, `UPDATE messages SET message_id='<browser-feedback@example.test>' WHERE id=$1`, mid)
+	for _, sample := range []struct{ source, raw string }{
+		{"浏览器退信样例", feedbackRaw("one@example.test")},
+		{"格式异常样例", strings.Replace(feedbackRaw("one@"+f.domain), "Status: 5.1.1", "Status: 554", 1)},
+	} {
+		_, err := (feedback.Service{DB: f.db}).Import(context.Background(), feedback.ImportRequest{Source: sample.source, Actor: "browser-test", Reason: "synthetic fixture"}, strings.NewReader(sample.raw))
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
 	hash, err := auth.Hash("browser-test-password-only")
 	if err != nil {
 		t.Fatal(err)

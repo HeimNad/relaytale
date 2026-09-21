@@ -128,6 +128,10 @@ type principalKey struct{}
 
 func (a Management) operations() http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /admin/v1/feedback", a.feedbackList)
+	mux.HandleFunc("GET /admin/v1/feedback/{id}", a.feedbackDetail)
+	mux.HandleFunc("GET /admin/v1/feedback/{id}/explanation", a.feedbackExplain)
+	mux.HandleFunc("GET /admin/v1/feedback/{id}/candidates", a.feedbackCandidates)
 	mux.HandleFunc("GET /admin/v1/providers", a.providers)
 	mux.HandleFunc("GET /admin/v1/providers/{id}", a.provider)
 	mux.HandleFunc("POST /admin/v1/providers", a.createProvider)

@@ -13,6 +13,7 @@ const titles = {
   messages: "邮件记录",
   providers: "发送通道",
   suppressions: "地址抑制",
+  feedback: "反馈待查",
   access: "访问与说明",
 };
 const roles = { admin: "管理员", operator: "操作员", viewer: "只读观察员" };
@@ -1125,6 +1126,10 @@ function route(reset = true) {
   }
   if (view === "messages" && parts[1])
     work = messageDetail(parts[1], generation);
+  else if (view === "feedback")
+    work = parts[1]
+      ? feedbackDetail(parts[1], generation)
+      : feedbackList(generation);
   else work = listPage(view, generation);
   work.catch((e) => {
     if (S.generation !== generation) return;
@@ -1156,3 +1161,261 @@ request("session")
 $("#modal").addEventListener("close", () => {
   if (!$("#modal").open) $("#modal").replaceChildren();
 });
+
+function feedbackJSON(value) {
+  return el("pre", { class: "feedback-data" }, JSON.stringify(value, null, 2));
+}
+async function feedbackList(generation) {
+  const data = await api(
+    "feedback?limit=50" +
+      (S.after ? "&after=" + encodeURIComponent(S.after) : ""),
+  );
+  if (S.generation !== generation) return;
+  $("#view").replaceChildren(
+    heading(
+      "反馈待查",
+      "收件箱中的反馈仅作为待核对证据，来源未经验证。",
+      button("刷新", () => route(false)),
+    ),
+    el(
+      "div",
+      { class: "panel" },
+      data.items.length
+        ? table(
+            ["来源", "接收时间", "解析", "状态"],
+            data.items.map((x) =>
+              el(
+                "tr",
+                {},
+                el(
+                  "td",
+                  {},
+                  el(
+                    "a",
+                    { href: "#feedback/" + encodeURIComponent(x.id) },
+                    x.source,
+                  ),
+                ),
+                el("td", {}, date(x.created_at)),
+                el(
+                  "td",
+                  {},
+                  x.parse_state === "PARSED" ? "已解析 · 未验证" : "格式待查",
+                ),
+                el(
+                  "td",
+                  {},
+                  {
+                    QUARANTINED: "待核对",
+                    DISMISSED: "已归档处置",
+                    CONFLICT: "来源记录冲突",
+                  }[x.state] || x.state,
+                ),
+              ),
+            ),
+          )
+        : empty("还没有反馈记录", "收集或导入的反馈会显示在这里。"),
+      pager(data, () => route(false)),
+    ),
+  );
+}
+async function feedbackDetail(id, generation) {
+  const base = "feedback/" + encodeURIComponent(id);
+  const entry = await api(base);
+  if (S.generation !== generation) return;
+  const explanation = el("div", { "aria-live": "polite" });
+  const results = el("div", { "aria-live": "polite" });
+  const explain = button("查看格式说明", async () => {
+    explain.disabled = true;
+    explanation.textContent = "正在核对格式…";
+    try {
+      const data = await api(
+        base +
+          "/explanation?" +
+          new URLSearchParams({ expected_sha256: entry.sha256 }),
+      );
+      if (S.generation !== generation) return;
+      explanation.replaceChildren(
+        el(
+          "p",
+          {},
+          data.strictly_parsed
+            ? "严格解析通过，来源仍未经验证。"
+            : "严格解析未通过；以下说明仅用于人工排查。",
+        ),
+        feedbackJSON({ issues: data.issues, blocks: data.blocks }),
+      );
+    } catch (e) {
+      if (S.generation === generation)
+        explanation.textContent =
+          e.status === 422
+            ? "无法提供格式说明：这可能不是支持的退信格式。"
+            : errorText(e);
+    } finally {
+      explain.disabled = false;
+    }
+  });
+  const hint = el("input", {
+    id: "feedback-hint",
+    required: "",
+    maxlength: "998",
+    placeholder: "<original@example.test>",
+    autocomplete: "off",
+  });
+  const index = el("input", {
+    id: "feedback-index",
+    type: "number",
+    min: "0",
+    max: "99",
+    step: "1",
+    value: "0",
+    required: "",
+  });
+  const submit = el(
+    "button",
+    { type: "submit", class: "primary" },
+    "查找关联候选",
+  );
+  const form = el(
+    "form",
+    {
+      class: "feedback-form",
+      onsubmit: async (e) => {
+        e.preventDefault();
+        if (submit.disabled) return;
+        submit.disabled = true;
+        results.textContent = "正在查找候选…";
+        try {
+          const data = await api(
+            base +
+              "/candidates?" +
+              new URLSearchParams({
+                expected_sha256: entry.sha256,
+                rfc_message_id: hint.value,
+                report_index: index.value,
+                limit: "25",
+              }),
+          );
+          if (S.generation !== generation) return;
+          results.replaceChildren(
+            ...[
+              el(
+                "p",
+                {},
+                `${data.candidates.length} 个候选。候选仅供核对，不能证明反馈真实。`,
+              ),
+              data.multiple_messages
+                ? el(
+                    "p",
+                    { class: "feedback-warning" },
+                    "多个邮件使用相同 Message-ID，无法唯一关联。",
+                  )
+                : null,
+              data.truncated
+                ? el(
+                    "p",
+                    { class: "feedback-warning" },
+                    "结果超过 25 条，当前列表不完整。",
+                  )
+                : null,
+              el(
+                "details",
+                {},
+                el("summary", {}, "查询判定依据"),
+                feedbackJSON(data.reasons),
+              ),
+              data.candidates.map((c) =>
+                el(
+                  "section",
+                  { class: "feedback-candidate" },
+                  el(
+                    "a",
+                    {
+                      href:
+                        "#messages/" + encodeURIComponent(c.request.message_id),
+                    },
+                    "查看本地邮件记录",
+                  ),
+                  facts({
+                    当前投递状态:
+                      states[c.current_status]?.[0] || c.current_status,
+                    本地关联条件: c.assessment.candidate_matches
+                      ? "符合 · 仍未验证来源"
+                      : "不符合或存在歧义",
+                    收件人记录: c.request.recipient_id,
+                    投递尝试: c.request.attempt_id,
+                  }),
+                  el(
+                    "details",
+                    {},
+                    el("summary", {}, "候选判定依据"),
+                    feedbackJSON(c.assessment),
+                  ),
+                ),
+              ),
+            ]
+              .flat()
+              .filter((x) => x !== null),
+          );
+        } catch (e) {
+          if (S.generation === generation)
+            results.textContent =
+              e.status === 422
+                ? "无法查询候选，请核对收件人区块编号或稍后重试。"
+                : errorText(e);
+        } finally {
+          submit.disabled = false;
+        }
+      },
+    },
+    el("label", { for: "feedback-hint" }, "原始 Message-ID（人工提供）"),
+    hint,
+    el("label", { for: "feedback-index" }, "收件人区块编号（从 0 开始）"),
+    index,
+    submit,
+  );
+  $("#view").replaceChildren(
+    heading(
+      "反馈详情",
+      "核对反馈声称的结果与本地投递事实。",
+      el("a", { href: "#feedback" }, "返回反馈列表"),
+    ),
+    el(
+      "div",
+      { class: "feedback-warning", role: "note" },
+      "来源未经验证 · 自动处置关闭。查看、解释和查询均不会修改投递状态或地址抑制。",
+    ),
+    el(
+      "section",
+      { class: "panel feedback-panel" },
+      el("h2", {}, "保存的证据"),
+      facts({
+        来源: entry.source,
+        记录状态: entry.state,
+        解析状态: entry.parse_state,
+        接收时间: date(entry.created_at),
+        "证据摘要 SHA-256": entry.sha256,
+      }),
+      el(
+        "details",
+        {},
+        el("summary", {}, "反馈声明（未经验证）"),
+        feedbackJSON(entry.report),
+      ),
+      explain,
+      explanation,
+    ),
+    el(
+      "section",
+      { class: "panel feedback-panel" },
+      el("h2", {}, "关联候选"),
+      el(
+        "p",
+        {},
+        "请从原始发件记录提供 Message-ID。即使找到候选，也不会把反馈升级为可信来源。",
+      ),
+      form,
+      results,
+    ),
+  );
+}
