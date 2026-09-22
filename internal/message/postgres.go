@@ -24,10 +24,21 @@ func (p Postgres) Enqueue(ctx context.Context, s Submission) error {
 	if _, err = tx.ExecContext(ctx, `SET LOCAL synchronous_commit = on`); err != nil {
 		return err
 	}
+	if err = enqueueTx(ctx, tx, s, "smtp", "", ""); err != nil {
+		return err
+	}
+	if err = tx.Commit(); err != nil {
+		return fmt.Errorf("commit: %w", err)
+	}
+	return nil
+}
+
+// enqueueTx keeps SMTP and API recipient, suppression and event semantics shared.
+func enqueueTx(ctx context.Context, tx *sql.Tx, s Submission, source, apiKeyID, keyHash string) error {
 	queued := time.Now().UTC()
-	_, err = tx.ExecContext(ctx, `INSERT INTO messages
- (id,message_id,source_type,smtp_account_id,envelope_from,header_from,subject,created_at,queued_at,status,eml_path,eml_size,eml_sha256,next_attempt_at)
- VALUES($1,$2,'smtp',$3,$4,$5,$6,$7,$8,'QUEUED',$9,$10,$11,$8)`, s.ID, s.MessageID, s.Envelope.Account.ID, s.Envelope.From, s.HeaderFrom, s.Subject, s.ReceivedAt, queued, s.Archive.Path, s.Archive.Size, s.Archive.SHA256)
+	_, err := tx.ExecContext(ctx, `INSERT INTO messages
+ (id,message_id,source_type,smtp_account_id,envelope_from,header_from,subject,created_at,queued_at,status,eml_path,eml_size,eml_sha256,next_attempt_at,api_key_id,idempotency_key)
+ VALUES($1,$2,$12,NULLIF($3,'')::uuid,$4,$5,$6,$7,$8,'QUEUED',$9,$10,$11,$8,NULLIF($13,'')::uuid,NULLIF($14,''))`, s.ID, s.MessageID, s.Envelope.Account.ID, s.Envelope.From, s.HeaderFrom, s.Subject, s.ReceivedAt, queued, s.Archive.Path, s.Archive.Size, s.Archive.SHA256, source, apiKeyID, keyHash)
 	if err != nil {
 		return err
 	}
@@ -65,19 +76,16 @@ func (p Postgres) Enqueue(ctx context.Context, s Submission) error {
 		if err != nil {
 			return err
 		}
-		data, err := json.Marshal(map[string]any{"source": "smtp"})
+		data, err := json.Marshal(map[string]any{"source": source})
 		if err != nil {
 			return err
 		}
-		if _, err = tx.ExecContext(ctx, `INSERT INTO events(id,message_id,event_type,event_time,source,data) VALUES($1,$2,$3,$4,'smtp',$5)`, id.String(), s.ID, event.kind, event.at, string(data)); err != nil {
+		if _, err = tx.ExecContext(ctx, `INSERT INTO events(id,message_id,event_type,event_time,source,data) VALUES($1,$2,$3,$4,$6,$5)`, id.String(), s.ID, event.kind, event.at, string(data), source); err != nil {
 			return err
 		}
 	}
 	if _, err = tx.ExecContext(ctx, `SELECT pg_notify('queue_new_message',$1) FROM messages WHERE id=$1::uuid AND status='QUEUED'`, s.ID); err != nil {
 		return err
-	}
-	if err = tx.Commit(); err != nil {
-		return fmt.Errorf("commit: %w", err)
 	}
 	return nil
 }
