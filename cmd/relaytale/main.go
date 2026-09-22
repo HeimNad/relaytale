@@ -108,7 +108,11 @@ func run(log *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	srv := &http.Server{Handler: api.Handler(db, func() error { return storage.CheckWritable(cfg.StorageDir) }, &metrics.Handler{DB: db, Resources: resources, Token: cfg.MetricsToken}, admin), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 60 * time.Second}
+	send, err := api.NewSendHandler(startup, cfg.SendAPIKeys, message.APIReceiver{Store: storage.LocalStore{Root: cfg.StorageDir, MaxBytes: cfg.MaxMessageBytes}, Repo: message.Postgres{DB: db}, Resources: resources, SnapshotDir: cfg.SnapshotDir, MaxBytes: cfg.MaxMessageBytes})
+	if err != nil {
+		return err
+	}
+	srv := &http.Server{Handler: api.Handler(db, func() error { return storage.CheckWritable(cfg.StorageDir) }, &metrics.Handler{DB: db, Resources: resources, Token: cfg.MetricsToken}, admin, send), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 60 * time.Second}
 	result := make(chan error, 2)
 	var shutdownSMTP func(context.Context) error
 	var closeSMTP func() error

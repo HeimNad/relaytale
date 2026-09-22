@@ -13,6 +13,9 @@ type Pinger interface{ PingContext(context.Context) error }
 
 func Handler(db Pinger, storageCheck func() error, metrics ...http.Handler) http.Handler {
 	mux := http.NewServeMux()
+	if len(metrics) > 2 && metrics[2] != nil {
+		mux.Handle("/v1/", metrics[2])
+	}
 	if len(metrics) > 1 && metrics[1] != nil {
 		mux.Handle("/admin/", metrics[1])
 		mux.Handle("/console/", metrics[1])

@@ -16,6 +16,7 @@ import (
 )
 
 type Config struct {
+	SendAPIKeys             string `yaml:"-"`
 	AdminAPIKeys            string `yaml:"-"`
 	WebUIOrigin             string `yaml:"-"`
 	WebUIUsers              string `yaml:"-"`
@@ -151,6 +152,25 @@ func Load(args []string) (Config, error) {
 	c.MasterKey = encryption.EnvironmentKey()
 	c.MetricsToken = os.Getenv("METRICS_BEARER_TOKEN")
 	c.AdminAPIKeys = os.Getenv("ADMIN_API_KEYS")
+	c.SendAPIKeys = os.Getenv("SEND_API_KEYS")
+	sendKeys, err := api.ParseSendKeys(c.SendAPIKeys)
+	if err != nil {
+		return c, err
+	}
+	adminKeys, err := api.ParsePrincipals(c.AdminAPIKeys)
+	if err != nil {
+		return c, err
+	}
+	for _, key := range sendKeys {
+		if key.Token == c.MetricsToken {
+			return c, errors.New("send and metrics tokens must differ")
+		}
+		for _, admin := range adminKeys {
+			if key.Token == admin.Token {
+				return c, errors.New("send and admin tokens must differ")
+			}
+		}
+	}
 	c.WebUIOrigin = os.Getenv("WEB_UI_ORIGIN")
 	c.WebUIUsers = os.Getenv("WEB_UI_USERS")
 	if _, err := api.ValidateWeb(api.WebConfig{Origin: c.WebUIOrigin, Users: c.WebUIUsers}); err != nil {
@@ -288,6 +308,9 @@ func Load(args []string) (Config, error) {
 	}
 	if c.HTTPAddr == "" || c.StorageDir == "" || c.ShutdownTimeout <= 0 {
 		return c, errors.New("listen address, storage directory and positive shutdown timeout are required")
+	}
+	if len(sendKeys) > 0 && (c.MaxMessageBytes > 100<<20 || c.SpoolBudget < 2*(c.MaxMessageBytes+1)) {
+		return c, errors.New("HTTP submission requires max_message_bytes <= 100 MiB and spool budget for two full payloads")
 	}
 	if c.MaxMessageBytes <= 0 || c.MaxMessageBytes > 1024*1024*1024 {
 		return c, errors.New("message size must be between 1 byte and 1 GiB")
