@@ -47,6 +47,7 @@ func runOperation(command string, args []string) error {
 		fs := flag.NewFlagSet(command, flag.ContinueOnError)
 		root := fs.String("storage-dir", os.Getenv("EML_STORAGE_DIR"), "archive root")
 		day := fs.String("date", "", "required UTC archive day YYYY-MM-DD")
+		after := fs.String("after-cursor", "", "opaque cursor from next_after, same root/date")
 		limit := fs.Int("limit", 1000, "maximum directory entries (1..10000)")
 		if err := fs.Parse(args); err != nil {
 			return err
@@ -57,11 +58,11 @@ func runOperation(command string, args []string) error {
 		if *root == "" {
 			*root = "data/eml"
 		}
-		report, err := operations.InventoryArchives(ctx, db, *root, *day, *limit)
+		report, err := operations.InventoryArchivesPage(ctx, db, *root, *day, *after, *limit)
 		if writeErr := json.NewEncoder(os.Stdout).Encode(report); writeErr != nil {
 			return writeErr
 		}
-		if err != nil || !report.Complete {
+		if err != nil {
 			return errors.New("inventory incomplete; verify database, date, directory and limit; no deletion is authorized")
 		}
 		return nil

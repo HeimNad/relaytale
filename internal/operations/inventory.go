@@ -3,8 +3,8 @@ package operations
 import (
 	"context"
 	"database/sql"
+	"encoding/base64"
 	"errors"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -20,6 +20,7 @@ type ArchiveInventoryItem struct {
 type ArchiveInventoryReport struct {
 	Complete  bool                   `json:"complete"`
 	Truncated bool                   `json:"truncated"`
+	NextAfter string                 `json:"next_after"`
 	Scanned   int                    `json:"scanned"`
 	Items     []ArchiveInventoryItem `json:"items"`
 }
@@ -28,9 +29,23 @@ type ArchiveInventoryReport struct {
 // A missing visible reference is never permission to delete: a writer may still
 // be publishing or committing, and filesystem and SQL snapshots are not atomic.
 func InventoryArchives(ctx context.Context, db *sql.DB, root, day string, limit int) (report ArchiveInventoryReport, err error) {
+	return InventoryArchivesPage(ctx, db, root, day, "", limit)
+}
+
+// InventoryArchivesPage resumes strictly after a basename in lexical order.
+// Cursors are only valid for the same root/day; concurrent changes are not a snapshot.
+func InventoryArchivesPage(ctx context.Context, db *sql.DB, root, day, cursor string, limit int) (report ArchiveInventoryReport, err error) {
 	report.Items = []ArchiveInventoryItem{}
+	if len(cursor) > 340 {
+		return report, errors.New("invalid inventory cursor")
+	}
+	decoded, e := base64.RawURLEncoding.DecodeString(cursor)
+	if e != nil {
+		return report, errors.New("invalid inventory cursor")
+	}
+	after := string(decoded)
 	date, e := time.Parse("2006-01-02", day)
-	if e != nil || date.Format("2006-01-02") != day || limit < 1 || limit > 10000 || root == "" {
+	if e != nil || date.Format("2006-01-02") != day || limit < 1 || limit > 10000 || root == "" || len(after) > 255 || strings.ContainsAny(after, "/\x00") || after == "." || after == ".." {
 		return report, errors.New("invalid inventory bounds")
 	}
 	rootAbs, e := filepath.Abs(root)
@@ -60,25 +75,24 @@ func InventoryArchives(ctx context.Context, db *sql.DB, root, day string, limit 
 		return report, e
 	}
 	defer folder.Close()
-	// ReadDir(n) bounds memory even in an unexpectedly huge archive directory.
-	entries, e := folder.ReadDir(limit + 1)
-	if e != nil && !errors.Is(e, io.EOF) {
+	names, e := inventoryPageNames(ctx, folder, after, limit+1)
+	if e != nil {
 		return report, e
 	}
-	if len(entries) > limit {
+	if len(names) > limit {
 		report.Truncated = true
-		entries = entries[:limit]
+		names = names[:limit]
 	}
 	tx, e := db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if e != nil {
 		return report, e
 	}
 	defer tx.Rollback()
-	for _, entry := range entries {
+	for _, name := range names {
 		if e = ctx.Err(); e != nil {
 			return report, e
 		}
-		path := filepath.Join(relative, entry.Name())
+		path := filepath.Join(relative, name)
 		item := ArchiveInventoryItem{Path: filepath.ToSlash(path)}
 		info, e := dir.Lstat(path)
 		if e != nil {
@@ -86,9 +100,9 @@ func InventoryArchives(ctx context.Context, db *sql.DB, root, day string, limit 
 		} else if !info.Mode().IsRegular() {
 			item.Reason = "NON_REGULAR_ENTRY"
 		} else {
-			id := strings.TrimSuffix(entry.Name(), ".eml")
+			id := strings.TrimSuffix(name, ".eml")
 			parsed, e := uuid.Parse(id)
-			if e != nil || parsed.String() != id || entry.Name() != id+".eml" {
+			if e != nil || parsed.String() != id || name != id+".eml" {
 				item.Reason = "UNRECOGNIZED_NAME"
 			} else {
 				var referenced bool
@@ -108,6 +122,9 @@ func InventoryArchives(ctx context.Context, db *sql.DB, root, day string, limit 
 	}
 	if e = tx.Commit(); e != nil {
 		return report, e
+	}
+	if len(names) > 0 {
+		report.NextAfter = base64.RawURLEncoding.EncodeToString([]byte(names[len(names)-1]))
 	}
 	report.Complete = !report.Truncated
 	return report, nil

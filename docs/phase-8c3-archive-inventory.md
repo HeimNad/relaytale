@@ -10,7 +10,7 @@ relaytale inventory-eml --storage-dir data/eml --date 2026-09-25 --limit 1000
 
 ## 输出
 
-JSON 包含 `complete`、`truncated`、`scanned`、`items`；每项只有根目录内相对路径和分类，不含 MIME、主题或地址。
+JSON 包含 `complete`、`truncated`、`next_after`、`scanned`、`items`；每项只有根目录内相对路径和分类，不含 MIME、主题或地址。
 
 | 分类 | 含义 |
 | --- | --- |
@@ -24,11 +24,11 @@ JSON 包含 `complete`、`truncated`、`scanned`、`items`；每项只有根目�
 
 ## 有界扫描与局限
 
-每次只读一个日期目录，最多加载 limit+1 个条目；超过限制则 `truncated=true`、`complete=false`，CLI 返回非零。扫描顺序采用文件系统目录顺序，不支持游标，重复扫描并不保证推进；可在 10000 上限内增大 limit，超过上限的日期仍需后续分页工具。`complete=true` 仅代表选定日期的本次目录读取结束，不表示整个存储已扫描，也不表示没有需核查项。
+每次只核对一个日期目录。8C.4 起支持分页：超过 limit 则 `truncated=true`、`complete=false`，成功页退出码仍为 0，使用 `next_after` 作为 `--after-cursor` 继续，直至 `complete=true`。实际读目录或数据库失败仍返回非零，不提供下一页游标。扫描限制与并发边界见 [分页说明](phase-8c4-inventory-pagination.md)。`complete=true` 仅表示本次页已到所选日期目录末尾，不代表整个存储已扫描或文件可以删除。
 
 日期路径组件拒绝符号链接，文件元信息通过 os.Root 限定访问范围。数据库和文件系统不是同一原子快照；并发接收、提交、文件更名或特殊历史路径别名可能导致暂时未匹配。命令不会给出“安全删除”判断，也不通过文件年龄推断可删除。生产中核查应同时检查运行中的接收任务、配置的根目录和历史路径记录。
 
-此前 `preflight-eml` 从数据库检查待投递原文的存在、长度、摘要及 CRLF；本命令从磁盘查看可见引用，两者方向不同。终态消息的全面内容校验、全存储分页、候选持久化与安全回收仍待实现，完整 8C 尚未核销。
+此前 `preflight-eml` 从数据库检查待投递原文的存在、长度、摘要及 CRLF；本命令从磁盘查看可见引用，两者方向不同。终态消息的全面内容校验、跨日期自动扫描、候选持久化与安全回收仍待实现，完整 8C 尚未核销。
 
 ## 验收
 
