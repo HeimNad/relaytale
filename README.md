@@ -12,7 +12,7 @@ Your Apps → SMTP ingress → Durable queue + EML archive → Provider router
                             Event ledger         Your existing SMTP providers
 ```
 
-## 当前进度：Phase 8C.2（数据库提交确认丢失验收）
+## 当前进度：Phase 8C.3（只读存档目录核对）
 
 已实现 Go 服务入口、配置优先级、PostgreSQL 连接、内嵌 Goose 迁移、核心数据库表、存储可写检查、健康接口、JSON 日志、优雅退出和 Docker Compose。
 
@@ -252,7 +252,7 @@ Phase 3 测试覆盖导出原子发布/不覆盖、过滤与敏感字段排除�
 
 ## 后续开发顺序
 
-Phase 5A 已实现 suppression 与人工解除、可信退信设计及身份验收边界说明；5B 已实现流式出站、在途资源背压与基础指标；持续负载中发现的收尾死锁已修复并通过回归，执行记录及容量限制见 [资源加固报告](docs/phase-5b-resources.md)。5B.1 增加 CI、SMTP 来源与认证准入、可选指标令牌和只读 EML 升级预检，见 [安全门禁报告](docs/phase-5b1-safety-gates.md)。5C 已接入独立角色令牌、分页查询和受控管理写入，见 [管理 API](docs/management-api.md)。Phase 6 提供浏览器工作台，默认关闭，启用与会话边界见 [Web UI 手册](docs/web-ui.md)。Phase 7A 增加离线 DSN 导入、原始证据、幂等/冲突与人工待查，见 [反馈手册](docs/phase-7a-feedback.md)。7B.1 已提供只读关联与决策预检，见 [安全基础说明](docs/phase-7b-feedback-safety.md)。7B.2 已加入显式启用的只读 IMAP 收集、事务游标和容量保护，见 [收集手册](docs/phase-7b2-imap-collection.md)。两家真实 IMAP 的限定范围取件已通过，见 [验收记录](docs/real-imap-validation.md)。已补充真实样本结构的合成回归测试；Purelymail 当前样本确认为欢迎信。随后已通过单封受控实验取得 [Purelymail 真实退信](docs/purelymail-dsn-validation.md)，发现非标准格式；现已提供 [只读兼容说明](docs/phase-7b3-feedback-explanation.md)，保留原字段且不提升信任；现已提供 [只读关联候选查询](docs/phase-7b4-feedback-candidates.md)，明确标记歧义和阻断原因。已将只读反馈查询接入 [管理工作台](docs/phase-7b5-feedback-workspace.md)，可在界面核对格式与候选。已增加 [数据库级证据总容量保护](docs/phase-7b6-feedback-capacity.md)，统一限制手工导入与 IMAP 收集。接下来仍需完成 **7B 可信反馈通道与自动处理**；未验证的退信不会自动关联或封禁地址。已实现 [Phase 8A 幂等入队基础](docs/phase-8a-idempotent-enqueue.md)，现已接入默认关闭的 [受控 HTTP 发信入口](docs/phase-8b-http-submission.md)，须配置独立令牌后启用；已补充 [Phase 8C.1 提交故障验收](docs/phase-8c-http-faults.md)；已补充 [数据库提交确认丢失验收](docs/phase-8c2-commit-response-loss.md)；自动孤立文件回收仍未启用，完整 8C 尚未核销。完整 DSN 自动化、HTTP 发信 API 与生产运维分别验收。已完成本地故障测试不代表生产就绪；当前功能、阶段验收条件与剩余缺口以 [开发路线图](docs/roadmap.md) 为准。
+Phase 5A 已实现 suppression 与人工解除、可信退信设计及身份验收边界说明；5B 已实现流式出站、在途资源背压与基础指标；持续负载中发现的收尾死锁已修复并通过回归，执行记录及容量限制见 [资源加固报告](docs/phase-5b-resources.md)。5B.1 增加 CI、SMTP 来源与认证准入、可选指标令牌和只读 EML 升级预检，见 [安全门禁报告](docs/phase-5b1-safety-gates.md)。5C 已接入独立角色令牌、分页查询和受控管理写入，见 [管理 API](docs/management-api.md)。Phase 6 提供浏览器工作台，默认关闭，启用与会话边界见 [Web UI 手册](docs/web-ui.md)。Phase 7A 增加离线 DSN 导入、原始证据、幂等/冲突与人工待查，见 [反馈手册](docs/phase-7a-feedback.md)。7B.1 已提供只读关联与决策预检，见 [安全基础说明](docs/phase-7b-feedback-safety.md)。7B.2 已加入显式启用的只读 IMAP 收集、事务游标和容量保护，见 [收集手册](docs/phase-7b2-imap-collection.md)。两家真实 IMAP 的限定范围取件已通过，见 [验收记录](docs/real-imap-validation.md)。已补充真实样本结构的合成回归测试；Purelymail 当前样本确认为欢迎信。随后已通过单封受控实验取得 [Purelymail 真实退信](docs/purelymail-dsn-validation.md)，发现非标准格式；现已提供 [只读兼容说明](docs/phase-7b3-feedback-explanation.md)，保留原字段且不提升信任；现已提供 [只读关联候选查询](docs/phase-7b4-feedback-candidates.md)，明确标记歧义和阻断原因。已将只读反馈查询接入 [管理工作台](docs/phase-7b5-feedback-workspace.md)，可在界面核对格式与候选。已增加 [数据库级证据总容量保护](docs/phase-7b6-feedback-capacity.md)，统一限制手工导入与 IMAP 收集。接下来仍需完成 **7B 可信反馈通道与自动处理**；未验证的退信不会自动关联或封禁地址。已实现 [Phase 8A 幂等入队基础](docs/phase-8a-idempotent-enqueue.md)，现已接入默认关闭的 [受控 HTTP 发信入口](docs/phase-8b-http-submission.md)，须配置独立令牌后启用；已补充 [Phase 8C.1 提交故障验收](docs/phase-8c-http-faults.md)；已补充 [数据库提交确认丢失验收](docs/phase-8c2-commit-response-loss.md)；新增 [只读存档目录核对](docs/phase-8c3-archive-inventory.md)，用于人工排查未匹配原文；自动孤立文件回收仍未启用，完整 8C 尚未核销。完整 DSN 自动化、HTTP 发信 API 与生产运维分别验收。已完成本地故障测试不代表生产就绪；当前功能、阶段验收条件与剩余缺口以 [开发路线图](docs/roadmap.md) 为准。
 
 ### 持续检查
 

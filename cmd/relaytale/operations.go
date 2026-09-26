@@ -43,6 +43,28 @@ func runOperation(command string, args []string) error {
 	switch command {
 	case "find-feedback-candidates", "explain-feedback", "inspect-feedback", "import-feedback", "list-feedback", "show-feedback", "dismiss-feedback":
 		return runFeedback(ctx, db, command, args)
+	case "inventory-eml":
+		fs := flag.NewFlagSet(command, flag.ContinueOnError)
+		root := fs.String("storage-dir", os.Getenv("EML_STORAGE_DIR"), "archive root")
+		day := fs.String("date", "", "required UTC archive day YYYY-MM-DD")
+		limit := fs.Int("limit", 1000, "maximum directory entries (1..10000)")
+		if err := fs.Parse(args); err != nil {
+			return err
+		}
+		if fs.NArg() != 0 {
+			return errors.New("unexpected inventory arguments")
+		}
+		if *root == "" {
+			*root = "data/eml"
+		}
+		report, err := operations.InventoryArchives(ctx, db, *root, *day, *limit)
+		if writeErr := json.NewEncoder(os.Stdout).Encode(report); writeErr != nil {
+			return writeErr
+		}
+		if err != nil || !report.Complete {
+			return errors.New("inventory incomplete; verify database, date, directory and limit; no deletion is authorized")
+		}
+		return nil
 	case "preflight-eml":
 		fs := flag.NewFlagSet(command, flag.ContinueOnError)
 		root := fs.String("storage-dir", os.Getenv("EML_STORAGE_DIR"), "archive root")
