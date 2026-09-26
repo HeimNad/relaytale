@@ -43,6 +43,8 @@ func runOperation(command string, args []string) error {
 	switch command {
 	case "find-feedback-candidates", "explain-feedback", "inspect-feedback", "import-feedback", "list-feedback", "show-feedback", "dismiss-feedback":
 		return runFeedback(ctx, db, command, args)
+	case "scan-archives", "list-archive-observations", "reclaim-archive":
+		return runArchiveRecovery(ctx, db, command, args)
 	case "inventory-eml":
 		fs := flag.NewFlagSet(command, flag.ContinueOnError)
 		root := fs.String("storage-dir", os.Getenv("EML_STORAGE_DIR"), "archive root")

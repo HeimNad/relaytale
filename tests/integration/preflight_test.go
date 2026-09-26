@@ -14,6 +14,8 @@ import (
 )
 
 func TestPreflightPendingArchivesIsReadOnlyAndPaged(t *testing.T) {
+	// Own the schema: unrelated UUID versions need not sort before new UUIDv7 IDs.
+	capacityDB(t)
 	f := delivery(t, testsmtp.Options{}, 1)
 	var after string
 	if err := f.db.QueryRow(`SELECT coalesce(max(id::text),'00000000-0000-0000-0000-000000000000') FROM messages`).Scan(&after); err != nil {
