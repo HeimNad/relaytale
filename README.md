@@ -12,7 +12,7 @@ Your Apps → SMTP ingress → Durable queue + EML archive → Provider router
                             Event ledger         Your existing SMTP providers
 ```
 
-## 当前进度：Phase 8C（HTTP 发信故障验收与安全回收）
+## 当前进度：Phase 9A（停写备份与受控恢复）
 
 已实现 Go 服务入口、配置优先级、PostgreSQL 连接、内嵌 Goose 迁移、核心数据库表、存储可写检查、健康接口、JSON 日志、优雅退出和 Docker Compose。
 
@@ -21,6 +21,8 @@ Your Apps → SMTP ingress → Durable queue + EML archive → Provider router
 已实现 Generic SMTP Provider 投递、加密凭证、PostgreSQL 队列 worker、逐收件人投递结果和租约恢复。支持 STARTTLS 与隐式 TLS，严格验证 Provider 证书。
 
 **默认 `WORKER_COUNT=0`，只接收不投递。** 配置主密钥、Provider 并显式启用 worker 后才开始发送。管理工作台需单独配置账户启用；自动重试和安全跨 Provider 切换需分别显式启用，默认失败与不确定邮件暂停。真实 Provider 首轮 SMTP 接受层已通过，Gmail / QQ / iCloud 共 12 份收到的原始邮件已核对，Message-ID 与 MIME 内容保持；认证差异见验收报告。
+
+已增加停写备份、空目标恢复、原文/凭证/幂等与退役一致性校验，以及恢复启动阻断。详见 [9A 运维手册](docs/phase-9a-backup-recovery.md)。恢复后不会自动开始投递，需先人工核对备份之后的外部发送事实。下一阶段优先提供 [网站状态查询与 Webhook](docs/website-delivery-results.md)，当前尚未实现此回调能力。
 
 ## 启动
 

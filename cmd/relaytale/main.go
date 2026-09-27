@@ -24,6 +24,7 @@ import (
 	"relaytale/internal/metrics"
 	"relaytale/internal/operations"
 	"relaytale/internal/queue"
+	"relaytale/internal/recovery"
 	"relaytale/internal/resource"
 	"relaytale/internal/smtpclient"
 	"relaytale/internal/smtpserver"
@@ -42,6 +43,8 @@ func main() {
 func run(log *slog.Logger) error {
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
+		case "backup", "restore", "verify-restore":
+			return runRecovery(os.Args[1], os.Args[2:])
 		case "feedback-collection-status":
 			return feedbackCollectionStatus(os.Args[2:])
 		case "collect-feedback":
@@ -62,6 +65,9 @@ func run(log *slog.Logger) error {
 	cfg, err := config.Load(os.Args[1:])
 	if err != nil {
 		return fmt.Errorf("configuration: %w", err)
+	}
+	if err := recovery.CheckStartup(cfg.StorageDir); err != nil {
+		return err
 	}
 	resources := resource.New(cfg.MemoryBudget, cfg.SpoolBudget)
 	if cfg.SnapshotDir != "" {
