@@ -1,6 +1,6 @@
 # 网站投递结果：状态查询与 Webhook（规划，尚未实现）
 
-用户已选择同时提供网站状态查询和 Webhook。目标是让网站接收并处理邮件投递结果，不再要求操作者人工翻阅 Provider 收件箱里的 Delivery Status Notification。完成当前 9A 备份恢复验收后，优先实施本功能；不等待整个 Phase 9 结束。
+用户已选择同时提供网站状态查询和 Webhook。目标是让网站接收并处理邮件投递结果，不再要求操作者人工翻阅 Provider 收件箱里的 Delivery Status Notification。9A 备份恢复已验收，本功能为下一阶段；不等待整个 Phase 9 结束。关联 ID、消息流、有效期和沙箱等相邻需求见 [业务网站能力规划](business-website-capabilities.md)，不会全部塞入 8D。
 
 ## 返回什么
 

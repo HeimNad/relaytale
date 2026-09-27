@@ -24,6 +24,8 @@ Your Apps → SMTP ingress → Durable queue + EML archive → Provider router
 
 已增加停写备份、空目标恢复、原文/凭证/幂等与退役一致性校验，以及恢复启动阻断。详见 [9A 运维手册](docs/phase-9a-backup-recovery.md)。恢复后不会自动开始投递，需先人工核对备份之后的外部发送事实。下一阶段优先提供 [网站状态查询与 Webhook](docs/website-delivery-results.md)，当前尚未实现此回调能力。
 
+面向业务网站的后续能力及官方资料依据见 [业务网站能力规划](docs/business-website-capabilities.md)：业务关联、网站预算与时效、测试沙箱优先；JSON/模板、定时与入站回复分阶段推进。这些新增项尚未实现。
+
 ## 启动
 
 需要 Docker Compose 和运行中的 Docker / OrbStack。
