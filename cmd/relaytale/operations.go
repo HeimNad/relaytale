@@ -41,6 +41,8 @@ func runOperation(command string, args []string) error {
 	}
 	defer db.Close()
 	switch command {
+	case "list-webhooks", "pause-webhook", "replay-webhook":
+		return runWebhook(ctx, db, command, args)
 	case "find-feedback-candidates", "explain-feedback", "inspect-feedback", "import-feedback", "list-feedback", "show-feedback", "dismiss-feedback":
 		return runFeedback(ctx, db, command, args)
 	case "scan-archives", "list-archive-observations", "reclaim-archive":

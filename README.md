@@ -12,7 +12,7 @@ Your Apps → SMTP ingress → Durable queue + EML archive → Provider router
                             Event ledger         Your existing SMTP providers
 ```
 
-## 当前进度：Phase 8D.1（网站邮件状态查询）
+## 当前进度：Phase 8D.2（网站签名通知）
 
 已实现 Go 服务入口、配置优先级、PostgreSQL 连接、内嵌 Goose 迁移、核心数据库表、存储可写检查、健康接口、JSON 日志、优雅退出和 Docker Compose。
 
@@ -22,7 +22,7 @@ Your Apps → SMTP ingress → Durable queue + EML archive → Provider router
 
 **默认 `WORKER_COUNT=0`，只接收不投递。** 配置主密钥、Provider 并显式启用 worker 后才开始发送。管理工作台需单独配置账户启用；自动重试和安全跨 Provider 切换需分别显式启用，默认失败与不确定邮件暂停。真实 Provider 首轮 SMTP 接受层已通过，Gmail / QQ / iCloud 共 12 份收到的原始邮件已核对，Message-ID 与 MIME 内容保持；认证差异见验收报告。
 
-已增加停写备份、空目标恢复、原文/凭证/幂等与退役一致性校验，以及恢复启动阻断。详见 [9A 运维手册](docs/phase-9a-backup-recovery.md)。恢复后不会自动开始投递，需先人工核对备份之后的外部发送事实。已提供 [网站身份范围内的状态查询](docs/phase-8d1-message-status.md)，支持逐收件人结果与事件分页。下一阶段为 [8D.2 签名 Webhook](docs/website-delivery-results.md)，当前尚未实现回调或可信异步退信通知。
+已增加停写备份、空目标恢复、原文/凭证/幂等与退役一致性校验，以及恢复启动阻断。详见 [9A 运维手册](docs/phase-9a-backup-recovery.md)。恢复后不会自动开始投递，需先人工核对备份之后的外部发送事实。已提供 [网站身份范围内的状态查询](docs/phase-8d1-message-status.md)，支持逐收件人结果与事件分页。已实现 [8D.2 签名 Webhook](docs/phase-8d2-webhooks.md)：事务通知队列、双密钥签名、失败重试、暂停及人工重放，网络发送默认关闭。可信异步退信关联仍未完成。
 
 面向业务网站的后续能力及官方资料依据见 [业务网站能力规划](docs/business-website-capabilities.md)：业务关联、网站预算与时效、测试沙箱优先；JSON/模板、定时与入站回复分阶段推进。这些新增项尚未实现。
 

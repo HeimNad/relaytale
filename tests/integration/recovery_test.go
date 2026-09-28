@@ -18,6 +18,7 @@ import (
 	"relaytale/internal/operations"
 	"relaytale/internal/recovery"
 	"relaytale/internal/testsmtp"
+	"relaytale/internal/webhook"
 )
 
 // Dedicated databases are essential: a shared fixture DB has unrelated archive
@@ -62,6 +63,17 @@ func TestRecoveryRoundTripAndFailureGates(t *testing.T) {
 	identity := testAPIKey(t, f)
 	result, err := (message.Postgres{DB: f.db}).EnqueueIdempotent(context.Background(), sub, identity, "backup-key")
 	if err != nil {
+		t.Fatal(err)
+	}
+	endpoint := webhook.Endpoint{ID: uuid.NewString(), APIKeyID: identity, URL: "https://example.com/hook", Keys: []webhook.Key{{ID: "v1", Secret: strings.Repeat("ab", 32)}}}
+	// testAPIKey is a synthetic legacy identity; mark its explicit HTTP scope.
+	mustExec(t, f, `UPDATE api_keys SET prefix='rts_' WHERE id=$1`, identity)
+	if err = webhook.Sync(context.Background(), f.db, []webhook.Endpoint{endpoint}); err != nil {
+		t.Fatal(err)
+	}
+	mustExec(t, f, `INSERT INTO events(id,message_id,event_type,source,data) VALUES($1,$2,'DELIVERY_UNKNOWN','worker','{}')`, uuid.NewString(), result.MessageID)
+	var webhookPayload string
+	if err = f.db.QueryRow(`SELECT payload FROM webhook_outbox WHERE message_id=$1`, result.MessageID).Scan(&webhookPayload); err != nil {
 		t.Fatal(err)
 	}
 	mustExec(t, f, `UPDATE messages SET status='DELIVERY_UNKNOWN' WHERE id=$1`, result.MessageID)
@@ -151,6 +163,10 @@ func TestRecoveryRoundTripAndFailureGates(t *testing.T) {
 	t.Logf("restore plus verify duration: %s; report: %+v", time.Since(start), report)
 	if report.Messages != 2 || report.AvailableArchives != 1 || report.Unknown != 1 || report.IdempotencyRecords != 1 || report.Retirements != 1 || report.Providers != 1 || !report.GateRetained {
 		t.Fatal(report)
+	}
+	var restoredWebhook string
+	if err = target.QueryRow(`SELECT payload FROM webhook_outbox WHERE message_id=$1`, result.MessageID).Scan(&restoredWebhook); err != nil || restoredWebhook != webhookPayload || report.WebhookPending != 1 {
+		t.Fatal("webhook recovery mismatch", err, report)
 	}
 	wrong, _ := encryption.New(strings.Repeat("cd", 32))
 	if _, err = recovery.VerifyRestored(ctx, target, f.root, wrong); err == nil {

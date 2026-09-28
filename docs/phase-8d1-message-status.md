@@ -60,4 +60,4 @@ Authorization: Bearer <现有 rts_ 令牌>
 
 阶段检查：格式、go vet、构建、全套 race 单元及数据库集成测试。只使用合成邮件与本机服务；未发送真实邮件。
 
-下一阶段是 **8D.2 签名 Webhook、事务通知队列与通知重试**。可信退信关联仍受 7B 来源证据约束；8D.1 不宣称 SpaceMail/PurelyMail 的异步 DSN 已自动反馈给网站。
+后续 [8D.2 签名 Webhook](phase-8d2-webhooks.md) 已实现事务通知队列与通知重试，网络发送默认关闭。可信退信关联仍受 7B 来源证据约束；8D.1 不宣称 SpaceMail/PurelyMail 的异步 DSN 已自动反馈给网站。

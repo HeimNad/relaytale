@@ -29,6 +29,7 @@ import (
 	"relaytale/internal/smtpclient"
 	"relaytale/internal/smtpserver"
 	"relaytale/internal/storage"
+	"relaytale/internal/webhook"
 )
 
 func main() {
@@ -54,7 +55,7 @@ func run(log *slog.Logger) error {
 		case "license":
 			fmt.Print(project.LicenseText)
 			return nil
-		case "find-feedback-candidates", "explain-feedback", "inspect-feedback", "import-feedback", "list-feedback", "show-feedback", "dismiss-feedback", "scan-archives", "list-archive-observations", "reclaim-archive", "inventory-eml", "preflight-eml", "add-suppression", "release-suppression", "list-suppressions", "resolve-unknown", "export-records", "cleanup", "list-providers", "test-provider", "doctor":
+		case "list-webhooks", "pause-webhook", "replay-webhook", "find-feedback-candidates", "explain-feedback", "inspect-feedback", "import-feedback", "list-feedback", "show-feedback", "dismiss-feedback", "scan-archives", "list-archive-observations", "reclaim-archive", "inventory-eml", "preflight-eml", "add-suppression", "release-suppression", "list-suppressions", "resolve-unknown", "export-records", "cleanup", "list-providers", "test-provider", "doctor":
 			return runOperation(os.Args[1], os.Args[2:])
 		}
 	}
@@ -118,6 +119,13 @@ func run(log *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	endpoints, err := webhook.Parse(cfg.WebhookEndpoints)
+	if err != nil {
+		return err
+	}
+	if err = webhook.Sync(startup, db, endpoints); err != nil {
+		return errors.New("webhook configuration failed")
+	}
 	srv := &http.Server{Handler: api.Handler(db, func() error { return storage.CheckWritable(cfg.StorageDir) }, &metrics.Handler{DB: db, Resources: resources, Token: cfg.MetricsToken}, admin, send), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 60 * time.Second}
 	result := make(chan error, 2)
 	var shutdownSMTP func(context.Context) error
@@ -165,6 +173,17 @@ func run(log *slog.Logger) error {
 	} else {
 		close(workersDone)
 	}
+	webhookCtx, stopWebhooks := context.WithCancel(context.Background())
+	defer stopWebhooks()
+	webhookDone := make(chan struct{})
+	if cfg.WebhookEnabled {
+		go func() {
+			defer close(webhookDone)
+			(webhook.Worker{DB: db, Endpoints: endpoints, Log: log}).Run(webhookCtx)
+		}()
+	} else {
+		close(webhookDone)
+	}
 	log.Info("relaytale started", "http_address", cfg.HTTPAddr, "smtp_address", cfg.SMTPAddr, "workers", cfg.WorkerCount, "phase", "6", "automatic_retry", cfg.RetryEnabled, "automatic_failover", cfg.FailoverEnabled, "provider_health", cfg.HealthEnabled)
 	var serveErr error
 	select {
@@ -172,6 +191,7 @@ func run(log *slog.Logger) error {
 	case <-ctx.Done():
 	}
 	stopClaims()
+	stopWebhooks()
 	stopMaintenance()
 	log.Info("relaytale shutting down")
 	shutdown, cancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
@@ -210,6 +230,11 @@ func run(log *slog.Logger) error {
 		}
 	}
 
+	select {
+	case <-webhookDone:
+	case <-shutdown.Done():
+		return errors.New("webhook shutdown timed out")
+	}
 	if serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
 		return fmt.Errorf("listener stopped: %w", serveErr)
 	}

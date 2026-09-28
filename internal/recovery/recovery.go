@@ -29,6 +29,7 @@ type Options struct {
 }
 
 type Report struct {
+	WebhookPending     int64 `json:"webhook_pending_or_in_flight"`
 	AvailableArchives  int64 `json:"available_archives"`
 	Providers          int64 `json:"providers_verified"`
 	Messages           int64 `json:"messages"`
@@ -426,6 +427,15 @@ func verify(ctx context.Context, q queryer, original, actual string, box *encryp
 		return r, err
 	}
 	if err = q.QueryRowContext(ctx, `SELECT count(*) FROM archive_retirements`).Scan(&r.Retirements); err != nil {
+		return r, err
+	}
+	if err = q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM webhook_outbox o JOIN webhook_endpoints e ON e.id=o.endpoint_id JOIN messages m ON m.id=o.message_id JOIN events v ON v.id=o.event_id WHERE m.api_key_id IS DISTINCT FROM e.api_key_id OR m.source_type<>'api' OR v.message_id<>m.id OR (o.payload::jsonb->>'event_id') IS DISTINCT FROM o.event_id::text OR (o.payload::jsonb->>'message_id') IS DISTINCT FROM o.message_id::text OR (o.payload::jsonb->>'sequence') IS DISTINCT FROM o.sequence::text)`).Scan(&bad); err != nil {
+		return r, err
+	}
+	if bad {
+		return r, errors.New("webhook ownership or payload inconsistency")
+	}
+	if err = q.QueryRowContext(ctx, `SELECT count(*) FROM webhook_outbox WHERE state IN ('PENDING','IN_FLIGHT')`).Scan(&r.WebhookPending); err != nil {
 		return r, err
 	}
 	if !keys {

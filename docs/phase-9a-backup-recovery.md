@@ -78,3 +78,7 @@ relaytale verify-restore --offline --storage-dir /data/eml
 - 演练发现并修正两处真实问题：libpq 不会将 PGDATABASE 环境值中的 URI 按连接串展开，改为拆分环境参数；空目标自带 public schema 与 dump 的 CREATE SCHEMA 冲突，改为只删除空 schema、严禁 CASCADE，再事务导入。没有静默忽略导入错误。
 
 实际 SIGKILL/整机掉电、生产规模耗时、跨版本迁移及真实灾难现场仍未验收；工具失败与 SQL 导入失败测试不能替代这些演练。
+
+## 8D.2 通知恢复补充
+
+备份与恢复现包含 Webhook endpoint、outbox 和发送日志，校验报告增加 `webhook_pending_or_in_flight`。恢复后保持 `WEBHOOK_ENABLED=false`，核对外部网站已处理的事件后再恢复通知；旧备份可能重放已收到事件，网站须持久化 event_id 去重。签名环境配置不在数据库备份内，需独立保管。详见 [8D.2](phase-8d2-webhooks.md)。

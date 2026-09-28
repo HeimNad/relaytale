@@ -1,6 +1,6 @@
-# 网站投递结果：状态查询与 Webhook（8D.1 已实现，8D.2 待实现）
+# 网站投递结果：状态查询与 Webhook（8D.1–8D.2 已实现，可信退信关联待完成）
 
-用户已选择同时提供网站状态查询和 Webhook。目标是让网站接收并处理邮件投递结果，不再要求操作者人工翻阅 Provider 收件箱里的 Delivery Status Notification。9A 备份恢复与 8D.1 状态查询已验收，下一阶段为签名 Webhook；不等待整个 Phase 9 结束。关联 ID、消息流、有效期和沙箱等相邻需求见 [业务网站能力规划](business-website-capabilities.md)，不会全部塞入 8D。
+用户已选择同时提供网站状态查询和 Webhook。目标是让网站接收并处理邮件投递结果，不再要求操作者人工翻阅 Provider 收件箱里的 Delivery Status Notification。9A 备份恢复、8D.1 状态查询及 8D.2 签名 Webhook 已完成本地验收；不等待整个 Phase 9 结束。关联 ID、消息流、有效期和沙箱等相邻需求见 [业务网站能力规划](business-website-capabilities.md)，不会全部塞入 8D。
 
 ## 返回什么
 
@@ -23,7 +23,9 @@
 
 SMTP 提交的网站另行设计账号范围查询授权和 Gateway ID 获取方式，不能默认复用 SMTP 密码授予 HTTP 管理权限。第一版明确以已有 HTTP 发信 API 身份为范围。
 
-## 8D.2：签名 Webhook 与持久化通知队列
+## 8D.2：签名 Webhook 与持久化通知队列（已实现）
+
+配置、接收端验签/去重、暂停与重放以及故障验收见 [8D.2 实现说明](phase-8d2-webhooks.md)。当前发送的是固定公开事件提示，网站查询最新逐收件人状态；不输出未验证 DSN。
 
 目标地址由部署管理员为网站身份配置，默认关闭；发信请求不能随意提供回调 URL。实现 HTTPS、SSRF/地址解析与重绑定防护、禁止重定向、请求/响应大小和耗时限制。
 

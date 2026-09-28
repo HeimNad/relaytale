@@ -13,9 +13,12 @@ import (
 	"relaytale/internal/api"
 	"relaytale/internal/encryption"
 	"relaytale/internal/resource"
+	"relaytale/internal/webhook"
 )
 
 type Config struct {
+	WebhookEndpoints        string `yaml:"-"`
+	WebhookEnabled          bool   `yaml:"-"`
 	SendAPIKeys             string `yaml:"-"`
 	AdminAPIKeys            string `yaml:"-"`
 	WebUIOrigin             string `yaml:"-"`
@@ -152,6 +155,21 @@ func Load(args []string) (Config, error) {
 	c.MasterKey = encryption.EnvironmentKey()
 	c.MetricsToken = os.Getenv("METRICS_BEARER_TOKEN")
 	c.AdminAPIKeys = os.Getenv("ADMIN_API_KEYS")
+	c.WebhookEndpoints = os.Getenv("WEBHOOK_ENDPOINTS")
+	endpoints, webhookErr := webhook.Parse(c.WebhookEndpoints)
+	if webhookErr != nil {
+		return c, webhookErr
+	}
+	if v, ok := os.LookupEnv("WEBHOOK_ENABLED"); ok && v != "" {
+		enabled, err := strconv.ParseBool(v)
+		if err != nil {
+			return c, errors.New("invalid WEBHOOK_ENABLED")
+		}
+		c.WebhookEnabled = enabled
+	}
+	if c.WebhookEnabled && len(endpoints) == 0 {
+		return c, errors.New("WEBHOOK_ENABLED requires configured endpoints")
+	}
 	c.SendAPIKeys = os.Getenv("SEND_API_KEYS")
 	sendKeys, err := api.ParseSendKeys(c.SendAPIKeys)
 	if err != nil {

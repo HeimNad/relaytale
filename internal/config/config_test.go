@@ -163,3 +163,21 @@ func TestManagementConfiguration(t *testing.T) {
 		t.Fatal("shared privilege token accepted")
 	}
 }
+
+func TestWebhookOptIn(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://localhost/test")
+	t.Setenv("WEBHOOK_ENDPOINTS", "")
+	t.Setenv("WEBHOOK_ENABLED", "false")
+	c, err := Load(nil)
+	if err != nil || c.WebhookEnabled {
+		t.Fatal(err)
+	}
+	t.Setenv("WEBHOOK_ENABLED", "true")
+	if _, err = Load(nil); err == nil {
+		t.Fatal("enabled without endpoint")
+	}
+	t.Setenv("WEBHOOK_ENABLED", "invalid")
+	if _, err = Load(nil); err == nil {
+		t.Fatal("invalid flag accepted")
+	}
+}
