@@ -140,15 +140,26 @@ func NewSendHandler(ctx context.Context, raw string, receiver message.APIReceive
 		return nil, errors.New("send API identity commit failed")
 	}
 	slots := make(chan struct{}, 4)
+	readSlots := make(chan struct{}, 4)
+	readLimits := make(map[string]*sendIdentity, len(people))
+	for _, p := range people {
+		readLimits[p.key.ID] = &sendIdentity{tokens: 10, updated: time.Now()}
+	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
-		if r.URL.Path != "/v1/messages" {
+		readID := strings.TrimPrefix(r.URL.Path, "/v1/messages/")
+		read := strings.HasPrefix(r.URL.Path, "/v1/messages/") && readID != "" && !strings.Contains(readID, "/")
+		if r.URL.Path != "/v1/messages" && !read {
 			http.NotFound(w, r)
 			return
 		}
-		if r.Method != "POST" {
-			w.Header().Set("Allow", "POST")
+		method := "POST"
+		if read {
+			method = "GET"
+		}
+		if r.Method != method {
+			w.Header().Set("Allow", method)
 			respond(w, 405, "method_not_allowed")
 			return
 		}
@@ -156,9 +167,13 @@ func NewSendHandler(ctx context.Context, raw string, receiver message.APIReceive
 			respond(w, 403, "browser_submission_forbidden")
 			return
 		}
+		admission := slots
+		if read {
+			admission = readSlots
+		}
 		select {
-		case slots <- struct{}{}:
-			defer func() { <-slots }()
+		case admission <- struct{}{}:
+			defer func() { <-admission }()
 		default:
 			w.Header().Set("Retry-After", "1")
 			respond(w, 429, "busy")
@@ -180,14 +195,22 @@ func NewSendHandler(ctx context.Context, raw string, receiver message.APIReceive
 			respond(w, 401, "invalid_credentials")
 			return
 		}
-		if !who.acquire() {
+		limiter := who
+		if read {
+			limiter = readLimits[who.key.ID]
+		}
+		if !limiter.acquire() {
 			w.Header().Set("Retry-After", "1")
 			respond(w, 429, "rate_or_concurrency_limit")
 			return
 		}
-		defer who.release()
+		defer limiter.release()
 		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 		defer cancel()
+		if read {
+			readMessageStatus(ctx, w, r, receiver.Repo.DB, who, readID)
+			return
+		}
 		// Bound stalled body reads, which a context alone cannot interrupt.
 		_ = http.NewResponseController(w).SetReadDeadline(time.Now().Add(10 * time.Second))
 		var enabled bool

@@ -85,3 +85,5 @@ curl --request POST "$RELAYTALE_URL/v1/messages" \
 - UI 格式、暂存差异格式和 Gitleaks 扫描通过；本阶段未修改 UI，不重复浏览器界面测试。
 - 首轮集成测试因不同测试身份共用了同一令牌而被数据库唯一约束拒绝；已改为独立随机测试令牌，完整回归通过。
 - 仅使用本机测试 TLS、隔离 PostgreSQL 和 Fake SMTP；未配置生产凭证。测试数据库在验收后停止。
+
+后续 [Phase 8D.1](phase-8d1-message-status.md) 使用同一发信身份增加 `GET /v1/messages/{message_id}` 只读查询，提交契约和 202 入队语义保持。
