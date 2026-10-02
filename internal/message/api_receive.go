@@ -171,11 +171,16 @@ func (s APIReceiver) Receive(ctx context.Context, e Envelope, r io.Reader, ident
 	}
 	sub.ID = id.String()
 	sub.ReceivedAt = time.Now().UTC()
-	sub.Archive, err = s.Store.Save(ctx, sub.ID, sub.ReceivedAt, f)
-	if err != nil {
-		return EnqueueResult{}, err
-	}
-	sub.ArchivedAt = time.Now().UTC()
-	// Retain published originals on uncertain DB outcomes, as the SMTP path does.
-	return s.Repo.EnqueueIdempotent(ctx, sub, identity, key)
+	// Keep the identity budget lock through archive publication and queue commit.
+	// Over-budget requests therefore never publish an archive. Transient snapshots
+	// remain bounded and open-unlinked; uncertainty after publication retains EML.
+	return s.Repo.enqueueIdempotent(ctx, sub, identity, key, func(current *Submission) error {
+		archive, saveErr := s.Store.Save(ctx, current.ID, current.ReceivedAt, f)
+		if saveErr != nil {
+			return saveErr
+		}
+		current.Archive = archive
+		current.ArchivedAt = time.Now().UTC()
+		return nil
+	})
 }

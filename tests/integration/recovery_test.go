@@ -62,6 +62,7 @@ func TestRecoveryRoundTripAndFailureGates(t *testing.T) {
 	sub := prepareAPI(t, f, "one@example.test")
 	sub.Business = message.Business{ClientReference: "backup:order", Tags: []string{"receipt"}}
 	identity := testAPIKey(t, f)
+	mustExec(t, f, `UPDATE api_keys SET submission_day_limit=1 WHERE id=$1`, identity)
 	result, err := (message.Postgres{DB: f.db}).EnqueueIdempotent(context.Background(), sub, identity, "backup-key")
 	if err != nil {
 		t.Fatal(err)
@@ -179,6 +180,10 @@ func TestRecoveryRoundTripAndFailureGates(t *testing.T) {
 	replay, err := (message.Postgres{DB: target}).EnqueueIdempotent(ctx, sub, identity, "backup-key")
 	if err != nil || !replay.Replayed || replay.MessageID != result.MessageID {
 		t.Fatal(replay, err)
+	}
+	var restoredBudget, restoredUsage int
+	if err = target.QueryRow(`SELECT submission_day_limit,(SELECT coalesce(sum(units),0) FROM api_submission_quota WHERE api_key_id=$1) FROM api_keys WHERE id=$1`, identity).Scan(&restoredBudget, &restoredUsage); err != nil || restoredBudget != 1 || restoredUsage != 1 {
+		t.Fatal("website budget did not survive restore", restoredBudget, restoredUsage, err)
 	}
 	if err = (message.Postgres{DB: target}).Enqueue(ctx, orphan); err == nil {
 		t.Fatal("retired ID accepted after restore")

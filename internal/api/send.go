@@ -22,9 +22,10 @@ import (
 )
 
 type SendKey struct {
-	ID          string   `json:"id"`
-	Token       string   `json:"token"`
-	AllowedFrom []string `json:"allowed_from"`
+	Budget      message.SubmissionBudget `json:"budget,omitempty"`
+	ID          string                   `json:"id"`
+	Token       string                   `json:"token"`
+	AllowedFrom []string                 `json:"allowed_from"`
 }
 
 func ParseSendKeys(raw string) ([]SendKey, error) {
@@ -47,6 +48,9 @@ func ParseSendKeys(raw string) ([]SendKey, error) {
 	ids, tokens := map[string]bool{}, map[string]bool{}
 	for i := range keys {
 		k := &keys[i]
+		if !k.Budget.Valid() {
+			return nil, invalid
+		}
 		id, e := uuid.Parse(k.ID)
 		if e != nil || id == uuid.Nil || id.String() != k.ID || ids[k.ID] || tokens[k.Token] || len(k.Token) != 68 || !strings.HasPrefix(k.Token, "rts_") || len(k.AllowedFrom) == 0 || len(k.AllowedFrom) > 32 {
 			return nil, invalid
@@ -120,8 +124,8 @@ func NewSendHandler(ctx context.Context, raw string, receiver message.APIReceive
 	people := make([]*sendIdentity, 0, len(keys))
 	for _, key := range keys {
 		digest := sha256.Sum256([]byte(key.Token))
-		_, e = tx.ExecContext(ctx, `INSERT INTO api_keys(id,name,key_hash,prefix,enabled) VALUES($1,$2,$3,'rts_',true)
- ON CONFLICT(id) DO UPDATE SET key_hash=EXCLUDED.key_hash,enabled=true WHERE api_keys.prefix='rts_'`, key.ID, "http:"+key.ID, hex.EncodeToString(digest[:]))
+		_, e = tx.ExecContext(ctx, `INSERT INTO api_keys(id,name,key_hash,prefix,enabled,submission_minute_limit,submission_hour_limit,submission_day_limit) VALUES($1,$2,$3,'rts_',true,$4,$5,$6)
+ ON CONFLICT(id) DO UPDATE SET key_hash=EXCLUDED.key_hash,enabled=true,submission_minute_limit=EXCLUDED.submission_minute_limit,submission_hour_limit=EXCLUDED.submission_hour_limit,submission_day_limit=EXCLUDED.submission_day_limit WHERE api_keys.prefix='rts_'`, key.ID, "http:"+key.ID, hex.EncodeToString(digest[:]), key.Budget.Minute, key.Budget.Hour, key.Budget.Day)
 		if e != nil {
 			return nil, errors.New("send API identity synchronization failed")
 		}
@@ -129,7 +133,7 @@ func NewSendHandler(ctx context.Context, raw string, receiver message.APIReceive
 		if e = tx.QueryRowContext(ctx, `SELECT key_hash FROM api_keys WHERE id=$1 AND prefix='rts_' AND enabled`, key.ID).Scan(&hash); e != nil || hash != hex.EncodeToString(digest[:]) {
 			return nil, errors.New("send API identity conflicts with an existing key")
 		}
-		auditData, _ := json.Marshal(map[string]any{"id": key.ID, "allowed_from": key.AllowedFrom})
+		auditData, _ := json.Marshal(map[string]any{"id": key.ID, "allowed_from": key.AllowedFrom, "budget": key.Budget})
 		if _, e = tx.ExecContext(ctx, `INSERT INTO maintenance_audit(id,action,actor,data) VALUES($1,'API_SEND_CONFIGURED','startup_config',$2)`, uuid.NewString(), string(auditData)); e != nil {
 			return nil, errors.New("send API configuration audit failed")
 		}
@@ -298,6 +302,13 @@ func NewSendHandler(ctx context.Context, raw string, receiver message.APIReceive
 				respond(w, 403, "sender_denied")
 			case errors.Is(e, message.ErrInvalidMessage), errors.Is(e, message.ErrInvalidSubmission):
 				respond(w, 400, "invalid_message")
+			case errors.Is(e, message.ErrSubmissionBudget):
+				w.Header().Set("Retry-After", "60")
+				respond(w, 429, "recipient_budget_exhausted")
+			case errors.Is(e, message.ErrSubmissionBatchTooLarge):
+				respond(w, 422, "recipient_batch_exceeds_budget")
+			case errors.Is(e, message.ErrSubmissionDisabled):
+				respond(w, 401, "invalid_credentials")
 			case errors.Is(e, message.ErrIdempotencyConflict):
 				respond(w, 409, "idempotency_conflict")
 			default:

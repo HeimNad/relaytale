@@ -143,6 +143,7 @@ func TestAPIIdempotencyRollbackAndSuppression(t *testing.T) {
 				t.Fatal("failed transaction acknowledged")
 			}
 			assertCount(t, f, 0, `SELECT count(*) FROM api_submission_ledger WHERE api_key_id=$1`, identity)
+			assertCount(t, f, 0, `SELECT count(*) FROM api_submission_quota WHERE api_key_id=$1`, identity)
 			assertCount(t, f, 0, `SELECT count(*) FROM messages WHERE id=$1`, sub.ID)
 			assertCount(t, f, 0, `SELECT count(*) FROM recipients WHERE message_id=$1`, sub.ID)
 			assertCount(t, f, 0, `SELECT count(*) FROM events WHERE message_id=$1`, sub.ID)
@@ -155,6 +156,7 @@ func TestAPIIdempotencyRollbackAndSuppression(t *testing.T) {
 				t.Fatal("API bypassed suppression")
 			}
 			assertCount(t, f, 1, `SELECT count(*) FROM api_submission_ledger WHERE api_key_id=$1`, identity)
+			assertCount(t, f, 1, `SELECT sum(units) FROM api_submission_quota WHERE api_key_id=$1`, identity)
 		})
 	}
 }

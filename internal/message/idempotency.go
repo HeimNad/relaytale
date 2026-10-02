@@ -63,11 +63,17 @@ func RequestFingerprint(s Submission) (string, error) {
 }
 
 // EnqueueIdempotent is an internal persistence primitive, not authentication or
-// MIME validation. A future HTTP admission layer must authenticate and authorize
-// every request (including replays) and bound/archive its validated payload first.
+// MIME validation. Callers must authenticate and authorize every request
+// (including replays) and bound/archive its validated payload first.
 // Concurrent identical requests return the original committed ID; commit errors
 // are never converted into success, and the ledger makes a later retry safe.
 func (p Postgres) EnqueueIdempotent(ctx context.Context, s Submission, apiKeyID, key string) (EnqueueResult, error) {
+	return p.enqueueIdempotent(ctx, s, apiKeyID, key, nil)
+}
+
+// publish runs only for a new, budget-admitted request. Archive failures roll
+// back the ledger and reservation. Published files survive uncertain commits.
+func (p Postgres) enqueueIdempotent(ctx context.Context, s Submission, apiKeyID, key string, publish func(*Submission) error) (EnqueueResult, error) {
 	if _, e := uuid.Parse(apiKeyID); e != nil {
 		return EnqueueResult{}, ErrInvalidSubmission
 	}
@@ -114,6 +120,14 @@ func (p Postgres) EnqueueIdempotent(ctx context.Context, s Submission, apiKeyID,
 		}
 		// No writes occurred; return only an already committed ledger entry.
 		return EnqueueResult{MessageID: original, Replayed: true}, nil
+	}
+	if e = reserveSubmission(ctx, tx, apiKeyID, s.ID, len(s.Envelope.Recipients)); e != nil {
+		return EnqueueResult{}, e
+	}
+	if publish != nil {
+		if e = publish(&s); e != nil {
+			return EnqueueResult{}, e
+		}
 	}
 	// API identity is independent of SMTP credentials, including in the ledger.
 	s.Envelope.Account.ID = ""

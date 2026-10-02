@@ -420,6 +420,13 @@ func verify(ctx context.Context, q queryer, original, actual string, box *encryp
 	if bad {
 		return r, errors.New("idempotency or retirement inconsistency")
 	}
+	// Budget history must survive restore with its original website and units.
+	if err = q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM api_submission_quota q JOIN messages m ON m.id=q.message_id WHERE m.source_type<>'api' OR m.api_key_id IS DISTINCT FROM q.api_key_id OR q.units<>(SELECT count(*) FROM recipients r WHERE r.message_id=m.id)) OR EXISTS(SELECT 1 FROM api_submission_ledger l LEFT JOIN api_submission_quota q ON q.message_id=l.message_id WHERE l.created_at>clock_timestamp()-interval '24 hours' AND q.message_id IS NULL)`).Scan(&bad); err != nil {
+		return r, err
+	}
+	if bad {
+		return r, errors.New("website budget history inconsistency")
+	}
 	if err = q.QueryRowContext(ctx, `SELECT count(*),count(*) FILTER(WHERE status='SENDING'),count(*) FILTER(WHERE status='DELIVERY_UNKNOWN') FROM messages`).Scan(&r.Messages, &r.Sending, &r.Unknown); err != nil {
 		return r, err
 	}
