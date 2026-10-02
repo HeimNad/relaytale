@@ -87,3 +87,5 @@ curl --request POST "$RELAYTALE_URL/v1/messages" \
 - 仅使用本机测试 TLS、隔离 PostgreSQL 和 Fake SMTP；未配置生产凭证。测试数据库在验收后停止。
 
 后续 [Phase 8D.1](phase-8d1-message-status.md) 使用同一发信身份增加 `GET /v1/messages/{message_id}` 只读查询，提交契约和 202 入队语义保持。
+
+后续 [8E.1](phase-8e1-business-reference.md) 增加可选的 HTTP 业务关联 ID/标签头。字段不进入 MIME，存在字段时使用 version=2 幂等指纹；无字段请求保持原指纹。

@@ -20,10 +20,11 @@ type Key struct {
 	Secret string `json:"secret"`
 }
 type Endpoint struct {
-	ID       string `json:"id"`
-	APIKeyID string `json:"api_key_id"`
-	URL      string `json:"url"`
-	Keys     []Key  `json:"keys"`
+	SchemaVersion int    `json:"schema_version,omitempty"`
+	ID            string `json:"id"`
+	APIKeyID      string `json:"api_key_id"`
+	URL           string `json:"url"`
+	Keys          []Key  `json:"keys"`
 }
 
 var keyID = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,32}$`)
@@ -62,7 +63,7 @@ func Parse(raw string) ([]Endpoint, error) {
 	}
 	ids, owners := map[string]bool{}, map[string]bool{}
 	for _, v := range out {
-		if !canonicalID(v.ID) || !canonicalID(v.APIKeyID) || ids[v.ID] || owners[v.APIKeyID] || ValidateURL(v.URL) != nil || len(v.Keys) < 1 || len(v.Keys) > 2 {
+		if (v.SchemaVersion != 0 && v.SchemaVersion != 1 && v.SchemaVersion != 2) || !canonicalID(v.ID) || !canonicalID(v.APIKeyID) || ids[v.ID] || owners[v.APIKeyID] || ValidateURL(v.URL) != nil || len(v.Keys) < 1 || len(v.Keys) > 2 {
 			return nil, bad
 		}
 		ids[v.ID] = true
@@ -78,6 +79,13 @@ func Parse(raw string) ([]Endpoint, error) {
 	}
 	return out, nil
 }
+func (e Endpoint) Version() int {
+	if e.SchemaVersion == 2 {
+		return 2
+	}
+	return 1
+}
+
 func (e Endpoint) Hash() string {
 	b, _ := json.Marshal(e)
 	h := sha256.Sum256(b)
@@ -110,7 +118,7 @@ func Sync(ctx context.Context, db *sql.DB, endpoints []Endpoint) error {
 		if e = tx.QueryRowContext(ctx, `SELECT enabled AND prefix='rts_' FROM api_keys WHERE id=$1`, v.APIKeyID).Scan(&enabled); e != nil || !enabled {
 			return errors.New("webhook requires configured enabled send identity")
 		}
-		result, err := tx.ExecContext(ctx, `INSERT INTO webhook_endpoints(id,api_key_id,url,config_hash,enabled) VALUES($1,$2,$3,$4,true) ON CONFLICT(id) DO UPDATE SET config_hash=EXCLUDED.config_hash,enabled=true WHERE webhook_endpoints.api_key_id=EXCLUDED.api_key_id AND webhook_endpoints.url=EXCLUDED.url`, v.ID, v.APIKeyID, v.URL, v.Hash())
+		result, err := tx.ExecContext(ctx, `INSERT INTO webhook_endpoints(id,api_key_id,url,config_hash,enabled,schema_version) VALUES($1,$2,$3,$4,true,$5) ON CONFLICT(id) DO UPDATE SET config_hash=EXCLUDED.config_hash,enabled=true,schema_version=EXCLUDED.schema_version WHERE webhook_endpoints.api_key_id=EXCLUDED.api_key_id AND webhook_endpoints.url=EXCLUDED.url`, v.ID, v.APIKeyID, v.URL, v.Hash(), v.Version())
 		if err != nil {
 			return errors.New("webhook endpoint synchronization failed")
 		}

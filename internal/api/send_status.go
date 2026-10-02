@@ -3,7 +3,7 @@ package api
 import (
 	"context"
 	"database/sql"
-	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/url"
@@ -12,11 +12,13 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"relaytale/internal/message"
 )
 
 // These DTOs deliberately exclude free-form SMTP replies, event JSON, provider
 // identity, subjects and MIME. The management API is not a website API.
 type MessageStatus struct {
+	Business             *message.Business `json:"business,omitempty"`
 	SchemaVersion        int               `json:"schema_version"`
 	MessageID            string            `json:"message_id"`
 	Status               string            `json:"status"`
@@ -82,9 +84,12 @@ func statusPage(r *http.Request, id string) (string, int, bool) {
 		return "", 0, false
 	}
 	for k, v := range q {
-		if (k != "before" && k != "limit") || len(v) != 1 {
+		if (k != "before" && k != "limit" && k != "schema_version") || len(v) != 1 {
 			return "", 0, false
 		}
+	}
+	if v, ok := q["schema_version"]; ok && v[0] != "1" && v[0] != "2" {
+		return "", 0, false
 	}
 	before := q.Get("before")
 	if _, ok := q["before"]; ok && !canonicalUUID(before) {
@@ -107,26 +112,15 @@ func readMessageStatus(ctx context.Context, w http.ResponseWriter, r *http.Reque
 		respond(w, 400, "invalid_query")
 		return
 	}
-	tx, err := db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: true})
-	if err != nil {
-		respond(w, 503, "unavailable")
+	tx, ok := beginWebsiteRead(ctx, w, db, who)
+	if !ok {
 		return
 	}
 	defer tx.Rollback()
-	// Revocation and ownership use the same snapshot as the result. Revocation
-	// after this snapshot affects subsequent requests, not an in-flight response.
-	var enabled bool
-	err = tx.QueryRowContext(ctx, `SELECT enabled AND prefix='rts_' AND key_hash=$2 FROM api_keys WHERE id=$1`, who.key.ID, hex.EncodeToString(who.digest[:])).Scan(&enabled)
-	if errors.Is(err, sql.ErrNoRows) || (err == nil && !enabled) {
-		respond(w, 401, "invalid_credentials")
-		return
-	}
-	if err != nil {
-		respond(w, 503, "unavailable")
-		return
-	}
 	out := MessageStatus{SchemaVersion: 1, FeedbackAvailability: "NOT_EXPOSED", Recipients: []RecipientStatus{}, Events: []StatusEvent{}}
-	err = tx.QueryRowContext(ctx, `SELECT id::text,status,created_at,transaction_timestamp() FROM messages WHERE id=$1 AND api_key_id=$2 AND source_type='api'`, id, who.key.ID).Scan(&out.MessageID, &out.Status, &out.CreatedAt, &out.SnapshotAt)
+	var reference string
+	var tags []byte
+	err := tx.QueryRowContext(ctx, `SELECT id::text,status,created_at,transaction_timestamp(),client_reference,to_jsonb(business_tags) FROM messages WHERE id=$1 AND api_key_id=$2 AND source_type='api'`, id, who.key.ID).Scan(&out.MessageID, &out.Status, &out.CreatedAt, &out.SnapshotAt, &reference, &tags)
 	if errors.Is(err, sql.ErrNoRows) {
 		respond(w, 404, "not_found")
 		return
@@ -134,6 +128,14 @@ func readMessageStatus(ctx context.Context, w http.ResponseWriter, r *http.Reque
 	if err != nil {
 		respond(w, 503, "unavailable")
 		return
+	}
+	if r.URL.Query().Get("schema_version") == "2" {
+		out.SchemaVersion = 2
+		out.Business = &message.Business{ClientReference: reference}
+		if json.Unmarshal(tags, &out.Business.Tags) != nil {
+			respond(w, 503, "unavailable")
+			return
+		}
 	}
 	out.Description = statusDescription(out.Status)
 	if err = readStatusRecipients(ctx, tx, id, &out); err != nil {

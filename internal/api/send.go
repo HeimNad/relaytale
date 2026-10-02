@@ -149,7 +149,9 @@ func NewSendHandler(ctx context.Context, raw string, receiver message.APIReceive
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		readID := strings.TrimPrefix(r.URL.Path, "/v1/messages/")
+		list := r.URL.Path == "/v1/messages" && r.Method == "GET"
 		read := strings.HasPrefix(r.URL.Path, "/v1/messages/") && readID != "" && !strings.Contains(readID, "/")
+		read = read || list
 		if r.URL.Path != "/v1/messages" && !read {
 			http.NotFound(w, r)
 			return
@@ -159,7 +161,11 @@ func NewSendHandler(ctx context.Context, raw string, receiver message.APIReceive
 			method = "GET"
 		}
 		if r.Method != method {
-			w.Header().Set("Allow", method)
+			if r.URL.Path == "/v1/messages" {
+				w.Header().Set("Allow", "GET, POST")
+			} else {
+				w.Header().Set("Allow", method)
+			}
 			respond(w, 405, "method_not_allowed")
 			return
 		}
@@ -207,6 +213,10 @@ func NewSendHandler(ctx context.Context, raw string, receiver message.APIReceive
 		defer limiter.release()
 		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 		defer cancel()
+		if list {
+			readMessageList(ctx, w, r, receiver.Repo.DB, who)
+			return
+		}
 		if read {
 			readMessageStatus(ctx, w, r, receiver.Repo.DB, who, readID)
 			return
@@ -243,6 +253,11 @@ func NewSendHandler(ctx context.Context, raw string, receiver message.APIReceive
 				return
 			}
 		}
+		business, valid := businessHeaders(r)
+		if !valid {
+			respond(w, 400, "invalid_business_reference")
+			return
+		}
 		from := r.Header.Values("X-RelayTale-From")
 		to := r.Header.Values("X-RelayTale-To")
 		if len(from) != 1 || len(to) < 1 || len(to) > 100 {
@@ -274,7 +289,7 @@ func NewSendHandler(ctx context.Context, raw string, receiver message.APIReceive
 			respond(w, 413, "message_too_large")
 			return
 		}
-		result, e := receiver.Receive(ctx, message.Envelope{Account: account, From: sender, Recipients: recipients}, io.LimitReader(r.Body, receiver.MaxBytes+1), who.key.ID, idem[0])
+		result, e := receiver.Receive(ctx, message.Envelope{Account: account, From: sender, Recipients: recipients}, io.LimitReader(r.Body, receiver.MaxBytes+1), who.key.ID, idem[0], business)
 		if e != nil {
 			switch {
 			case errors.Is(e, storage.ErrTooLarge):
@@ -293,4 +308,17 @@ func NewSendHandler(ctx context.Context, raw string, receiver message.APIReceive
 		}
 		output(w, 202, map[string]any{"message_id": result.MessageID, "replayed": result.Replayed, "status": "GATEWAY_ACCEPTED"})
 	}), nil
+}
+
+func businessHeaders(r *http.Request) (message.Business, bool) {
+	refs, tags := r.Header.Values("X-RelayTale-Client-Reference"), r.Header.Values("X-RelayTale-Tag")
+	if len(refs) > 1 || len(refs) == 1 && refs[0] == "" {
+		return message.Business{}, false
+	}
+	b := message.Business{Tags: tags}
+	if len(refs) == 1 {
+		b.ClientReference = refs[0]
+	}
+	canonical, err := b.Canonical()
+	return canonical, err == nil
 }

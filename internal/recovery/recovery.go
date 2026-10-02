@@ -429,7 +429,7 @@ func verify(ctx context.Context, q queryer, original, actual string, box *encryp
 	if err = q.QueryRowContext(ctx, `SELECT count(*) FROM archive_retirements`).Scan(&r.Retirements); err != nil {
 		return r, err
 	}
-	if err = q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM webhook_outbox o JOIN webhook_endpoints e ON e.id=o.endpoint_id JOIN messages m ON m.id=o.message_id JOIN events v ON v.id=o.event_id WHERE m.api_key_id IS DISTINCT FROM e.api_key_id OR m.source_type<>'api' OR v.message_id<>m.id OR (o.payload::jsonb->>'event_id') IS DISTINCT FROM o.event_id::text OR (o.payload::jsonb->>'message_id') IS DISTINCT FROM o.message_id::text OR (o.payload::jsonb->>'sequence') IS DISTINCT FROM o.sequence::text)`).Scan(&bad); err != nil {
+	if err = q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM webhook_outbox o JOIN webhook_endpoints e ON e.id=o.endpoint_id JOIN messages m ON m.id=o.message_id JOIN events v ON v.id=o.event_id WHERE m.api_key_id IS DISTINCT FROM e.api_key_id OR m.source_type<>'api' OR v.message_id<>m.id OR (o.payload::jsonb->>'event_id') IS DISTINCT FROM o.event_id::text OR (o.payload::jsonb->>'message_id') IS DISTINCT FROM o.message_id::text OR (o.payload::jsonb->>'sequence') IS DISTINCT FROM o.sequence::text OR (o.payload::jsonb->>'schema_version'='2' AND (o.payload::jsonb->'business') IS DISTINCT FROM jsonb_build_object('client_reference',m.client_reference,'tags',m.business_tags)))`).Scan(&bad); err != nil {
 		return r, err
 	}
 	if bad {

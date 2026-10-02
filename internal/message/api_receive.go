@@ -30,7 +30,18 @@ type APIReceiver struct {
 
 // Receive snapshots the bounded request before publishing any archive. A
 // cross-process, per-key lock prevents concurrent HTTP retries publishing files.
-func (s APIReceiver) Receive(ctx context.Context, e Envelope, r io.Reader, identity, key string) (EnqueueResult, error) {
+func (s APIReceiver) Receive(ctx context.Context, e Envelope, r io.Reader, identity, key string, business ...Business) (EnqueueResult, error) {
+	if len(business) > 1 {
+		return EnqueueResult{}, ErrInvalidSubmission
+	}
+	var correlation Business
+	if len(business) == 1 {
+		correlation = business[0]
+	}
+	correlation, validationErr := correlation.Canonical()
+	if validationErr != nil {
+		return EnqueueResult{}, validationErr
+	}
 	if _, err := uuid.Parse(identity); err != nil {
 		return EnqueueResult{}, ErrInvalidSubmission
 	}
@@ -112,7 +123,7 @@ func (s APIReceiver) Receive(ctx context.Context, e Envelope, r io.Reader, ident
 	if err != nil {
 		return EnqueueResult{}, err
 	}
-	sub := Submission{Envelope: e, MessageID: mid, HeaderFrom: from, Subject: subject, Archive: storage.Archive{SHA256: hex.EncodeToString(h.Sum(nil)), Size: size}}
+	sub := Submission{Business: correlation, Envelope: e, MessageID: mid, HeaderFrom: from, Subject: subject, Archive: storage.Archive{SHA256: hex.EncodeToString(h.Sum(nil)), Size: size}}
 	fingerprint, err := RequestFingerprint(sub)
 	if err != nil {
 		return EnqueueResult{}, err

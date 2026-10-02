@@ -2,6 +2,8 @@ package webhook
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"io"
 	"net"
@@ -153,5 +155,32 @@ func TestDNSPinningAndRebinding(t *testing.T) {
 	}
 	if dials != 1 || lookups != 3 {
 		t.Fatal(dials, lookups)
+	}
+}
+
+func TestBusinessSchemaConfigurationCompatibility(t *testing.T) {
+	e := testEndpoint()
+	raw, _ := json.Marshal(struct {
+		ID       string `json:"id"`
+		APIKeyID string `json:"api_key_id"`
+		URL      string `json:"url"`
+		Keys     []Key  `json:"keys"`
+	}{e.ID, e.APIKeyID, e.URL, e.Keys})
+	digest := sha256.Sum256(raw)
+	if e.Hash() != hex.EncodeToString(digest[:]) || e.Version() != 1 {
+		t.Fatal("legacy endpoint hash changed")
+	}
+	for _, v := range []int{-1, 3} {
+		e.SchemaVersion = v
+		raw, _ := json.Marshal([]Endpoint{e})
+		if _, err := Parse(string(raw)); err == nil {
+			t.Fatal("unknown schema accepted")
+		}
+	}
+	e.SchemaVersion = 2
+	raw, _ = json.Marshal([]Endpoint{e})
+	out, err := Parse(string(raw))
+	if err != nil || out[0].Version() != 2 {
+		t.Fatal(err)
 	}
 }

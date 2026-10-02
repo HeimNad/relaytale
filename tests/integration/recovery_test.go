@@ -60,12 +60,13 @@ func TestRecoveryRoundTripAndFailureGates(t *testing.T) {
 	t.Setenv("TEST_DATABASE_URL", sourceURL)
 	f := delivery(t, testsmtp.Options{}, 1)
 	sub := prepareAPI(t, f, "one@example.test")
+	sub.Business = message.Business{ClientReference: "backup:order", Tags: []string{"receipt"}}
 	identity := testAPIKey(t, f)
 	result, err := (message.Postgres{DB: f.db}).EnqueueIdempotent(context.Background(), sub, identity, "backup-key")
 	if err != nil {
 		t.Fatal(err)
 	}
-	endpoint := webhook.Endpoint{ID: uuid.NewString(), APIKeyID: identity, URL: "https://example.com/hook", Keys: []webhook.Key{{ID: "v1", Secret: strings.Repeat("ab", 32)}}}
+	endpoint := webhook.Endpoint{SchemaVersion: 2, ID: uuid.NewString(), APIKeyID: identity, URL: "https://example.com/hook", Keys: []webhook.Key{{ID: "v1", Secret: strings.Repeat("ab", 32)}}}
 	// testAPIKey is a synthetic legacy identity; mark its explicit HTTP scope.
 	mustExec(t, f, `UPDATE api_keys SET prefix='rts_' WHERE id=$1`, identity)
 	if err = webhook.Sync(context.Background(), f.db, []webhook.Endpoint{endpoint}); err != nil {
@@ -165,7 +166,7 @@ func TestRecoveryRoundTripAndFailureGates(t *testing.T) {
 		t.Fatal(report)
 	}
 	var restoredWebhook string
-	if err = target.QueryRow(`SELECT payload FROM webhook_outbox WHERE message_id=$1`, result.MessageID).Scan(&restoredWebhook); err != nil || restoredWebhook != webhookPayload || report.WebhookPending != 1 {
+	if err = target.QueryRow(`SELECT payload FROM webhook_outbox WHERE message_id=$1`, result.MessageID).Scan(&restoredWebhook); err != nil || restoredWebhook != webhookPayload || !strings.Contains(restoredWebhook, `"client_reference": "backup:order"`) || report.WebhookPending != 1 {
 		t.Fatal("webhook recovery mismatch", err, report)
 	}
 	wrong, _ := encryption.New(strings.Repeat("cd", 32))

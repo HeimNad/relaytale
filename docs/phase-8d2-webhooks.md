@@ -100,3 +100,5 @@ relaytale replay-webhook --sequence 123 --expected-generation 0 --actor '<operat
 隔离 PostgreSQL + Fake SMTP 覆盖事务捕获/回滚、跨身份与 SMTP 隔离、失败退避、正文/日志不可变、租约回收、最终确认事务失败、旧租约确认拒绝、并发领取、预算耗尽、generation 重放、暂停/撤销/轮换、换地址保留旧目标和通知备份恢复。全量检查包括格式、vet、构建和 race 测试。
 
 没有执行真实网站回调或真实外部发信。Provider DSN 的可信来源和唯一关联仍待 7B 衔接；`NOT_EXPOSED` 明确表示此阶段没有输出已验证异步退信。
+
+[8E.1](phase-8e1-business-reference.md) 为 endpoint 增加可选 `schema_version: 2`，使未来通知携带业务关联。默认仍为 v1；已有积压/重放正文不变，接收端需兼容两种版本。

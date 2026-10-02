@@ -26,6 +26,7 @@ type Envelope struct {
 	Recipients []string
 }
 type Submission struct {
+	Business                       Business
 	ID                             string
 	Envelope                       Envelope
 	Archive                        storage.Archive

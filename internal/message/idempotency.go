@@ -21,7 +21,8 @@ type EnqueueResult struct {
 }
 
 // RequestFingerprint covers the exact MIME digest/size and ordered SMTP envelope.
-// Paths, timestamps, generated IDs and parsed metadata are not request identity.
+// Nonempty business fields opt into v2; absent fields retain the exact v1 hash.
+// Paths, timestamps, generated IDs and parsed MIME metadata are not request identity.
 // Callers must derive Archive from durable server-side storage, never client claims.
 func RequestFingerprint(s Submission) (string, error) {
 	b, e := hex.DecodeString(s.Archive.SHA256)
@@ -36,13 +37,24 @@ func RequestFingerprint(s Submission) (string, error) {
 			return "", ErrInvalidSubmission
 		}
 	}
+	business, err := s.Business.Canonical()
+	if err != nil {
+		return "", err
+	}
+	version := 1
+	var association *Business
+	if business.Present() {
+		version = 2
+		association = &business
+	}
 	encoded, e := json.Marshal(struct {
-		Version    int      `json:"version"`
-		From       string   `json:"from"`
-		Recipients []string `json:"recipients"`
-		SHA256     string   `json:"sha256"`
-		Size       int64    `json:"size"`
-	}{1, s.Envelope.From, s.Envelope.Recipients, s.Archive.SHA256, s.Archive.Size})
+		Version    int       `json:"version"`
+		From       string    `json:"from"`
+		Recipients []string  `json:"recipients"`
+		SHA256     string    `json:"sha256"`
+		Size       int64     `json:"size"`
+		Business   *Business `json:"business,omitempty"`
+	}{version, s.Envelope.From, s.Envelope.Recipients, s.Archive.SHA256, s.Archive.Size, association})
 	if e != nil {
 		return "", e
 	}

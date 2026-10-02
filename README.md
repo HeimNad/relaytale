@@ -12,7 +12,7 @@ Your Apps → SMTP ingress → Durable queue + EML archive → Provider router
                             Event ledger         Your existing SMTP providers
 ```
 
-## 当前进度：Phase 8D.2（网站签名通知）
+## 当前进度：Phase 8E.1（业务关联与检索）
 
 已实现 Go 服务入口、配置优先级、PostgreSQL 连接、内嵌 Goose 迁移、核心数据库表、存储可写检查、健康接口、JSON 日志、优雅退出和 Docker Compose。
 
@@ -24,7 +24,9 @@ Your Apps → SMTP ingress → Durable queue + EML archive → Provider router
 
 已增加停写备份、空目标恢复、原文/凭证/幂等与退役一致性校验，以及恢复启动阻断。详见 [9A 运维手册](docs/phase-9a-backup-recovery.md)。恢复后不会自动开始投递，需先人工核对备份之后的外部发送事实。已提供 [网站身份范围内的状态查询](docs/phase-8d1-message-status.md)，支持逐收件人结果与事件分页。已实现 [8D.2 签名 Webhook](docs/phase-8d2-webhooks.md)：事务通知队列、双密钥签名、失败重试、暂停及人工重放，网络发送默认关闭。可信异步退信关联仍未完成。
 
-面向业务网站的后续能力及官方资料依据见 [业务网站能力规划](docs/business-website-capabilities.md)：业务关联、网站预算与时效、测试沙箱优先；JSON/模板、定时与入站回复分阶段推进。这些新增项尚未实现。
+已支持 [业务关联 ID 与标签检索](docs/phase-8e1-business-reference.md)：在网站身份范围内按业务标识找邮件，新增字段参与幂等校验，不改 MIME；单封状态及 Webhook 通过显式选择 schema version 2 返回关联。
+
+面向业务网站的后续能力及官方资料依据见 [业务网站能力规划](docs/business-website-capabilities.md)：网站预算与时效、测试沙箱优先；JSON/模板、定时与入站回复分阶段推进。这些新增项尚未实现。
 
 ## 启动
 
