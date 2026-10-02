@@ -12,7 +12,7 @@ Your Apps → SMTP ingress → Durable queue + EML archive → Provider router
                             Event ledger         Your existing SMTP providers
 ```
 
-## 当前进度：Phase 8E.2a（网站提交预算）
+## 当前进度：Phase 8E.2b（共享 Provider 账号额度）
 
 已实现 Go 服务入口、配置优先级、PostgreSQL 连接、内嵌 Goose 迁移、核心数据库表、存储可写检查、健康接口、JSON 日志、优雅退出和 Docker Compose。
 
@@ -26,9 +26,9 @@ Your Apps → SMTP ingress → Durable queue + EML archive → Provider router
 
 已支持 [业务关联 ID 与标签检索](docs/phase-8e1-business-reference.md)：在网站身份范围内按业务标识找邮件，新增字段参与幂等校验，不改 MIME；单封状态及 Webhook 通过显式选择 schema version 2 返回关联。
 
-已增加 [网站提交预算](docs/phase-8e2a-website-budgets.md)：按身份限制滚动分钟/小时/24 小时内新接收的收件人数，额度跨进程共享，重放不重复扣费，超额不入队。共享 Provider 账号预算、消息流公平调度和邮件有效期尚未实现。
+已增加 [网站提交预算](docs/phase-8e2a-website-budgets.md)：按身份限制滚动分钟/小时/24 小时内新接收的收件人数，额度跨进程共享，重放不重复扣费，超额不入队。已增加 [共享 Provider 账号额度](docs/phase-8e2b-provider-budgets.md)：管理员把同一账号的多个连接配置加入一组，组内共用小时/24 小时投递额度，历史用量保留。消息流公平调度和邮件有效期尚未实现。
 
-面向业务网站的后续能力及官方资料依据见 [业务网站能力规划](docs/business-website-capabilities.md)：继续完成共享额度与时效、测试沙箱；JSON/模板、定时与入站回复分阶段推进。这些新增项尚未实现。
+面向业务网站的后续能力及官方资料依据见 [业务网站能力规划](docs/business-website-capabilities.md)：继续完成消息流与时效、测试沙箱；JSON/模板、定时与入站回复分阶段推进。这些新增项尚未实现。
 
 ## 启动
 

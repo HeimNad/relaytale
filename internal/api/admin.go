@@ -128,6 +128,11 @@ type principalKey struct{}
 
 func (a Management) operations() http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /admin/v1/provider-quota-groups", a.quotaGroups)
+	mux.HandleFunc("GET /admin/v1/provider-quota-groups/{id}", a.quotaGroup)
+	mux.HandleFunc("POST /admin/v1/provider-quota-groups", a.writeQuotaGroup)
+	mux.HandleFunc("PUT /admin/v1/provider-quota-groups/{id}", a.writeQuotaGroup)
+	mux.HandleFunc("POST /admin/v1/providers/{id}/quota-group", a.attachQuotaGroup)
 	mux.HandleFunc("GET /admin/v1/feedback", a.feedbackList)
 	mux.HandleFunc("GET /admin/v1/feedback-capacity", a.feedbackCapacity)
 	mux.HandleFunc("GET /admin/v1/feedback/{id}", a.feedbackDetail)
@@ -151,7 +156,7 @@ func (a Management) operations() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		who := r.Context().Value(principalKey{}).(credential)
 		if r.Method != "GET" && r.Method != "HEAD" {
-			if who.role == "viewer" || (strings.HasPrefix(r.URL.Path, "/admin/v1/providers") && who.role != "admin") {
+			if who.role == "viewer" || ((strings.HasPrefix(r.URL.Path, "/admin/v1/providers") || strings.HasPrefix(r.URL.Path, "/admin/v1/provider-quota-groups")) && who.role != "admin") {
 				respond(w, 403, "forbidden")
 				return
 			}

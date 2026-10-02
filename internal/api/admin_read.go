@@ -2,7 +2,7 @@ package api
 
 import "net/http"
 
-const providerView = `SELECT p.id,p.name,p.enabled,p.host,p.port,p.security,p.username,p.priority,p.max_connections,p.timeout_seconds,p.from_domains,coalesce(p.hourly_limit,0) hourly_limit,coalesce(p.daily_limit,0) daily_limit,p.revision,p.created_at,
+const providerView = `SELECT p.id,p.name,p.enabled,p.host,p.port,p.security,p.username,p.priority,p.max_connections,p.timeout_seconds,p.from_domains,coalesce(p.hourly_limit,0) hourly_limit,coalesce(p.daily_limit,0) daily_limit,p.revision,p.created_at,p.quota_group_id,
  h.status health_status,h.circuit_state,h.open_until,h.last_success_at,h.last_failure_at,
  coalesce((SELECT sum(q.units) FROM provider_quota q WHERE q.provider_id=p.id AND q.reserved_at>clock_timestamp()-interval '1 hour'),0) hourly_reserved,
  coalesce((SELECT sum(q.units) FROM provider_quota q WHERE q.provider_id=p.id AND q.reserved_at>clock_timestamp()-interval '24 hours'),0) daily_reserved

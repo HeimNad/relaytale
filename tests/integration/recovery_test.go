@@ -59,6 +59,8 @@ func TestRecoveryRoundTripAndFailureGates(t *testing.T) {
 	source, sourceURL := recoveryDB(t)
 	t.Setenv("TEST_DATABASE_URL", sourceURL)
 	f := delivery(t, testsmtp.Options{}, 1)
+	groupID := quotaGroup(t, f, 10, 20)
+	attachGroup(t, f, providerID(t, f), groupID)
 	sub := prepareAPI(t, f, "one@example.test")
 	sub.Business = message.Business{ClientReference: "backup:order", Tags: []string{"receipt"}}
 	identity := testAPIKey(t, f)
@@ -180,6 +182,11 @@ func TestRecoveryRoundTripAndFailureGates(t *testing.T) {
 	replay, err := (message.Postgres{DB: target}).EnqueueIdempotent(ctx, sub, identity, "backup-key")
 	if err != nil || !replay.Replayed || replay.MessageID != result.MessageID {
 		t.Fatal(replay, err)
+	}
+	var restoredGroup string
+	var restoredGroupLimit int
+	if err = target.QueryRow(`SELECT p.quota_group_id,g.daily_limit FROM providers p JOIN provider_quota_groups g ON g.id=p.quota_group_id WHERE g.id=$1`, groupID).Scan(&restoredGroup, &restoredGroupLimit); err != nil || restoredGroup != groupID || restoredGroupLimit != 20 {
+		t.Fatal("provider quota group did not survive restore", err)
 	}
 	var restoredBudget, restoredUsage int
 	if err = target.QueryRow(`SELECT submission_day_limit,(SELECT coalesce(sum(units),0) FROM api_submission_quota WHERE api_key_id=$1) FROM api_keys WHERE id=$1`, identity).Scan(&restoredBudget, &restoredUsage); err != nil || restoredBudget != 1 || restoredUsage != 1 {

@@ -15,11 +15,17 @@ const quotaAvailable = `LEAST(
  coalesce(p.hourly_limit::bigint-(SELECT coalesce(sum(q.units),0) FROM provider_quota q WHERE q.provider_id=p.id AND q.reserved_at>clock_timestamp()-interval '1 hour'),2147483647),
  coalesce(p.daily_limit::bigint-(SELECT coalesce(sum(q.units),0) FROM provider_quota q WHERE q.provider_id=p.id AND q.reserved_at>clock_timestamp()-interval '24 hours'),2147483647))`
 
+// Ungrouped providers retain their original limits. Both layers must admit.
+const sharedQuotaAvailable = `coalesce((SELECT LEAST(
+ CASE WHEN g.hourly_limit=0 THEN 2147483647 ELSE g.hourly_limit::bigint-g.hourly_reserved END,
+ CASE WHEN g.daily_limit=0 THEN 2147483647 ELSE g.daily_limit::bigint-g.daily_reserved END)
+ FROM provider_quota_group_usage g WHERE g.id=p.quota_group_id),2147483647)`
+
 const circuitAvailable = `NOT p.health_check_enabled OR NOT EXISTS(SELECT 1 FROM provider_health h WHERE h.provider_id=p.id
  AND h.circuit_state<>'CLOSED' AND (h.circuit_state='OPEN' AND h.open_until<=clock_timestamp() AND h.probe_attempt_id IS NULL) IS NOT TRUE)`
 
 func (r Repository) controlRequirements() string {
-	result := ` AND (` + quotaAvailable + `)>0`
+	result := ` AND LEAST((` + quotaAvailable + `),(` + sharedQuotaAvailable + `))>0`
 	if r.HealthEnabled {
 		result += ` AND (` + circuitAvailable + `)`
 	}
@@ -29,8 +35,15 @@ func (r Repository) controlRequirements() string {
 // Called with the provider row locked, using a fresh statement snapshot after
 // acquiring that lock. Selection snapshots alone cannot enforce shared limits.
 func (r Repository) admission(ctx context.Context, tx *sql.Tx, pid string) (int, error) {
+	// Serialize distinct provider rows sharing one account budget. No subsequent
+	// path holding this group lock acquires another provider row.
+	var group string
+	err := tx.QueryRowContext(ctx, `SELECT g.id FROM provider_quota_groups g JOIN providers p ON p.quota_group_id=g.id WHERE p.id=$1 FOR NO KEY UPDATE OF g`, pid).Scan(&group)
+	if err != nil && err != sql.ErrNoRows {
+		return 0, err
+	}
 	var remaining int
-	err := tx.QueryRowContext(ctx, `SELECT `+quotaAvailable+` FROM providers p WHERE p.id=$1`+r.controlRequirements(), pid).Scan(&remaining)
+	err = tx.QueryRowContext(ctx, `SELECT LEAST((`+quotaAvailable+`),(`+sharedQuotaAvailable+`))`+` FROM providers p WHERE p.id=$1`+r.controlRequirements(), pid).Scan(&remaining)
 	if err == sql.ErrNoRows {
 		return 0, ErrNoJob
 	}
@@ -41,7 +54,15 @@ func (r Repository) reserveControls(ctx context.Context, tx *sql.Tx, j Job) erro
 	if _, err := tx.ExecContext(ctx, `INSERT INTO provider_quota(attempt_id,provider_id,units) VALUES($1,$2,$3)`, j.AttemptID, j.Provider.ID, len(j.Recipients)); err != nil {
 		return err
 	}
-	if err := event(ctx, tx, j, "QUOTA_RESERVED", "", time.Now().UTC(), map[string]any{"provider_id": j.Provider.ID, "units": len(j.Recipients), "unit": "recipient_attempt"}); err != nil {
+	var group sql.NullString
+	if err := tx.QueryRowContext(ctx, `SELECT quota_group_id::text FROM providers WHERE id=$1`, j.Provider.ID).Scan(&group); err != nil {
+		return err
+	}
+	data := map[string]any{"provider_id": j.Provider.ID, "units": len(j.Recipients), "unit": "recipient_attempt"}
+	if group.Valid {
+		data["quota_group_id"] = group.String
+	}
+	if err := event(ctx, tx, j, "QUOTA_RESERVED", "", time.Now().UTC(), data); err != nil {
 		return err
 	}
 	if !r.HealthEnabled {
