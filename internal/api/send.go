@@ -22,6 +22,7 @@ import (
 )
 
 type SendKey struct {
+	Streams     []message.StreamPolicy   `json:"streams,omitempty"`
 	Budget      message.SubmissionBudget `json:"budget,omitempty"`
 	ID          string                   `json:"id"`
 	Token       string                   `json:"token"`
@@ -48,6 +49,11 @@ func ParseSendKeys(raw string) ([]SendKey, error) {
 	ids, tokens := map[string]bool{}, map[string]bool{}
 	for i := range keys {
 		k := &keys[i]
+		var streamErr error
+		k.Streams, streamErr = message.CanonicalStreams(k.Streams)
+		if streamErr != nil {
+			return nil, invalid
+		}
 		if !k.Budget.Valid() {
 			return nil, invalid
 		}
@@ -133,7 +139,15 @@ func NewSendHandler(ctx context.Context, raw string, receiver message.APIReceive
 		if e = tx.QueryRowContext(ctx, `SELECT key_hash FROM api_keys WHERE id=$1 AND prefix='rts_' AND enabled`, key.ID).Scan(&hash); e != nil || hash != hex.EncodeToString(digest[:]) {
 			return nil, errors.New("send API identity conflicts with an existing key")
 		}
-		auditData, _ := json.Marshal(map[string]any{"id": key.ID, "allowed_from": key.AllowedFrom, "budget": key.Budget})
+		if _, e = tx.ExecContext(ctx, `UPDATE api_message_streams SET enabled=false WHERE api_key_id=$1 AND name<>'normal'`, key.ID); e != nil {
+			return nil, e
+		}
+		for _, stream := range key.Streams {
+			if _, e = tx.ExecContext(ctx, `INSERT INTO api_message_streams(api_key_id,name,enabled,weight,minute_limit,hour_limit,day_limit) VALUES($1,$2,true,$3,$4,$5,$6) ON CONFLICT(api_key_id,name) DO UPDATE SET enabled=true,weight=EXCLUDED.weight,minute_limit=EXCLUDED.minute_limit,hour_limit=EXCLUDED.hour_limit,day_limit=EXCLUDED.day_limit`, key.ID, stream.Name, stream.Weight, stream.Budget.Minute, stream.Budget.Hour, stream.Budget.Day); e != nil {
+				return nil, e
+			}
+		}
+		auditData, _ := json.Marshal(map[string]any{"id": key.ID, "allowed_from": key.AllowedFrom, "budget": key.Budget, "streams": key.Streams})
 		if _, e = tx.ExecContext(ctx, `INSERT INTO maintenance_audit(id,action,actor,data) VALUES($1,'API_SEND_CONFIGURED','startup_config',$2)`, uuid.NewString(), string(auditData)); e != nil {
 			return nil, errors.New("send API configuration audit failed")
 		}
@@ -257,6 +271,29 @@ func NewSendHandler(ctx context.Context, raw string, receiver message.APIReceive
 				return
 			}
 		}
+		streamHeaders := r.Header.Values("X-RelayTale-Stream")
+		stream := "normal"
+		if len(streamHeaders) > 1 || len(streamHeaders) == 1 && streamHeaders[0] == "" {
+			respond(w, 400, "invalid_stream")
+			return
+		}
+		if len(streamHeaders) == 1 {
+			stream = streamHeaders[0]
+		}
+		if _, e := message.CanonicalStream(stream); e != nil {
+			respond(w, 400, "invalid_stream")
+			return
+		}
+		permitted := false
+		for _, p := range who.key.Streams {
+			if p.Name == stream {
+				permitted = true
+			}
+		}
+		if !permitted {
+			respond(w, 403, "stream_not_allowed")
+			return
+		}
 		business, valid := businessHeaders(r)
 		if !valid {
 			respond(w, 400, "invalid_business_reference")
@@ -293,7 +330,7 @@ func NewSendHandler(ctx context.Context, raw string, receiver message.APIReceive
 			respond(w, 413, "message_too_large")
 			return
 		}
-		result, e := receiver.Receive(ctx, message.Envelope{Account: account, From: sender, Recipients: recipients}, io.LimitReader(r.Body, receiver.MaxBytes+1), who.key.ID, idem[0], business)
+		result, e := receiver.ReceiveStream(ctx, message.Envelope{Account: account, From: sender, Recipients: recipients}, io.LimitReader(r.Body, receiver.MaxBytes+1), who.key.ID, idem[0], stream, business)
 		if e != nil {
 			switch {
 			case errors.Is(e, storage.ErrTooLarge):
@@ -302,6 +339,11 @@ func NewSendHandler(ctx context.Context, raw string, receiver message.APIReceive
 				respond(w, 403, "sender_denied")
 			case errors.Is(e, message.ErrInvalidMessage), errors.Is(e, message.ErrInvalidSubmission):
 				respond(w, 400, "invalid_message")
+			case errors.Is(e, message.ErrStreamDenied):
+				respond(w, 403, "stream_not_allowed")
+			case errors.Is(e, message.ErrStreamBudget):
+				w.Header().Set("Retry-After", "60")
+				respond(w, 429, "stream_budget_exhausted")
 			case errors.Is(e, message.ErrSubmissionBudget):
 				w.Header().Set("Retry-After", "60")
 				respond(w, 429, "recipient_budget_exhausted")

@@ -124,6 +124,8 @@ func TestQuotaReservationRollback(t *testing.T) {
 	if f.status(t, id) != "QUEUED" {
 		t.Fatal("claim leaked")
 	}
+	assertCount(t, f, 0, `SELECT last_ticket FROM queue_fair_owners WHERE owner_key='smtp:'||$1`, f.accountID)
+	assertCount(t, f, 0, `SELECT stream_cursor FROM queue_fair_owners WHERE owner_key='smtp:'||$1`, f.accountID)
 	runOne(t, f.worker)
 }
 

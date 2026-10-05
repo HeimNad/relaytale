@@ -92,7 +92,12 @@ func TestWebhookTransactionalIsolationAndRetry(t *testing.T) {
 		t.Fatal(calls)
 	}
 	// Permanent mail facts are captured in the original finish transaction.
-	runOne(t, f.worker)
+	// Each identity gets a turn; the subscribed message need not be first.
+	for range 3 {
+		runOne(t, f.worker)
+	}
+	assertCount(t, f, 1, `SELECT count(*) FROM delivery_attempts WHERE message_id=$1`, id)
+	assertCount(t, f, 0, `SELECT count(*) FROM webhook_outbox WHERE message_id IN ($1,$2)`, otherID, smtpID)
 	var n int
 	if err = f.db.QueryRow(`SELECT count(*) FROM webhook_outbox WHERE message_id=$1`, id).Scan(&n); err != nil || n < 2 {
 		t.Fatal(n, err)

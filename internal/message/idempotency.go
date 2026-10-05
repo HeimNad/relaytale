@@ -47,6 +47,15 @@ func RequestFingerprint(s Submission) (string, error) {
 		version = 2
 		association = &business
 	}
+	stream, err := CanonicalStream(s.Stream)
+	if err != nil {
+		return "", err
+	}
+	if stream == "normal" {
+		stream = ""
+	} else {
+		version = 3
+	}
 	encoded, e := json.Marshal(struct {
 		Version    int       `json:"version"`
 		From       string    `json:"from"`
@@ -54,7 +63,8 @@ func RequestFingerprint(s Submission) (string, error) {
 		SHA256     string    `json:"sha256"`
 		Size       int64     `json:"size"`
 		Business   *Business `json:"business,omitempty"`
-	}{version, s.Envelope.From, s.Envelope.Recipients, s.Archive.SHA256, s.Archive.Size, association})
+		Stream     string    `json:"stream,omitempty"`
+	}{version, s.Envelope.From, s.Envelope.Recipients, s.Archive.SHA256, s.Archive.Size, association, stream})
 	if e != nil {
 		return "", e
 	}
@@ -121,7 +131,7 @@ func (p Postgres) enqueueIdempotent(ctx context.Context, s Submission, apiKeyID,
 		// No writes occurred; return only an already committed ledger entry.
 		return EnqueueResult{MessageID: original, Replayed: true}, nil
 	}
-	if e = reserveSubmission(ctx, tx, apiKeyID, s.ID, len(s.Envelope.Recipients)); e != nil {
+	if e = reserveSubmission(ctx, tx, apiKeyID, s.ID, len(s.Envelope.Recipients), s.Stream); e != nil {
 		return EnqueueResult{}, e
 	}
 	if publish != nil {

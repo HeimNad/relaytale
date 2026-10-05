@@ -64,11 +64,14 @@ func TestRecoveryRoundTripAndFailureGates(t *testing.T) {
 	sub := prepareAPI(t, f, "one@example.test")
 	sub.Business = message.Business{ClientReference: "backup:order", Tags: []string{"receipt"}}
 	identity := testAPIKey(t, f)
+	sub.Stream = "otp"
+	mustExec(t, f, `INSERT INTO api_message_streams(api_key_id,name,weight,day_limit) VALUES($1,'otp',3,5)`, identity)
 	mustExec(t, f, `UPDATE api_keys SET submission_day_limit=1 WHERE id=$1`, identity)
 	result, err := (message.Postgres{DB: f.db}).EnqueueIdempotent(context.Background(), sub, identity, "backup-key")
 	if err != nil {
 		t.Fatal(err)
 	}
+	mustExec(t, f, `UPDATE queue_fair_owners SET stream_cursor=2,last_ticket=nextval('queue_fair_ticket') WHERE owner_key='api:'||$1`, identity)
 	endpoint := webhook.Endpoint{SchemaVersion: 2, ID: uuid.NewString(), APIKeyID: identity, URL: "https://example.com/hook", Keys: []webhook.Key{{ID: "v1", Secret: strings.Repeat("ab", 32)}}}
 	// testAPIKey is a synthetic legacy identity; mark its explicit HTTP scope.
 	mustExec(t, f, `UPDATE api_keys SET prefix='rts_' WHERE id=$1`, identity)
@@ -182,6 +185,11 @@ func TestRecoveryRoundTripAndFailureGates(t *testing.T) {
 	replay, err := (message.Postgres{DB: target}).EnqueueIdempotent(ctx, sub, identity, "backup-key")
 	if err != nil || !replay.Replayed || replay.MessageID != result.MessageID {
 		t.Fatal(replay, err)
+	}
+	var restoredStream string
+	var restoredCursor, restoredWeight int
+	if err = target.QueryRow(`SELECT m.message_stream,o.stream_cursor,s.weight FROM messages m JOIN queue_fair_owners o ON o.owner_key=queue_owner(m.source_type,m.api_key_id,m.smtp_account_id) JOIN api_message_streams s ON s.api_key_id=m.api_key_id AND s.name=m.message_stream WHERE m.id=$1`, result.MessageID).Scan(&restoredStream, &restoredCursor, &restoredWeight); err != nil || restoredStream != "otp" || restoredCursor != 2 || restoredWeight != 3 {
+		t.Fatal("stream state did not survive restore", err)
 	}
 	var restoredGroup string
 	var restoredGroupLimit int

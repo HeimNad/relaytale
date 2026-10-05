@@ -19,6 +19,7 @@ var ErrNoJob = errors.New("no eligible queued message")
 var ErrLeaseLost = errors.New("delivery lease lost")
 
 type Job struct {
+	Stream                                   string
 	ID, Token, AttemptID, From, Path, SHA256 string
 	Size                                     int64
 	Provider                                 provider.Provider
@@ -78,14 +79,7 @@ func (r Repository) Claim(ctx context.Context) (Job, error) {
 		return Job{}, err
 	}
 	j := Job{Token: uuid.NewString(), AttemptID: uuid.Must(uuid.NewV7()).String()}
-	err = tx.QueryRowContext(ctx, `SELECT m.id,m.envelope_from,m.eml_path,m.eml_size,m.eml_sha256 FROM messages m
- WHERE m.status='QUEUED' AND m.archive_state='AVAILABLE' AND m.next_attempt_at<=now()
- AND EXISTS(SELECT 1 FROM recipients rc WHERE rc.message_id=m.id AND `+r.claimRecipient("rc")+`)
- AND EXISTS(SELECT 1 FROM providers p WHERE `+r.eligibleProvider()+`)
- ORDER BY m.priority DESC,m.created_at,m.id LIMIT 1 FOR UPDATE OF m SKIP LOCKED`).Scan(&j.ID, &j.From, &j.Path, &j.Size, &j.SHA256)
-	if errors.Is(err, sql.ErrNoRows) {
-		return Job{}, ErrNoJob
-	}
+	owner, nextCursor, err := r.selectFair(ctx, tx, &j)
 	if err != nil {
 		return Job{}, err
 	}
@@ -111,6 +105,7 @@ func (r Repository) Claim(ctx context.Context) (Job, error) {
 	if err != nil {
 		return Job{}, err
 	}
+	allowance = min(allowance, FairRecipientQuantum)
 	var previous string
 	if err = tx.QueryRowContext(ctx, `SELECT coalesce(route_provider_id::text,'') FROM messages WHERE id=$1`, j.ID).Scan(&previous); err != nil {
 		return Job{}, err
@@ -155,7 +150,10 @@ func (r Repository) Claim(ctx context.Context) (Job, error) {
 	if err = recordFailover(ctx, tx, j, previous); err != nil {
 		return Job{}, err
 	}
-	if err = event(ctx, tx, j, "ATTEMPT_STARTED", "", time.Now().UTC(), map[string]any{"provider_id": j.Provider.ID, "attempt_number": attemptNumber}); err != nil {
+	if err = event(ctx, tx, j, "ATTEMPT_STARTED", "", time.Now().UTC(), map[string]any{"provider_id": j.Provider.ID, "attempt_number": attemptNumber, "message_stream": j.Stream, "recipient_quantum": FairRecipientQuantum}); err != nil {
+		return Job{}, err
+	}
+	if _, err = tx.ExecContext(ctx, `UPDATE queue_fair_owners SET last_ticket=nextval('queue_fair_ticket'),stream_cursor=$2 WHERE owner_key=$1`, owner, nextCursor); err != nil {
 		return Job{}, err
 	}
 	if err = tx.Commit(); err != nil {

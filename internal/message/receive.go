@@ -26,6 +26,7 @@ type Envelope struct {
 	Recipients []string
 }
 type Submission struct {
+	Stream                         string
 	Business                       Business
 	ID                             string
 	Envelope                       Envelope

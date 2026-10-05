@@ -420,8 +420,14 @@ func verify(ctx context.Context, q queryer, original, actual string, box *encryp
 	if bad {
 		return r, errors.New("idempotency or retirement inconsistency")
 	}
+	if err = q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM messages m LEFT JOIN queue_fair_owners o ON o.owner_key=queue_owner(m.source_type,m.api_key_id,m.smtp_account_id) WHERE o.owner_key IS NULL)`).Scan(&bad); err != nil {
+		return r, err
+	}
+	if bad {
+		return r, errors.New("queue fairness identity missing")
+	}
 	// Budget history must survive restore with its original website and units.
-	if err = q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM api_submission_quota q JOIN messages m ON m.id=q.message_id WHERE m.source_type<>'api' OR m.api_key_id IS DISTINCT FROM q.api_key_id OR q.units<>(SELECT count(*) FROM recipients r WHERE r.message_id=m.id)) OR EXISTS(SELECT 1 FROM api_submission_ledger l LEFT JOIN api_submission_quota q ON q.message_id=l.message_id WHERE l.created_at>clock_timestamp()-interval '24 hours' AND q.message_id IS NULL)`).Scan(&bad); err != nil {
+	if err = q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM api_submission_quota q JOIN messages m ON m.id=q.message_id WHERE m.source_type<>'api' OR m.api_key_id IS DISTINCT FROM q.api_key_id OR m.message_stream<>q.message_stream OR q.units<>(SELECT count(*) FROM recipients r WHERE r.message_id=m.id)) OR EXISTS(SELECT 1 FROM api_submission_ledger l LEFT JOIN api_submission_quota q ON q.message_id=l.message_id WHERE l.created_at>clock_timestamp()-interval '24 hours' AND q.message_id IS NULL)`).Scan(&bad); err != nil {
 		return r, err
 	}
 	if bad {
