@@ -432,6 +432,12 @@ func verify(ctx context.Context, q queryer, original, actual string, box *encryp
 	if bad {
 		return r, errors.New("sandbox isolation inconsistency")
 	}
+	if err = q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM sandbox_simulations s JOIN messages m ON m.id=s.message_id JOIN recipients r ON r.id=s.recipient_id JOIN events e ON e.id=s.event_id WHERE m.environment<>'sandbox' OR r.message_id<>m.id OR e.message_id<>m.id OR e.recipient_id IS DISTINCT FROM r.id OR e.source<>'sandbox' OR e.data IS DISTINCT FROM jsonb_build_object('simulation',true,'environment','sandbox','outcome',s.outcome) OR e.event_type IS DISTINCT FROM CASE s.outcome WHEN 'accepted' THEN 'SANDBOX_SIMULATED_ACCEPTED' WHEN 'temporary_failure' THEN 'SANDBOX_SIMULATED_TEMP_FAILED' WHEN 'permanent_failure' THEN 'SANDBOX_SIMULATED_PERM_FAILED' WHEN 'delivery_unknown' THEN 'SANDBOX_SIMULATED_UNKNOWN' WHEN 'bounce' THEN 'SANDBOX_SIMULATED_BOUNCE' END) OR EXISTS(SELECT 1 FROM events e LEFT JOIN sandbox_simulations s ON s.event_id=e.id WHERE e.event_type LIKE 'SANDBOX_SIMULATED_%' AND s.event_id IS NULL) OR EXISTS(SELECT 1 FROM sandbox_simulations GROUP BY message_id HAVING count(*)>100)`).Scan(&bad); err != nil {
+		return r, err
+	}
+	if bad {
+		return r, errors.New("sandbox simulation audit inconsistency")
+	}
 	if err = q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM delivery_attempts a JOIN messages m ON m.id=a.message_id WHERE m.expires_at IS NOT NULL AND a.data_armed_at>=m.expires_at)`).Scan(&bad); err != nil {
 		return r, err
 	}

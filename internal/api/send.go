@@ -175,14 +175,15 @@ func NewSendHandler(ctx context.Context, raw string, receiver message.APIReceive
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		readID := strings.TrimPrefix(r.URL.Path, "/v1/messages/")
 		list := r.URL.Path == "/v1/messages" && r.Method == "GET"
+		sandboxID, sandboxOperation, auxiliary := sandboxRoute(r.URL.Path)
 		read := strings.HasPrefix(r.URL.Path, "/v1/messages/") && readID != "" && !strings.Contains(readID, "/")
 		read = read || list
-		if r.URL.Path != "/v1/messages" && !read {
+		if r.URL.Path != "/v1/messages" && !read && !auxiliary {
 			http.NotFound(w, r)
 			return
 		}
 		method := "POST"
-		if read {
+		if read || auxiliary && sandboxOperation == "inspection" {
 			method = "GET"
 		}
 		if r.Method != method {
@@ -199,7 +200,7 @@ func NewSendHandler(ctx context.Context, raw string, receiver message.APIReceive
 			return
 		}
 		admission := slots
-		if read {
+		if read || auxiliary && sandboxOperation == "inspection" {
 			admission = readSlots
 		}
 		select {
@@ -228,7 +229,7 @@ func NewSendHandler(ctx context.Context, raw string, receiver message.APIReceive
 		}
 		w.Header().Set("X-RelayTale-Environment", who.key.Environment)
 		limiter := who
-		if read {
+		if read || auxiliary && sandboxOperation == "inspection" {
 			limiter = readLimits[who.key.ID]
 		}
 		if !limiter.acquire() {
@@ -239,6 +240,14 @@ func NewSendHandler(ctx context.Context, raw string, receiver message.APIReceive
 		defer limiter.release()
 		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 		defer cancel()
+		if auxiliary {
+			if sandboxOperation == "inspection" {
+				inspectSandbox(ctx, w, r, receiver, who, sandboxID)
+			} else {
+				simulateSandbox(ctx, w, r, receiver.Repo.DB, who, sandboxID)
+			}
+			return
+		}
 		if list {
 			readMessageList(ctx, w, r, receiver.Repo.DB, who)
 			return

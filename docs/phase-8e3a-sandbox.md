@@ -64,3 +64,5 @@
 ## 后续 8E.3b
 
 提供可运行网站示例与 HTTP/OpenAPI 契约，展示持久化 message_id、相同幂等键重试、状态查询、原始字节验签、通知去重与乱序处理。增加有界 MIME/附件结构检查和明确模拟事件；不向生产记录写入假的 SMTP_ACCEPTED/DELIVERED，不在浏览器执行邮件 HTML。当前没有测试 SMTP 账户模式，也没有模拟退信改变 suppression 的接口；可信 Provider 异步反馈仍是单独能力。
+
+后续记录：[8E.3b 沙箱工具与网站示例](phase-8e3b-sandbox-tools.md) 已补齐本阶段保留的后续范围。

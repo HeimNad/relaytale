@@ -113,6 +113,14 @@ func TestRecoveryRoundTripAndFailureGates(t *testing.T) {
 		t.Fatal(err)
 	}
 	sandboxID := submitStatusFixture(t, sandboxHandler, sandboxKey, f.raw(), nil)
+	var sandboxRecipient string
+	if err = f.db.QueryRow(`SELECT id FROM recipients WHERE message_id=$1`, sandboxID).Scan(&sandboxRecipient); err != nil {
+		t.Fatal(err)
+	}
+	simulationBody, _ := json.Marshal(map[string]string{"recipient_id": sandboxRecipient, "outcome": "delivery_unknown"})
+	simulation := toolRequest(sandboxHandler, sandboxKey, sandboxID, "simulations", "restore-simulation", simulationBody)
+	requireStatus(t, simulation, 200)
+
 	bundle := filepath.Join(t.TempDir(), "bundle")
 	ctx := context.Background()
 	opts := recovery.Options{DB: source, DatabaseURL: sourceURL, StorageRoot: f.root, Bundle: bundle, Offline: true}
@@ -190,6 +198,10 @@ func TestRecoveryRoundTripAndFailureGates(t *testing.T) {
 	}
 	if _, err = target.Exec(`UPDATE messages SET environment='production',status='QUEUED' WHERE id=$1`, sandboxID); err == nil {
 		t.Fatal("restored sandbox can be promoted")
+	}
+	var restoredSimulations int
+	if err = target.QueryRow(`SELECT count(*) FROM sandbox_simulations WHERE message_id=$1 AND outcome='delivery_unknown'`, sandboxID).Scan(&restoredSimulations); err != nil || restoredSimulations != 1 {
+		t.Fatal("simulation audit lost during restore", err)
 	}
 	var restoredWebhook string
 	if err = target.QueryRow(`SELECT payload FROM webhook_outbox WHERE message_id=$1`, result.MessageID).Scan(&restoredWebhook); err != nil || restoredWebhook != webhookPayload || !strings.Contains(restoredWebhook, `"client_reference": "backup:order"`) || report.WebhookPending != 1 {

@@ -1,0 +1,1760 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "RelayTale website API",
+    "version": "8E.3b",
+    "description": "Server-to-server gateway API and externally configured Webhook contract. Transport JSON/body evolution is opt-in; no implicit SMTP/inbox equivalence."
+  },
+  "servers": [
+    {
+      "url": "https://relaytale.example.test"
+    }
+  ],
+  "security": [
+    {
+      "sendBearer": []
+    }
+  ],
+  "paths": {
+    "/v1/messages": {
+      "post": {
+        "operationId": "submitMessage",
+        "summary": "Persist original MIME and an immutable envelope.",
+        "description": "Server-side credential only; Origin/cross-site browser requests are refused. Test/production environment is fixed on the credential, never a request header. SMTP provider acceptance is not inbox delivery. Canonical deadline, stream, business association, envelope order, and exact MIME bytes participate in idempotency. Missing fields preserve the legacy fingerprint.",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[!-~]+$"
+            },
+            "description": "Persist before submitting. Reuse the same key and exact request after an uncertain result. Simulations have a separate per-message key scope."
+          },
+          {
+            "name": "X-RelayTale-From",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "email"
+            },
+            "description": ""
+          },
+          {
+            "name": "X-RelayTale-To",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "email"
+            },
+            "description": "One address per header occurrence, 1..100 distinct recipients. Repeat this HTTP header for multiple recipients; do not comma-join. OpenAPI describes a single occurrence; generated clients must implement repetition explicitly."
+          },
+          {
+            "name": "X-RelayTale-Stream",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "enum": [
+                "normal",
+                "otp",
+                "security",
+                "receipt"
+              ],
+              "default": "normal"
+            },
+            "description": ""
+          },
+          {
+            "name": "X-RelayTale-Expires-At",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "description": "Whole-second RFC3339; canonical UTC. New requests must be after the database clock and at most 720 hours ahead. Exact committed replay still succeeds after expiry."
+          },
+          {
+            "name": "X-RelayTale-Client-Reference",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "description": ""
+          },
+          {
+            "name": "X-RelayTale-Tag",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 32
+            },
+            "description": "Repeat for multiple tags. See business reference documentation for the character whitelist and count limits."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "message/rfc822": {
+              "schema": {
+                "type": "string",
+                "description": "Exact original EML with CRLF and a final CRLF. Size is configured per deployment. No Content-Encoding or content-type parameters."
+              }
+            }
+          }
+        },
+        "responses": {
+          "400": {
+            "description": "Malformed query, headers, envelope, JSON, or MIME.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unknown, revoked or rotated credential.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sender/stream denied, browser request forbidden, or sandbox identity required.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown object in this identity.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "Method not allowed; see Allow header.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency conflict or per-message simulation cap reached.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "New submission deadline elapsed, or inspection archive unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Submission size limit or 2 MiB inspection limit exceeded.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Unsupported content type/encoding.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Deadline beyond 720 hours or malformed/too complex MIME inspection.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Admission/concurrency/recipient/stream budget exhausted; respect Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Operation unavailable or not confirmed. Retry writes with the identical bytes, envelope and idempotency key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Gateway persistence confirmed; never an inbox-delivery assertion.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubmissionResult"
+                }
+              }
+            },
+            "headers": {
+              "X-RelayTale-Environment": {
+                "description": "Identity environment; sandbox or production. Body environment/simulation flags are present only for sandbox responses.",
+                "schema": {
+                  "enum": [
+                    "production",
+                    "sandbox"
+                  ]
+                }
+              },
+              "X-RelayTale-Stream": {
+                "schema": {
+                  "enum": [
+                    "normal",
+                    "otp",
+                    "security",
+                    "receipt"
+                  ]
+                }
+              },
+              "X-RelayTale-Expires-At": {
+                "description": "Only present when an immutable absolute deadline was supplied.",
+                "schema": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "operationId": "searchMessages",
+        "summary": "Search within the stable API identity.",
+        "description": "At least one of client_reference or tag is mandatory. Results never cross identity boundaries. This endpoint always returns schema_version=2.",
+        "parameters": [
+          {
+            "name": "client_reference",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "description": ""
+          },
+          {
+            "name": "tag",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 32
+            },
+            "description": ""
+          },
+          {
+            "name": "before",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": ""
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50
+            },
+            "description": ""
+          }
+        ],
+        "responses": {
+          "400": {
+            "description": "Malformed query, headers, envelope, JSON, or MIME.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unknown, revoked or rotated credential.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sender/stream denied, browser request forbidden, or sandbox identity required.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown object in this identity.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "Method not allowed; see Allow header.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency conflict or per-message simulation cap reached.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "New submission deadline elapsed, or inspection archive unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Submission size limit or 2 MiB inspection limit exceeded.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Unsupported content type/encoding.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Deadline beyond 720 hours or malformed/too complex MIME inspection.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Admission/concurrency/recipient/stream budget exhausted; respect Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Operation unavailable or not confirmed. Retry writes with the identical bytes, envelope and idempotency key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Bounded identity-scoped results.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageList"
+                }
+              }
+            },
+            "headers": {
+              "X-RelayTale-Environment": {
+                "description": "Identity environment; sandbox or production. Body environment/simulation flags are present only for sandbox responses.",
+                "schema": {
+                  "enum": [
+                    "production",
+                    "sandbox"
+                  ]
+                }
+              },
+              "X-RelayTale-Stream": {
+                "schema": {
+                  "enum": [
+                    "normal",
+                    "otp",
+                    "security",
+                    "receipt"
+                  ]
+                }
+              },
+              "X-RelayTale-Expires-At": {
+                "description": "Only present when an immutable absolute deadline was supplied.",
+                "schema": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/messages/{id}": {
+      "get": {
+        "operationId": "getMessageStatus",
+        "summary": "Query durable per-recipient state and a bounded event timeline.",
+        "description": "NOT_EXPOSED means authenticated asynchronous feedback is not exposed. DELIVERY_UNKNOWN must never cause an automatic new submission. Sandbox event names express simulated observations; SANDBOX_STORED remains the message/recipient state. Events are newest-first; paginate with next_before.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Canonical lowercase UUID returned as message_id."
+          },
+          {
+            "name": "schema_version",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "enum": [
+                1,
+                2
+              ],
+              "default": 1
+            },
+            "description": "Version 2 includes business correlation."
+          },
+          {
+            "name": "before",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": ""
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50
+            },
+            "description": ""
+          }
+        ],
+        "responses": {
+          "400": {
+            "description": "Malformed query, headers, envelope, JSON, or MIME.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unknown, revoked or rotated credential.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sender/stream denied, browser request forbidden, or sandbox identity required.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown object in this identity.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "Method not allowed; see Allow header.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency conflict or per-message simulation cap reached.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "New submission deadline elapsed, or inspection archive unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Submission size limit or 2 MiB inspection limit exceeded.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Unsupported content type/encoding.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Deadline beyond 720 hours or malformed/too complex MIME inspection.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Admission/concurrency/recipient/stream budget exhausted; respect Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Operation unavailable or not confirmed. Retry writes with the identical bytes, envelope and idempotency key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "One consistent database snapshot.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageStatus"
+                }
+              }
+            },
+            "headers": {
+              "X-RelayTale-Environment": {
+                "description": "Identity environment; sandbox or production. Body environment/simulation flags are present only for sandbox responses.",
+                "schema": {
+                  "enum": [
+                    "production",
+                    "sandbox"
+                  ]
+                }
+              },
+              "X-RelayTale-Stream": {
+                "schema": {
+                  "enum": [
+                    "normal",
+                    "otp",
+                    "security",
+                    "receipt"
+                  ]
+                }
+              },
+              "X-RelayTale-Expires-At": {
+                "description": "Only present when an immutable absolute deadline was supplied.",
+                "schema": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/messages/{id}/inspection": {
+      "get": {
+        "operationId": "inspectSandboxMIME",
+        "summary": "Describe a verified sandbox archive without rendering bodies.",
+        "description": "Sandbox credential only. No query or request body. Verifies exact size/hash and root containment. 2 MiB maximum, 64 parts, depth at most 8, bounded headers. HTML, embedded EML and compressed attachments are never executed, fetched or extracted. Part paths and encoded/decoded sizes are diagnostic metadata, not antivirus or deliverability checks.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Canonical lowercase UUID returned as message_id."
+          }
+        ],
+        "responses": {
+          "400": {
+            "description": "Malformed query, headers, envelope, JSON, or MIME.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unknown, revoked or rotated credential.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sender/stream denied, browser request forbidden, or sandbox identity required.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown object in this identity.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "Method not allowed; see Allow header.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency conflict or per-message simulation cap reached.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "New submission deadline elapsed, or inspection archive unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Submission size limit or 2 MiB inspection limit exceeded.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Unsupported content type/encoding.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Deadline beyond 720 hours or malformed/too complex MIME inspection.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Admission/concurrency/recipient/stream budget exhausted; respect Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Operation unavailable or not confirmed. Retry writes with the identical bytes, envelope and idempotency key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Safe JSON structural metadata; no body bytes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Inspection"
+                }
+              }
+            },
+            "headers": {
+              "X-RelayTale-Environment": {
+                "description": "Identity environment; sandbox or production. Body environment/simulation flags are present only for sandbox responses.",
+                "schema": {
+                  "enum": [
+                    "production",
+                    "sandbox"
+                  ]
+                }
+              },
+              "X-RelayTale-Stream": {
+                "schema": {
+                  "enum": [
+                    "normal",
+                    "otp",
+                    "security",
+                    "receipt"
+                  ]
+                }
+              },
+              "X-RelayTale-Expires-At": {
+                "description": "Only present when an immutable absolute deadline was supplied.",
+                "schema": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/messages/{id}/simulations": {
+      "post": {
+        "operationId": "simulateSandboxOutcome",
+        "summary": "Append a clearly simulated recipient observation.",
+        "description": "Sandbox credential only. JSON <=512 bytes; no query. At most 100 committed simulations per message, independently enforced by the database. Replay returns the original event even at the cap. No SMTP attempt, delivery state, provider health/quota or suppression mutation. Old accepted/unknown facts are never manufactured.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Canonical lowercase UUID returned as message_id."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[!-~]+$"
+            },
+            "description": "Persist before submitting. Reuse the same key and exact request after an uncertain result. Simulations have a separate per-message key scope."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SimulationRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "400": {
+            "description": "Malformed query, headers, envelope, JSON, or MIME.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unknown, revoked or rotated credential.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sender/stream denied, browser request forbidden, or sandbox identity required.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown object in this identity.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "Method not allowed; see Allow header.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency conflict or per-message simulation cap reached.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "New submission deadline elapsed, or inspection archive unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Submission size limit or 2 MiB inspection limit exceeded.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Unsupported content type/encoding.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Deadline beyond 720 hours or malformed/too complex MIME inspection.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Admission/concurrency/recipient/stream budget exhausted; respect Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Operation unavailable or not confirmed. Retry writes with the identical bytes, envelope and idempotency key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Event, idempotency ledger and selected Webhook outbox committed together.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SimulationResult"
+                }
+              }
+            },
+            "headers": {
+              "X-RelayTale-Environment": {
+                "description": "Identity environment; sandbox or production. Body environment/simulation flags are present only for sandbox responses.",
+                "schema": {
+                  "enum": [
+                    "production",
+                    "sandbox"
+                  ]
+                }
+              },
+              "X-RelayTale-Stream": {
+                "schema": {
+                  "enum": [
+                    "normal",
+                    "otp",
+                    "security",
+                    "receipt"
+                  ]
+                }
+              },
+              "X-RelayTale-Expires-At": {
+                "description": "Only present when an immutable absolute deadline was supplied.",
+                "schema": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "webhooks": {
+    "deliveryEvents": {
+      "post": {
+        "operationId": "receiveDeliveryEvent",
+        "summary": "Receiver contract for a configured HTTPS website endpoint.",
+        "security": [],
+        "description": "This route is on YOUR website; its URL is configured out of band, not hosted by RelayTale. Verify HMAC SHA256 over timestamp + a literal dot + exact raw body with a configured key, before JSON parsing. Timestamp must be within +/-300 seconds. Signature values are key_id:lowercase_hex, comma-separated during rotation. No bearer credential is sent. Persist event_id and raw-body digest before 2xx; exact duplicate =>2xx. Do not deduplicate by message_id. Events can be repeated or arrive out of order; mark dirty and query current state. Do not use sequence as a delivery-state version. Network dispatch is disabled by default. Sandbox events always carry environment=sandbox and simulation=true.",
+        "parameters": [
+          {
+            "name": "X-RelayTale-Timestamp",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9]+$"
+            },
+            "description": ""
+          },
+          {
+            "name": "X-RelayTale-Signature",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 256
+            },
+            "description": ""
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WebhookEvent"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Notification durably accepted or exact duplicate already committed."
+          },
+          "default": {
+            "description": "Non-2xx or uncertain acknowledgement is retried with immutable body bytes, within the configured gateway retry budget."
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "sendBearer": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "rts_ token mapped to an immutable stable identity/environment; never place in browser code."
+      }
+    },
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "Business": {
+        "type": "object",
+        "properties": {
+          "client_reference": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "tags": {
+            "type": "array",
+            "maxItems": 8,
+            "items": {
+              "type": "string",
+              "maxLength": 32
+            }
+          }
+        },
+        "required": [
+          "client_reference",
+          "tags"
+        ]
+      },
+      "SubmissionResult": {
+        "type": "object",
+        "properties": {
+          "message_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "replayed": {
+            "type": "boolean"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "GATEWAY_ACCEPTED",
+              "SANDBOX_STORED"
+            ]
+          },
+          "environment": {
+            "const": "sandbox"
+          },
+          "simulation": {
+            "const": true
+          }
+        },
+        "required": [
+          "message_id",
+          "replayed",
+          "status"
+        ],
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "status": {
+                  "const": "SANDBOX_STORED"
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "environment",
+                "simulation"
+              ]
+            }
+          }
+        ]
+      },
+      "StatusEvent": {
+        "type": "object",
+        "properties": {
+          "event_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "type": {
+            "type": "string"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "source": {
+            "type": "string"
+          },
+          "recipient_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "attempt_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "event_id",
+          "type",
+          "at",
+          "source"
+        ]
+      },
+      "Attempt": {
+        "type": "object",
+        "properties": {
+          "attempt_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "attempt_number": {
+            "type": "integer"
+          },
+          "recipient_status": {
+            "type": "string"
+          },
+          "stage": {
+            "type": "string"
+          },
+          "smtp_code": {
+            "type": "integer",
+            "minimum": 200,
+            "maximum": 599
+          },
+          "smtp_enhanced_code": {
+            "type": "string"
+          },
+          "finished_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "attempt_id",
+          "attempt_number",
+          "recipient_status",
+          "stage",
+          "finished_at"
+        ]
+      },
+      "RecipientStatus": {
+        "type": "object",
+        "properties": {
+          "recipient_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "address": {
+            "type": "string",
+            "format": "email"
+          },
+          "status": {
+            "enum": [
+              "RECEIVED",
+              "ARCHIVED",
+              "QUEUED",
+              "SENDING",
+              "SMTP_ACCEPTED",
+              "PARTIAL_ACCEPTED",
+              "TEMP_FAILED",
+              "PERM_FAILED",
+              "DELIVERY_UNKNOWN",
+              "BOUNCED",
+              "DELIVERED",
+              "SUPPRESSED",
+              "CANCELLED",
+              "EXPIRED",
+              "SANDBOX_STORED"
+            ]
+          },
+          "description": {
+            "type": "string"
+          },
+          "decision_action": {
+            "type": "string"
+          },
+          "attempt_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "retry_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "latest_completed_attempt": {
+            "$ref": "#/components/schemas/Attempt"
+          }
+        },
+        "required": [
+          "recipient_id",
+          "address",
+          "status",
+          "description",
+          "attempt_count"
+        ]
+      },
+      "MessageStatus": {
+        "type": "object",
+        "properties": {
+          "schema_version": {
+            "type": "integer",
+            "enum": [
+              1,
+              2
+            ]
+          },
+          "message_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "enum": [
+              "RECEIVED",
+              "ARCHIVED",
+              "QUEUED",
+              "SENDING",
+              "SMTP_ACCEPTED",
+              "PARTIAL_ACCEPTED",
+              "TEMP_FAILED",
+              "PERM_FAILED",
+              "DELIVERY_UNKNOWN",
+              "BOUNCED",
+              "DELIVERED",
+              "SUPPRESSED",
+              "CANCELLED",
+              "EXPIRED",
+              "SANDBOX_STORED"
+            ]
+          },
+          "description": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "snapshot_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "feedback_availability": {
+            "const": "NOT_EXPOSED"
+          },
+          "recipients": {
+            "type": "array",
+            "maxItems": 100,
+            "items": {
+              "$ref": "#/components/schemas/RecipientStatus"
+            }
+          },
+          "events": {
+            "type": "array",
+            "maxItems": 100,
+            "items": {
+              "$ref": "#/components/schemas/StatusEvent"
+            }
+          },
+          "has_more_events": {
+            "type": "boolean"
+          },
+          "next_before": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "business": {
+            "$ref": "#/components/schemas/Business"
+          },
+          "environment": {
+            "const": "sandbox"
+          },
+          "simulation": {
+            "const": true
+          }
+        },
+        "required": [
+          "schema_version",
+          "message_id",
+          "status",
+          "description",
+          "created_at",
+          "snapshot_at",
+          "feedback_availability",
+          "recipients",
+          "events",
+          "has_more_events"
+        ]
+      },
+      "MessageSummary": {
+        "type": "object",
+        "properties": {
+          "message_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "enum": [
+              "RECEIVED",
+              "ARCHIVED",
+              "QUEUED",
+              "SENDING",
+              "SMTP_ACCEPTED",
+              "PARTIAL_ACCEPTED",
+              "TEMP_FAILED",
+              "PERM_FAILED",
+              "DELIVERY_UNKNOWN",
+              "BOUNCED",
+              "DELIVERED",
+              "SUPPRESSED",
+              "CANCELLED",
+              "EXPIRED",
+              "SANDBOX_STORED"
+            ]
+          },
+          "description": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "business": {
+            "$ref": "#/components/schemas/Business"
+          }
+        },
+        "required": [
+          "message_id",
+          "status",
+          "description",
+          "created_at",
+          "business"
+        ]
+      },
+      "MessageList": {
+        "type": "object",
+        "properties": {
+          "schema_version": {
+            "const": 2
+          },
+          "snapshot_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "messages": {
+            "type": "array",
+            "maxItems": 100,
+            "items": {
+              "$ref": "#/components/schemas/MessageSummary"
+            }
+          },
+          "has_more": {
+            "type": "boolean"
+          },
+          "next_before": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "environment": {
+            "const": "sandbox"
+          },
+          "simulation": {
+            "const": true
+          }
+        },
+        "required": [
+          "schema_version",
+          "snapshot_at",
+          "messages",
+          "has_more"
+        ]
+      },
+      "MIMEPart": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "media_type": {
+            "type": "string"
+          },
+          "disposition": {
+            "type": "string"
+          },
+          "filename": {
+            "type": "string",
+            "maxLength": 512
+          },
+          "transfer_encoding": {
+            "type": "string"
+          },
+          "encoded_bytes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "decoded_bytes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "opaque": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "path",
+          "media_type",
+          "transfer_encoding",
+          "encoded_bytes"
+        ]
+      },
+      "Inspection": {
+        "type": "object",
+        "properties": {
+          "schema_version": {
+            "const": 1
+          },
+          "message_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "environment": {
+            "const": "sandbox"
+          },
+          "simulation": {
+            "const": true
+          },
+          "eml_size": {
+            "type": "integer",
+            "maximum": 2097152
+          },
+          "eml_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "parts": {
+            "type": "array",
+            "maxItems": 64,
+            "items": {
+              "$ref": "#/components/schemas/MIMEPart"
+            }
+          }
+        },
+        "required": [
+          "schema_version",
+          "message_id",
+          "environment",
+          "simulation",
+          "eml_size",
+          "eml_sha256",
+          "parts"
+        ]
+      },
+      "SimulationRequest": {
+        "type": "object",
+        "properties": {
+          "recipient_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "accepted",
+              "temporary_failure",
+              "permanent_failure",
+              "delivery_unknown",
+              "bounce"
+            ]
+          }
+        },
+        "required": [
+          "recipient_id",
+          "outcome"
+        ],
+        "additionalProperties": false
+      },
+      "SimulationResult": {
+        "type": "object",
+        "properties": {
+          "event_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "replayed": {
+            "type": "boolean"
+          },
+          "environment": {
+            "const": "sandbox"
+          },
+          "simulation": {
+            "const": true
+          }
+        },
+        "required": [
+          "event_id",
+          "replayed",
+          "environment",
+          "simulation"
+        ]
+      },
+      "WebhookEvent": {
+        "type": "object",
+        "properties": {
+          "schema_version": {
+            "type": "integer",
+            "enum": [
+              1,
+              2
+            ]
+          },
+          "event_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "type": {
+            "type": "string"
+          },
+          "message_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "recipient_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "attempt_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "occurred_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "sequence": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Global int64 outbox ordering; not a per-message state version. Preserve as an integer without rounding."
+          },
+          "feedback_availability": {
+            "const": "NOT_EXPOSED"
+          },
+          "business": {
+            "$ref": "#/components/schemas/Business"
+          },
+          "environment": {
+            "const": "sandbox"
+          },
+          "simulation": {
+            "const": true
+          }
+        },
+        "required": [
+          "schema_version",
+          "event_id",
+          "type",
+          "message_id",
+          "recipient_id",
+          "attempt_id",
+          "occurred_at",
+          "sequence",
+          "feedback_availability"
+        ],
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "schema_version": {
+                  "const": 2
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "business"
+              ]
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "type": {
+                  "enum": [
+                    "SANDBOX_STORED",
+                    "SANDBOX_SIMULATED_ACCEPTED",
+                    "SANDBOX_SIMULATED_TEMP_FAILED",
+                    "SANDBOX_SIMULATED_PERM_FAILED",
+                    "SANDBOX_SIMULATED_UNKNOWN",
+                    "SANDBOX_SIMULATED_BOUNCE"
+                  ]
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "environment",
+                "simulation"
+              ]
+            }
+          }
+        ]
+      }
+    }
+  }
+}
