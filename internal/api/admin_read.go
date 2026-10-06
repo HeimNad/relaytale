@@ -15,7 +15,7 @@ func (a Management) provider(w http.ResponseWriter, r *http.Request) {
 	a.one(w, r, `SELECT to_jsonb(v) FROM (`+providerView+` WHERE p.id=$1) v`)
 }
 
-const messageView = `SELECT id,left(message_id,998) message_id,source_type,left(envelope_from,320) envelope_from,left(header_from,320) header_from,left(subject,2048) subject,message_stream,created_at,completed_at,status,eml_size,archive_state,attempt_count,next_attempt_at FROM messages`
+const messageView = `SELECT id,left(message_id,998) message_id,source_type,left(envelope_from,320) envelope_from,left(header_from,320) header_from,left(subject,2048) subject,message_stream,expires_at,created_at,completed_at,status,eml_size,archive_state,attempt_count,next_attempt_at FROM messages`
 
 func (a Management) messages(w http.ResponseWriter, r *http.Request) {
 	a.list(w, r, `SELECT v.id,to_jsonb(v) FROM (`+messageView+` WHERE id>$1 ORDER BY id LIMIT $2) v ORDER BY v.id`)

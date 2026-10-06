@@ -30,6 +30,7 @@ const states = {
   BOUNCED: ["已退信", "bad"],
   SUPPRESSED: ["已抑制", ""],
   CANCELLED: ["已取消", ""],
+  EXPIRED: ["已过期", ""],
   RECEIVED: ["已接收", ""],
   ARCHIVED: ["已存档", ""],
   HEALTHY: ["健康", "good"],
@@ -725,6 +726,7 @@ async function listPage(view, generation) {
               "BOUNCED",
               "SUPPRESSED",
               "CANCELLED",
+              "EXPIRED",
             ].includes(k),
           )
           .map((k) => el("option", { value: k }, states[k][0]))
@@ -1024,6 +1026,7 @@ async function messageDetail(id, generation) {
             发件人: m.envelope_from,
             "原 Message-ID": m.message_id || "未提供",
             接收时间: date(m.created_at),
+            投递期限: m.expires_at ? date(m.expires_at) : "未设置",
             大小: (m.eml_size / 1024).toFixed(1) + " KiB",
             存档:
               m.archive_state === "AVAILABLE" ? "原文可用" : m.archive_state,

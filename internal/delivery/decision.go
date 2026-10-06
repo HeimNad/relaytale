@@ -12,6 +12,8 @@ type Action string
 
 const (
 	Accept Action = "ACCEPT"
+	// Expire stops future attempts without rewriting SMTP evidence.
+	Expire Action = "EXPIRE"
 	// Resume applies only to a durable local pre-DATA policy abort.
 	Resume      Action = "RESUME_SAME_PROVIDER"
 	Retry       Action = "RETRY_SAME_PROVIDER"

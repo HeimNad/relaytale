@@ -67,6 +67,9 @@ const providerRequirements = `p.enabled AND p.security IN ('starttls','implicit_
  AND (SELECT count(*) FROM delivery_attempts a JOIN messages active ON active.id=a.message_id WHERE a.provider_id=p.id AND a.result='IN_PROGRESS' AND active.lease_expires_at>clock_timestamp())<p.max_connections`
 
 func (r Repository) Claim(ctx context.Context) (Job, error) {
+	if err := r.SweepExpired(ctx); err != nil {
+		return Job{}, err
+	}
 	if err := r.SweepSuppressed(ctx); err != nil {
 		return Job{}, err
 	}
@@ -111,7 +114,10 @@ func (r Repository) Claim(ctx context.Context) (Job, error) {
 		return Job{}, err
 	}
 	var attemptNumber int
-	err = tx.QueryRowContext(ctx, `UPDATE messages SET route_provider_id=$4,status='SENDING',locked_at=now(),locked_by=$2,lease_expires_at=now()+($3 * interval '1 second'),attempt_count=attempt_count+1 WHERE id=$1 RETURNING attempt_count`, j.ID, j.Token, seconds+30, j.Provider.ID).Scan(&attemptNumber)
+	err = tx.QueryRowContext(ctx, `UPDATE messages SET route_provider_id=$4,status='SENDING',locked_at=now(),locked_by=$2,lease_expires_at=now()+($3 * interval '1 second'),attempt_count=attempt_count+1 WHERE id=$1 AND (expires_at IS NULL OR expires_at>clock_timestamp()) RETURNING attempt_count`, j.ID, j.Token, seconds+30, j.Provider.ID).Scan(&attemptNumber)
+	if err == sql.ErrNoRows {
+		return Job{}, ErrNoJob
+	}
 	if err != nil {
 		return Job{}, err
 	}
@@ -183,12 +189,15 @@ func (r Repository) ArmData(ctx context.Context, j Job) error {
 	if err = fence(ctx, tx, j, true); err != nil {
 		return err
 	}
-	var armed, blocked bool
-	if err = tx.QueryRowContext(ctx, `SELECT data_armed_at IS NOT NULL,suppression_blocked_at IS NOT NULL FROM delivery_attempts WHERE id=$1 AND message_id=$2 AND claim_token=$3 AND result='IN_PROGRESS'`, j.AttemptID, j.ID, j.Token).Scan(&armed, &blocked); err != nil {
+	var armed, blocked, expired bool
+	if err = tx.QueryRowContext(ctx, `SELECT data_armed_at IS NOT NULL,suppression_blocked_at IS NOT NULL,expiry_blocked_at IS NOT NULL FROM delivery_attempts WHERE id=$1 AND message_id=$2 AND claim_token=$3 AND result='IN_PROGRESS'`, j.AttemptID, j.ID, j.Token).Scan(&armed, &blocked, &expired); err != nil {
 		return err
 	}
 	if armed {
 		return ErrLeaseLost
+	}
+	if expired {
+		return smtpclient.ErrExpired
 	}
 	if blocked {
 		return smtpclient.ErrSuppressed
@@ -212,13 +221,25 @@ func (r Repository) ArmData(ctx context.Context, j Job) error {
 		}
 		return smtpclient.ErrSuppressed
 	}
-	res, err := tx.ExecContext(ctx, `UPDATE delivery_attempts SET data_armed_at=now() WHERE id=$1 AND claim_token=$2 AND result='IN_PROGRESS' AND data_armed_at IS NULL`, j.AttemptID, j.Token)
+	res, err := tx.ExecContext(ctx, `WITH deadline AS (SELECT clock_timestamp() AS at,expires_at FROM messages WHERE id=$3) UPDATE delivery_attempts a SET data_armed_at=CASE WHEN d.expires_at IS NULL OR d.expires_at>d.at THEN d.at ELSE NULL END,expiry_blocked_at=CASE WHEN d.expires_at<=d.at THEN d.at ELSE NULL END FROM deadline d WHERE a.id=$1 AND a.claim_token=$2 AND a.result='IN_PROGRESS' AND a.data_armed_at IS NULL AND a.expiry_blocked_at IS NULL`, j.AttemptID, j.Token, j.ID)
 	if err != nil {
 		return err
 	}
 	n, _ := res.RowsAffected()
 	if n != 1 {
 		return ErrLeaseLost
+	}
+	if err = tx.QueryRowContext(ctx, `SELECT expiry_blocked_at IS NOT NULL FROM delivery_attempts WHERE id=$1`, j.AttemptID).Scan(&expired); err != nil {
+		return err
+	}
+	if expired {
+		if err = event(ctx, tx, j, "EXPIRY_GATE_BLOCKED", "", time.Now().UTC(), map[string]bool{"data_authorized": false}); err != nil {
+			return err
+		}
+		if err = tx.Commit(); err != nil {
+			return err
+		}
+		return smtpclient.ErrExpired
 	}
 	if err = event(ctx, tx, j, "DATA_ARMED", "", time.Now().UTC(), map[string]string{"reason": "durable permission to transmit DATA"}); err != nil {
 		return err
@@ -253,12 +274,12 @@ func (r Repository) Finish(ctx context.Context, j Job, out smtpclient.Result) er
 	if err = tx.QueryRowContext(ctx, `SELECT id FROM providers WHERE id=$1 FOR UPDATE`, j.Provider.ID).Scan(&lockedProvider); err != nil {
 		return err
 	}
-	var policyBlocked bool
-	if err = tx.QueryRowContext(ctx, `SELECT suppression_blocked_at IS NOT NULL FROM delivery_attempts WHERE id=$1 AND message_id=$2 AND claim_token=$3 AND result='IN_PROGRESS'`, j.AttemptID, j.ID, j.Token).Scan(&policyBlocked); err != nil {
+	var policyBlocked, expiryBlocked bool
+	if err = tx.QueryRowContext(ctx, `SELECT suppression_blocked_at IS NOT NULL,expiry_blocked_at IS NOT NULL FROM delivery_attempts WHERE id=$1 AND message_id=$2 AND claim_token=$3 AND result='IN_PROGRESS'`, j.AttemptID, j.ID, j.Token).Scan(&policyBlocked, &expiryBlocked); err != nil {
 		return err
 	}
-	if policyBlocked && (!out.DataStartedAt.IsZero() || !out.FinalResponseAt.IsZero() || out.BytesSent != 0) {
-		return errors.New("DATA evidence contradicts suppression fence")
+	if (policyBlocked || expiryBlocked) && (!out.DataStartedAt.IsZero() || !out.FinalResponseAt.IsZero() || out.BytesSent != 0) {
+		return errors.New("DATA evidence contradicts policy fence")
 	}
 	var ip any
 	if out.RemoteIP != "" {
@@ -297,6 +318,9 @@ func (r Repository) Finish(ctx context.Context, j Job, out smtpclient.Result) er
 		delete(expected, rc.ID)
 		if rc.Status != smtpclient.Accepted && rc.Status != smtpclient.Temporary && rc.Status != smtpclient.Permanent && rc.Status != smtpclient.Unknown {
 			return errors.New("invalid recipient result")
+		}
+		if expiryBlocked && (rc.Status == smtpclient.Accepted || rc.Status == smtpclient.Unknown) {
+			return errors.New("acceptance contradicts expiry fence")
 		}
 		var completed any
 		if rc.Status == smtpclient.Accepted || rc.Status == smtpclient.Permanent {
@@ -337,6 +361,9 @@ func (r Repository) Finish(ctx context.Context, j Job, out smtpclient.Result) er
 	}
 	_, err = tx.ExecContext(ctx, `UPDATE messages SET last_error=$2,locked_at=NULL,locked_by=NULL,lease_expires_at=NULL WHERE id=$1`, j.ID, out.ErrorClass)
 	if err != nil {
+		return err
+	}
+	if err = applyExpiry(ctx, tx, j); err != nil {
 		return err
 	}
 	if err = r.finishHealth(ctx, tx, j, out); err != nil {
@@ -403,6 +430,12 @@ func (r Repository) Recover(ctx context.Context) error {
 			if err = expireRecovered(ctx, tx, e.j); err != nil {
 				return err
 			}
+		}
+		if err = applyExpiry(ctx, tx, e.j); err != nil {
+			return err
+		}
+		if err = refresh(ctx, tx, e.j.ID); err != nil {
+			return err
 		}
 		if err = event(ctx, tx, e.j, kind, "", time.Now().UTC(), map[string]bool{"data_may_have_started": e.armed}); err != nil {
 			return err

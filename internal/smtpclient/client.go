@@ -19,6 +19,8 @@ import (
 	"relaytale/internal/provider"
 )
 
+var ErrExpired = errors.New("message expired before DATA")
+
 var ErrSuppressed = errors.New("suppression changed before DATA")
 
 type Client struct {
@@ -348,6 +350,8 @@ func (c Client) Send(ctx context.Context, p provider.Provider, password, from st
 	if err := beforeData(ctx); err != nil {
 		if errors.Is(err, ErrSuppressed) {
 			stage = "SUPPRESSION_BLOCKED"
+		} else if errors.Is(err, ErrExpired) {
+			stage = "EXPIRY_BLOCKED"
 		}
 		fail(err, false)
 		return

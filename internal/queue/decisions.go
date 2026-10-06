@@ -47,14 +47,14 @@ func refresh(ctx context.Context, tx *sql.Tx, id string) error {
  SELECT count(*) n,count(*) FILTER(WHERE status='DELIVERY_UNKNOWN') unknown,
  count(*) FILTER(WHERE status='QUEUED') queued,count(*) FILTER(WHERE status='SENDING') sending,
  count(*) FILTER(WHERE status IN ('SMTP_ACCEPTED','DELIVERED')) accepted,
- count(*) FILTER(WHERE status='SUPPRESSED') suppressed,
+ count(*) FILTER(WHERE status='SUPPRESSED') suppressed, count(*) FILTER(WHERE status='EXPIRED') expired,
  count(*) FILTER(WHERE status='DELIVERED') delivered,count(*) FILTER(WHERE status='TEMP_FAILED') temporary
  FROM recipients WHERE message_id=$1), projection AS (
  SELECT CASE WHEN unknown>0 THEN 'DELIVERY_UNKNOWN' WHEN sending>0 THEN 'SENDING' WHEN queued>0 THEN 'QUEUED'
- WHEN suppressed=n AND n>0 THEN 'SUPPRESSED' WHEN delivered=n AND n>0 THEN 'DELIVERED' WHEN accepted=n AND n>0 THEN 'SMTP_ACCEPTED'
+ WHEN expired=n AND n>0 THEN 'EXPIRED' WHEN suppressed=n AND n>0 THEN 'SUPPRESSED' WHEN delivered=n AND n>0 THEN 'DELIVERED' WHEN accepted=n AND n>0 THEN 'SMTP_ACCEPTED'
  WHEN accepted>0 THEN 'PARTIAL_ACCEPTED' WHEN temporary>0 THEN 'TEMP_FAILED' ELSE 'PERM_FAILED' END status FROM counts)
  UPDATE messages m SET status=p.status,next_attempt_at=CASE WHEN p.status='QUEUED' THEN now() ELSE (SELECT min(retry_at) FROM recipients WHERE message_id=$1) END,
- completed_at=CASE WHEN p.status IN ('SMTP_ACCEPTED','PERM_FAILED','DELIVERED','SUPPRESSED') THEN coalesce(m.completed_at,now()) ELSE NULL END
+ completed_at=CASE WHEN p.status IN ('SMTP_ACCEPTED','PERM_FAILED','DELIVERED','SUPPRESSED','EXPIRED') THEN coalesce(m.completed_at,now()) ELSE NULL END
  FROM projection p WHERE m.id=$1`, id)
 	return err
 }
@@ -62,6 +62,9 @@ func refresh(ctx context.Context, tx *sql.Tx, id string) error {
 // Schedule advances durable deadlines under the same message locks used by Claim/Finish.
 // No timers hold work in process memory. Disabling retry freezes pending automatic jobs.
 func (r Repository) Schedule(ctx context.Context) error {
+	if err := r.SweepExpired(ctx); err != nil {
+		return err
+	}
 	tx, err := r.begin(ctx)
 	if err != nil {
 		return err
@@ -89,6 +92,9 @@ func (r Repository) Schedule(ctx context.Context) error {
 		return err
 	}
 	for _, id := range ids {
+		if err = applyExpiry(ctx, tx, Job{ID: id}); err != nil {
+			return err
+		}
 		rcRows, err := tx.QueryContext(ctx, `SELECT id,attempt_count,retry_started_at FROM recipients WHERE message_id=$1 AND (retry_at<=now() OR (retry_automatic AND status='QUEUED' AND (attempt_count>=7 OR retry_started_at<=now()-interval '24 hours'))) ORDER BY id`, id)
 		if err != nil {
 			return err

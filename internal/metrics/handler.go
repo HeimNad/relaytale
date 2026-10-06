@@ -126,7 +126,7 @@ func (h *Handler) collect(ctx context.Context, b *bytes.Buffer) error {
 }
 func messageStatus(s string) string {
 	switch s {
-	case "RECEIVED", "ARCHIVED", "QUEUED", "SENDING", "SMTP_ACCEPTED", "PARTIAL_ACCEPTED", "TEMP_FAILED", "PERM_FAILED", "DELIVERY_UNKNOWN", "BOUNCED", "DELIVERED", "SUPPRESSED", "CANCELLED":
+	case "RECEIVED", "ARCHIVED", "QUEUED", "SENDING", "SMTP_ACCEPTED", "PARTIAL_ACCEPTED", "TEMP_FAILED", "PERM_FAILED", "DELIVERY_UNKNOWN", "BOUNCED", "DELIVERED", "SUPPRESSED", "CANCELLED", "EXPIRED":
 		return s
 	}
 	return "OTHER"

@@ -294,6 +294,24 @@ func NewSendHandler(ctx context.Context, raw string, receiver message.APIReceive
 			respond(w, 403, "stream_not_allowed")
 			return
 		}
+		var expiresAt time.Time
+		expiryHeaders := r.Header.Values("X-RelayTale-Expires-At")
+		if len(expiryHeaders) > 1 {
+			respond(w, 400, "invalid_expiry")
+			return
+		}
+		if len(expiryHeaders) == 1 {
+			var expiryErr error
+			expiresAt, expiryErr = time.Parse(time.RFC3339, expiryHeaders[0])
+			if expiryErr != nil {
+				respond(w, 400, "invalid_expiry")
+				return
+			}
+			if _, expiryErr = message.CanonicalExpiry(expiresAt); expiryErr != nil || expiresAt.IsZero() {
+				respond(w, 400, "invalid_expiry")
+				return
+			}
+		}
 		business, valid := businessHeaders(r)
 		if !valid {
 			respond(w, 400, "invalid_business_reference")
@@ -330,9 +348,13 @@ func NewSendHandler(ctx context.Context, raw string, receiver message.APIReceive
 			respond(w, 413, "message_too_large")
 			return
 		}
-		result, e := receiver.ReceiveStream(ctx, message.Envelope{Account: account, From: sender, Recipients: recipients}, io.LimitReader(r.Body, receiver.MaxBytes+1), who.key.ID, idem[0], stream, business)
+		result, e := receiver.ReceiveExpiring(ctx, message.Envelope{Account: account, From: sender, Recipients: recipients}, io.LimitReader(r.Body, receiver.MaxBytes+1), who.key.ID, idem[0], stream, expiresAt, business)
 		if e != nil {
 			switch {
+			case errors.Is(e, message.ErrExpiredSubmission):
+				respond(w, 410, "expiry_elapsed")
+			case errors.Is(e, message.ErrInvalidExpiry):
+				respond(w, 422, "expiry_out_of_range")
 			case errors.Is(e, storage.ErrTooLarge):
 				respond(w, 413, "message_too_large")
 			case errors.Is(e, message.ErrSenderDenied):

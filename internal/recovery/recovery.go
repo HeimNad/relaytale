@@ -426,6 +426,12 @@ func verify(ctx context.Context, q queryer, original, actual string, box *encryp
 	if bad {
 		return r, errors.New("queue fairness identity missing")
 	}
+	if err = q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM delivery_attempts a JOIN messages m ON m.id=a.message_id WHERE m.expires_at IS NOT NULL AND a.data_armed_at>=m.expires_at)`).Scan(&bad); err != nil {
+		return r, err
+	}
+	if bad {
+		return r, errors.New("DATA authorization violates message deadline")
+	}
 	// Budget history must survive restore with its original website and units.
 	if err = q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM api_submission_quota q JOIN messages m ON m.id=q.message_id WHERE m.source_type<>'api' OR m.api_key_id IS DISTINCT FROM q.api_key_id OR m.message_stream<>q.message_stream OR q.units<>(SELECT count(*) FROM recipients r WHERE r.message_id=m.id)) OR EXISTS(SELECT 1 FROM api_submission_ledger l LEFT JOIN api_submission_quota q ON q.message_id=l.message_id WHERE l.created_at>clock_timestamp()-interval '24 hours' AND q.message_id IS NULL)`).Scan(&bad); err != nil {
 		return r, err

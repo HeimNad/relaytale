@@ -34,6 +34,13 @@ func (s APIReceiver) Receive(ctx context.Context, e Envelope, r io.Reader, ident
 	return s.ReceiveStream(ctx, e, r, identity, key, "normal", business...)
 }
 func (s APIReceiver) ReceiveStream(ctx context.Context, e Envelope, r io.Reader, identity, key, stream string, business ...Business) (EnqueueResult, error) {
+	return s.ReceiveExpiring(ctx, e, r, identity, key, stream, time.Time{}, business...)
+}
+
+func (s APIReceiver) ReceiveExpiring(ctx context.Context, e Envelope, r io.Reader, identity, key, stream string, expiresAt time.Time, business ...Business) (EnqueueResult, error) {
+	if _, err := CanonicalExpiry(expiresAt); err != nil {
+		return EnqueueResult{}, err
+	}
 	stream, streamErr := CanonicalStream(stream)
 	if streamErr != nil {
 		return EnqueueResult{}, streamErr
@@ -130,7 +137,7 @@ func (s APIReceiver) ReceiveStream(ctx context.Context, e Envelope, r io.Reader,
 	if err != nil {
 		return EnqueueResult{}, err
 	}
-	sub := Submission{Stream: stream, Business: correlation, Envelope: e, MessageID: mid, HeaderFrom: from, Subject: subject, Archive: storage.Archive{SHA256: hex.EncodeToString(h.Sum(nil)), Size: size}}
+	sub := Submission{ExpiresAt: expiresAt, Stream: stream, Business: correlation, Envelope: e, MessageID: mid, HeaderFrom: from, Subject: subject, Archive: storage.Archive{SHA256: hex.EncodeToString(h.Sum(nil)), Size: size}}
 	fingerprint, err := RequestFingerprint(sub)
 	if err != nil {
 		return EnqueueResult{}, err

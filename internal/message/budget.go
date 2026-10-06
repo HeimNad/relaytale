@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"time"
 )
 
 // SubmissionBudget counts newly accepted envelope recipients, not attempts.
@@ -29,7 +30,7 @@ var ErrSubmissionDisabled = errors.New("website submission disabled")
 // NO KEY UPDATE lock is compatible with FK KEY SHARE locks already taken by the
 // idempotency ledger, avoiding a concurrent lock-upgrade deadlock. Always read
 // usage in a separate statement after acquiring the lock (READ COMMITTED).
-func reserveSubmission(ctx context.Context, tx *sql.Tx, identity, id string, units int, stream string) error {
+func reserveSubmission(ctx context.Context, tx *sql.Tx, identity, id string, units int, stream string, expiresAt time.Time) error {
 	stream, err := CanonicalStream(stream)
 	if err != nil {
 		return err
@@ -38,6 +39,18 @@ func reserveSubmission(ctx context.Context, tx *sql.Tx, identity, id string, uni
 	var enabled bool
 	if err := tx.QueryRowContext(ctx, `SELECT submission_minute_limit,submission_hour_limit,submission_day_limit,enabled FROM api_keys WHERE id=$1 FOR NO KEY UPDATE`, identity).Scan(&b.Minute, &b.Hour, &b.Day, &enabled); err != nil {
 		return err
+	}
+	if !expiresAt.IsZero() {
+		var expired, tooFar bool
+		if err = tx.QueryRowContext(ctx, `SELECT $1::timestamptz<=clock_timestamp(),$1::timestamptz>clock_timestamp()+interval '720 hours'`, expiresAt).Scan(&expired, &tooFar); err != nil {
+			return err
+		}
+		if expired {
+			return ErrExpiredSubmission
+		}
+		if tooFar {
+			return ErrInvalidExpiry
+		}
 	}
 	if !enabled {
 		return ErrSubmissionDisabled

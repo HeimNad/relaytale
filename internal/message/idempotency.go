@@ -22,7 +22,8 @@ type EnqueueResult struct {
 
 // RequestFingerprint covers the exact MIME digest/size and ordered SMTP envelope.
 // Nonempty business fields opt into v2; absent fields retain the exact v1 hash.
-// Paths, timestamps, generated IDs and parsed MIME metadata are not request identity.
+// An explicit stream opts into v3, an explicit deadline into v4.
+// Paths, server timestamps, generated IDs and parsed MIME metadata are not request identity.
 // Callers must derive Archive from durable server-side storage, never client claims.
 func RequestFingerprint(s Submission) (string, error) {
 	b, e := hex.DecodeString(s.Archive.SHA256)
@@ -56,6 +57,13 @@ func RequestFingerprint(s Submission) (string, error) {
 	} else {
 		version = 3
 	}
+	expiry, err := CanonicalExpiry(s.ExpiresAt)
+	if err != nil {
+		return "", err
+	}
+	if expiry != "" {
+		version = 4
+	}
 	encoded, e := json.Marshal(struct {
 		Version    int       `json:"version"`
 		From       string    `json:"from"`
@@ -64,7 +72,8 @@ func RequestFingerprint(s Submission) (string, error) {
 		Size       int64     `json:"size"`
 		Business   *Business `json:"business,omitempty"`
 		Stream     string    `json:"stream,omitempty"`
-	}{version, s.Envelope.From, s.Envelope.Recipients, s.Archive.SHA256, s.Archive.Size, association, stream})
+		ExpiresAt  string    `json:"expires_at,omitempty"`
+	}{version, s.Envelope.From, s.Envelope.Recipients, s.Archive.SHA256, s.Archive.Size, association, stream, expiry})
 	if e != nil {
 		return "", e
 	}
@@ -131,7 +140,7 @@ func (p Postgres) enqueueIdempotent(ctx context.Context, s Submission, apiKeyID,
 		// No writes occurred; return only an already committed ledger entry.
 		return EnqueueResult{MessageID: original, Replayed: true}, nil
 	}
-	if e = reserveSubmission(ctx, tx, apiKeyID, s.ID, len(s.Envelope.Recipients), s.Stream); e != nil {
+	if e = reserveSubmission(ctx, tx, apiKeyID, s.ID, len(s.Envelope.Recipients), s.Stream, s.ExpiresAt); e != nil {
 		return EnqueueResult{}, e
 	}
 	if publish != nil {

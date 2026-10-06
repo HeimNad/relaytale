@@ -33,9 +33,9 @@ type CleanupReport struct {
 	Failures        []string      `json:"failed_message_ids,omitempty"`
 }
 
-const terminal = `m.status IN ('SMTP_ACCEPTED','PERM_FAILED','DELIVERED','BOUNCED','SUPPRESSED','CANCELLED') AND m.locked_by IS NULL
+const terminal = `m.status IN ('SMTP_ACCEPTED','PERM_FAILED','DELIVERED','BOUNCED','SUPPRESSED','CANCELLED','EXPIRED') AND m.locked_by IS NULL
  AND NOT EXISTS(SELECT 1 FROM delivery_attempts a WHERE a.message_id=m.id AND a.result='IN_PROGRESS')
- AND NOT EXISTS(SELECT 1 FROM recipients r WHERE r.message_id=m.id AND r.status IN ('QUEUED','SENDING','TEMP_FAILED','DELIVERY_UNKNOWN'))`
+ AND NOT EXISTS(SELECT 1 FROM recipients r WHERE r.message_id=m.id AND (r.status IN ('QUEUED','SENDING','TEMP_FAILED','DELIVERY_UNKNOWN') OR (r.status='EXPIRED' AND r.decision->>'may_have_delivered'='true')))`
 
 func validateRetention(p *Retention) error {
 	if p.Now.IsZero() {

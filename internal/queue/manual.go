@@ -2,12 +2,14 @@ package queue
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"strings"
 	"unicode/utf8"
 
 	"github.com/google/uuid"
+	"relaytale/internal/smtpclient"
 	"relaytale/internal/suppression"
 )
 
@@ -68,6 +70,15 @@ func (r Repository) ResolveUnknown(ctx context.Context, v Resolution) (string, e
 	if current != "DELIVERY_UNKNOWN" || attemptState != "DELIVERY_UNKNOWN" || attempt != v.ExpectedAttempt {
 		return "", ErrStaleResolution
 	}
+	if v.Action == "retry" {
+		var expired bool
+		if err = tx.QueryRowContext(ctx, `SELECT expires_at<=clock_timestamp() FROM messages WHERE id=$1 AND expires_at IS NOT NULL`, mid).Scan(&expired); err != nil && err != sql.ErrNoRows {
+			return "", err
+		}
+		if expired {
+			return "", smtpclient.ErrExpired
+		}
+	}
 	if v.Action == "retry" && archive != "AVAILABLE" {
 		return "", errors.New("original archive unavailable; cannot retry")
 	}
@@ -87,8 +98,12 @@ func (r Repository) ResolveUnknown(ctx context.Context, v Resolution) (string, e
 	if err != nil {
 		return "", err
 	}
-	if _, err = tx.ExecContext(ctx, `UPDATE recipients SET status=$2,retry_at=NULL,retry_automatic=false,decision=jsonb_build_object('version',1,'action','MANUAL_RESOLUTION','resolution',$3::jsonb),completed_at=CASE WHEN $2='QUEUED' THEN NULL ELSE now() END WHERE id=$1`, v.RecipientID, status, string(raw)); err != nil {
+	res, err := tx.ExecContext(ctx, `UPDATE recipients SET status=$2,retry_at=NULL,retry_automatic=false,decision=jsonb_build_object('version',1,'action','MANUAL_RESOLUTION','resolution',$3::jsonb),completed_at=CASE WHEN $2='QUEUED' THEN NULL ELSE now() END WHERE id=$1 AND ($2<>'QUEUED' OR NOT EXISTS(SELECT 1 FROM messages m WHERE m.id=recipients.message_id AND m.expires_at<=clock_timestamp()))`, v.RecipientID, status, string(raw))
+	if err != nil {
 		return "", err
+	}
+	if n, _ := res.RowsAffected(); n != 1 {
+		return "", smtpclient.ErrExpired
 	}
 	if v.Action == "retry" {
 		if _, err = tx.ExecContext(ctx, `UPDATE messages SET route_provider_id=$2 WHERE id=$1`, mid, provider); err != nil {

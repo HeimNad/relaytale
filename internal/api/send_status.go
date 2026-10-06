@@ -63,7 +63,7 @@ type StatusEvent struct {
 }
 
 var publicStatusEvents = []string{
-	"MESSAGE_RECEIVED", "MESSAGE_ARCHIVED", "MESSAGE_QUEUED", "MESSAGE_SUPPRESSED",
+	"RECIPIENT_EXPIRED", "EXPIRY_GATE_BLOCKED", "MESSAGE_RECEIVED", "MESSAGE_ARCHIVED", "MESSAGE_QUEUED", "MESSAGE_SUPPRESSED",
 	"SMTP_ACCEPTED", "ATTEMPT_STARTED", "ATTEMPT_FINISHED", "ATTEMPT_FAILED", "DELIVERY_DECIDED",
 	"DELIVERY_UNKNOWN", "UNKNOWN_RESOLVED", "RETRY_EXHAUSTED", "RETRY_QUEUED",
 	"RECIPIENT_SUPPRESSED", "SUPPRESSION_GATE_BLOCKED", "PROVIDER_FAILOVER", "LEASE_RECOVERED",
@@ -119,8 +119,9 @@ func readMessageStatus(ctx context.Context, w http.ResponseWriter, r *http.Reque
 	defer tx.Rollback()
 	out := MessageStatus{SchemaVersion: 1, FeedbackAvailability: "NOT_EXPOSED", Recipients: []RecipientStatus{}, Events: []StatusEvent{}}
 	var reference, stream string
+	var expiresAt sql.NullTime
 	var tags []byte
-	err := tx.QueryRowContext(ctx, `SELECT id::text,status,created_at,transaction_timestamp(),client_reference,to_jsonb(business_tags),message_stream FROM messages WHERE id=$1 AND api_key_id=$2 AND source_type='api'`, id, who.key.ID).Scan(&out.MessageID, &out.Status, &out.CreatedAt, &out.SnapshotAt, &reference, &tags, &stream)
+	err := tx.QueryRowContext(ctx, `SELECT id::text,status,created_at,transaction_timestamp(),client_reference,to_jsonb(business_tags),message_stream,expires_at FROM messages WHERE id=$1 AND api_key_id=$2 AND source_type='api'`, id, who.key.ID).Scan(&out.MessageID, &out.Status, &out.CreatedAt, &out.SnapshotAt, &reference, &tags, &stream, &expiresAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		respond(w, 404, "not_found")
 		return
@@ -193,6 +194,9 @@ func readMessageStatus(ctx context.Context, w http.ResponseWriter, r *http.Reque
 		return
 	}
 	w.Header().Set("X-RelayTale-Stream", stream)
+	if expiresAt.Valid {
+		w.Header().Set("X-RelayTale-Expires-At", expiresAt.Time.UTC().Format(time.RFC3339))
+	}
 	output(w, 200, out)
 }
 
@@ -242,7 +246,7 @@ func readStatusRecipients(ctx context.Context, tx *sql.Tx, id string, out *Messa
 
 func publicAction(s string) string {
 	switch s {
-	case "ACCEPT", "RESUME_SAME_PROVIDER", "RETRY_SAME_PROVIDER", "PERMANENT_FAILURE", "DELIVERY_UNKNOWN", "MANUAL_INTERVENTION", "MANUAL_RESOLUTION":
+	case "EXPIRE", "ACCEPT", "RESUME_SAME_PROVIDER", "RETRY_SAME_PROVIDER", "PERMANENT_FAILURE", "DELIVERY_UNKNOWN", "MANUAL_INTERVENTION", "MANUAL_RESOLUTION":
 		return s
 	}
 	return ""
@@ -256,7 +260,7 @@ func publicAttemptStatus(s string) string {
 }
 func publicStage(s string) string {
 	switch s {
-	case "DNS_ERROR", "CONNECT_ERROR", "TLS_ERROR", "SMTP_GREETING_ERROR", "EHLO_ERROR", "STARTTLS_ERROR", "AUTH_ERROR", "MAIL_FROM_REJECTED", "RCPT_REJECTED", "DATABASE_ERROR", "RECORDER_ERROR", "INVALID_EML", "INVALID_ENVELOPE", "SUPPRESSION_BLOCKED", "DATA_REJECTED", "DATA_WRITE_ERROR", "FINAL_RESPONSE_ERROR", "FINAL_RESPONSE":
+	case "DNS_ERROR", "CONNECT_ERROR", "TLS_ERROR", "SMTP_GREETING_ERROR", "EHLO_ERROR", "STARTTLS_ERROR", "AUTH_ERROR", "MAIL_FROM_REJECTED", "RCPT_REJECTED", "DATABASE_ERROR", "RECORDER_ERROR", "INVALID_EML", "INVALID_ENVELOPE", "SUPPRESSION_BLOCKED", "EXPIRY_BLOCKED", "DATA_REJECTED", "DATA_WRITE_ERROR", "FINAL_RESPONSE_ERROR", "FINAL_RESPONSE":
 		return s
 	}
 	return "UNCLASSIFIED"
@@ -283,6 +287,8 @@ func statusDescription(s string) string {
 		return "Marked bounced in gateway records; authenticated feedback is not exposed by this endpoint."
 	case "SUPPRESSED":
 		return "Delivery blocked by recipient policy."
+	case "EXPIRED":
+		return "Delivery deadline elapsed; no further attempts are allowed. Previous SMTP evidence is retained."
 	case "CANCELLED":
 		return "Cancelled in gateway records; this does not retract a previously sent message."
 	default:

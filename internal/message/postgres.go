@@ -39,14 +39,18 @@ func enqueueTx(ctx context.Context, tx *sql.Tx, s Submission, source, apiKeyID, 
 	if err != nil || source != "api" && business.Present() {
 		return ErrInvalidSubmission
 	}
+	expiry, expiryErr := CanonicalExpiry(s.ExpiresAt)
+	if expiryErr != nil || source != "api" && expiry != "" {
+		return ErrInvalidSubmission
+	}
 	stream, err := CanonicalStream(s.Stream)
 	if err != nil || source != "api" && stream != "normal" {
 		return ErrInvalidSubmission
 	}
 	queued := time.Now().UTC()
 	_, err = tx.ExecContext(ctx, `INSERT INTO messages
- (id,message_id,source_type,smtp_account_id,envelope_from,header_from,subject,created_at,queued_at,status,eml_path,eml_size,eml_sha256,next_attempt_at,api_key_id,idempotency_key,client_reference,business_tags,message_stream)
- VALUES($1,$2,$12,NULLIF($3,'')::uuid,$4,$5,$6,$7,$8,'QUEUED',$9,$10,$11,$8,NULLIF($13,'')::uuid,NULLIF($14,''),$15,$16,$17)`, s.ID, s.MessageID, s.Envelope.Account.ID, s.Envelope.From, s.HeaderFrom, s.Subject, s.ReceivedAt, queued, s.Archive.Path, s.Archive.Size, s.Archive.SHA256, source, apiKeyID, keyHash, business.ClientReference, business.Tags, stream)
+ (id,message_id,source_type,smtp_account_id,envelope_from,header_from,subject,created_at,queued_at,status,eml_path,eml_size,eml_sha256,next_attempt_at,api_key_id,idempotency_key,client_reference,business_tags,message_stream,expires_at)
+ VALUES($1,$2,$12,NULLIF($3,'')::uuid,$4,$5,$6,$7,$8,'QUEUED',$9,$10,$11,$8,NULLIF($13,'')::uuid,NULLIF($14,''),$15,$16,$17,NULLIF($18,'')::timestamptz)`, s.ID, s.MessageID, s.Envelope.Account.ID, s.Envelope.From, s.HeaderFrom, s.Subject, s.ReceivedAt, queued, s.Archive.Path, s.Archive.Size, s.Archive.SHA256, source, apiKeyID, keyHash, business.ClientReference, business.Tags, stream, expiry)
 	if err != nil {
 		return err
 	}
@@ -87,6 +91,9 @@ func enqueueTx(ctx context.Context, tx *sql.Tx, s Submission, source, apiKeyID, 
 		eventData := map[string]any{"source": source}
 		if event.kind == "MESSAGE_RECEIVED" {
 			eventData["message_stream"] = stream
+			if expiry != "" {
+				eventData["expires_at"] = expiry
+			}
 		}
 		if event.kind == "MESSAGE_RECEIVED" && business.Present() {
 			eventData["business"] = business

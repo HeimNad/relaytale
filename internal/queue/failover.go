@@ -15,7 +15,7 @@ import (
 const safeFailover = `m.route_provider_id IS NOT NULL
  AND (SELECT count(DISTINCT a.provider_id) FROM delivery_attempts a WHERE a.message_id=m.id)<3
  AND NOT EXISTS(SELECT 1 FROM recipients rc WHERE rc.message_id=m.id
- AND rc.status NOT IN ('SMTP_ACCEPTED','DELIVERED','PERM_FAILED','BOUNCED','SUPPRESSED','CANCELLED')
+ AND rc.status NOT IN ('SMTP_ACCEPTED','DELIVERED','PERM_FAILED','BOUNCED','SUPPRESSED','CANCELLED','EXPIRED')
  AND (rc.status='QUEUED' AND rc.retry_automatic AND rc.attempt_count<7
  AND rc.retry_started_at>clock_timestamp()-interval '24 hours'
  AND EXISTS(SELECT 1 FROM attempt_recipients ar JOIN delivery_attempts a ON a.id=ar.attempt_id

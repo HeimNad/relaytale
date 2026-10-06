@@ -21,6 +21,7 @@ import (
 	"relaytale/internal/encryption"
 	"relaytale/internal/provider"
 	"relaytale/internal/queue"
+	"relaytale/internal/smtpclient"
 	"relaytale/internal/suppression"
 )
 
@@ -217,6 +218,8 @@ func failure(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
 		respond(w, 404, "not_found")
+	case errors.Is(err, smtpclient.ErrExpired):
+		respond(w, 409, "message_expired")
 	case errors.Is(err, provider.ErrInvalid):
 		respond(w, 400, "invalid_request")
 	case errors.Is(err, provider.ErrConflict), errors.Is(err, suppression.ErrActive), errors.Is(err, suppression.ErrStale), errors.Is(err, suppression.ErrBlocked), errors.Is(err, queue.ErrStaleResolution):
