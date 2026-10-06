@@ -18,6 +18,8 @@ import (
 // These DTOs deliberately exclude free-form SMTP replies, event JSON, provider
 // identity, subjects and MIME. The management API is not a website API.
 type MessageStatus struct {
+	Simulation           bool              `json:"simulation,omitempty"`
+	Environment          string            `json:"environment,omitempty"`
 	Business             *message.Business `json:"business,omitempty"`
 	SchemaVersion        int               `json:"schema_version"`
 	MessageID            string            `json:"message_id"`
@@ -63,7 +65,7 @@ type StatusEvent struct {
 }
 
 var publicStatusEvents = []string{
-	"RECIPIENT_EXPIRED", "EXPIRY_GATE_BLOCKED", "MESSAGE_RECEIVED", "MESSAGE_ARCHIVED", "MESSAGE_QUEUED", "MESSAGE_SUPPRESSED",
+	"SANDBOX_STORED", "RECIPIENT_EXPIRED", "EXPIRY_GATE_BLOCKED", "MESSAGE_RECEIVED", "MESSAGE_ARCHIVED", "MESSAGE_QUEUED", "MESSAGE_SUPPRESSED",
 	"SMTP_ACCEPTED", "ATTEMPT_STARTED", "ATTEMPT_FINISHED", "ATTEMPT_FAILED", "DELIVERY_DECIDED",
 	"DELIVERY_UNKNOWN", "UNKNOWN_RESOLVED", "RETRY_EXHAUSTED", "RETRY_QUEUED",
 	"RECIPIENT_SUPPRESSED", "SUPPRESSION_GATE_BLOCKED", "PROVIDER_FAILOVER", "LEASE_RECOVERED",
@@ -137,6 +139,10 @@ func readMessageStatus(ctx context.Context, w http.ResponseWriter, r *http.Reque
 			respond(w, 503, "unavailable")
 			return
 		}
+	}
+	if who.key.Environment == "sandbox" {
+		out.Simulation = true
+		out.Environment = "sandbox"
 	}
 	out.Description = statusDescription(out.Status)
 	if err = readStatusRecipients(ctx, tx, id, &out); err != nil {
@@ -267,6 +273,8 @@ func publicStage(s string) string {
 }
 func statusDescription(s string) string {
 	switch s {
+	case "SANDBOX_STORED":
+		return "Stored in the sandbox; no SMTP delivery is permitted or confirmed."
 	case "RECEIVED", "ARCHIVED", "QUEUED":
 		return "Accepted by the gateway; awaiting delivery."
 	case "SENDING":

@@ -3,6 +3,7 @@ package integration
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"relaytale/internal/api"
 	"relaytale/internal/database"
 	"relaytale/internal/encryption"
 	"relaytale/internal/message"
@@ -101,6 +103,16 @@ func TestRecoveryRoundTripAndFailureGates(t *testing.T) {
 	if err = os.Remove(purgedPath); err != nil {
 		t.Fatal(err)
 	}
+	_, sandboxKey, sandboxReceiver := sendFixture(t, f)
+	sandboxKey.ID = uuid.NewString()
+	sandboxKey.Token = "rts_" + strings.ReplaceAll(uuid.NewString()+uuid.NewString(), "-", "")
+	sandboxKey.Environment = "sandbox"
+	sandboxConfig, _ := json.Marshal([]api.SendKey{sandboxKey})
+	sandboxHandler, err := api.NewSendHandler(context.Background(), string(sandboxConfig), sandboxReceiver)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sandboxID := submitStatusFixture(t, sandboxHandler, sandboxKey, f.raw(), nil)
 	bundle := filepath.Join(t.TempDir(), "bundle")
 	ctx := context.Background()
 	opts := recovery.Options{DB: source, DatabaseURL: sourceURL, StorageRoot: f.root, Bundle: bundle, Offline: true}
@@ -169,8 +181,15 @@ func TestRecoveryRoundTripAndFailureGates(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Logf("restore plus verify duration: %s; report: %+v", time.Since(start), report)
-	if report.Messages != 2 || report.AvailableArchives != 1 || report.Unknown != 1 || report.IdempotencyRecords != 1 || report.Retirements != 1 || report.Providers != 1 || !report.GateRetained {
+	if report.Messages != 3 || report.AvailableArchives != 2 || report.Unknown != 1 || report.IdempotencyRecords != 2 || report.Retirements != 1 || report.Providers != 1 || !report.GateRetained {
 		t.Fatal(report)
+	}
+	var sandboxEnvironment, sandboxStatus string
+	if err = target.QueryRow(`SELECT environment,status FROM messages WHERE id=$1`, sandboxID).Scan(&sandboxEnvironment, &sandboxStatus); err != nil || sandboxEnvironment != "sandbox" || sandboxStatus != "SANDBOX_STORED" {
+		t.Fatal("sandbox restore mismatch", err)
+	}
+	if _, err = target.Exec(`UPDATE messages SET environment='production',status='QUEUED' WHERE id=$1`, sandboxID); err == nil {
+		t.Fatal("restored sandbox can be promoted")
 	}
 	var restoredWebhook string
 	if err = target.QueryRow(`SELECT payload FROM webhook_outbox WHERE message_id=$1`, result.MessageID).Scan(&restoredWebhook); err != nil || restoredWebhook != webhookPayload || !strings.Contains(restoredWebhook, `"client_reference": "backup:order"`) || report.WebhookPending != 1 {

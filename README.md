@@ -12,7 +12,7 @@ Your Apps → SMTP ingress → Durable queue + EML archive → Provider router
                             Event ledger         Your existing SMTP providers
 ```
 
-## 当前进度：Phase 8E.2d（邮件有效期）
+## 当前进度：Phase 8E.3a（测试沙箱安全基础）
 
 已实现 Go 服务入口、配置优先级、PostgreSQL 连接、内嵌 Goose 迁移、核心数据库表、存储可写检查、健康接口、JSON 日志、优雅退出和 Docker Compose。
 
@@ -28,7 +28,9 @@ Your Apps → SMTP ingress → Durable queue + EML archive → Provider router
 
 已增加 [网站提交预算](docs/phase-8e2a-website-budgets.md)：按身份限制滚动分钟/小时/24 小时内新接收的收件人数，额度跨进程共享，重放不重复扣费，超额不入队。已增加 [共享 Provider 账号额度](docs/phase-8e2b-provider-budgets.md)：管理员把同一账号的多个连接配置加入一组，组内共用小时/24 小时投递额度，历史用量保留。已增加 [消息流预算与公平调度](docs/phase-8e2c-message-streams.md)：网站只能选择管理员授权的流，账号之间轮转、账号内部按权重轮转，每次最多领取 16 个收件人。已增加 [邮件有效期](docs/phase-8e2d-message-expiry.md)：不可延长的绝对期限、领取及 DATA 授权检查、逐收件人过期状态和事务通知；已授权/接受及 UNKNOWN 事实保留。
 
-面向业务网站的后续能力及官方资料依据见 [业务网站能力规划](docs/business-website-capabilities.md)：接下来完成测试沙箱；JSON/模板、定时与入站回复分阶段推进。这些新增项尚未实现。
+已增加 [测试沙箱安全基础](docs/phase-8e3a-sandbox.md)：独立不可变测试身份、SANDBOX_STORED 状态、零 SMTP 投递、明确标记的签名通知，以及备份恢复保护；网站示例与模拟结果在 8E.3b 继续。
+
+面向业务网站的后续能力及官方资料依据见 [业务网站能力规划](docs/business-website-capabilities.md)：接下来完成测试网站示例与模拟结果；JSON/模板、定时与入站回复分阶段推进。这些新增项尚未实现。
 
 ## 启动
 

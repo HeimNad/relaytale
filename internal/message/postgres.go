@@ -47,10 +47,19 @@ func enqueueTx(ctx context.Context, tx *sql.Tx, s Submission, source, apiKeyID, 
 	if err != nil || source != "api" && stream != "normal" {
 		return ErrInvalidSubmission
 	}
+	environment, status := "production", "QUEUED"
+	if source == "api" {
+		if err = tx.QueryRowContext(ctx, `SELECT environment FROM api_keys WHERE id=$1`, apiKeyID).Scan(&environment); err != nil {
+			return err
+		}
+	}
+	if environment == "sandbox" {
+		status = "SANDBOX_STORED"
+	}
 	queued := time.Now().UTC()
 	_, err = tx.ExecContext(ctx, `INSERT INTO messages
- (id,message_id,source_type,smtp_account_id,envelope_from,header_from,subject,created_at,queued_at,status,eml_path,eml_size,eml_sha256,next_attempt_at,api_key_id,idempotency_key,client_reference,business_tags,message_stream,expires_at)
- VALUES($1,$2,$12,NULLIF($3,'')::uuid,$4,$5,$6,$7,$8,'QUEUED',$9,$10,$11,$8,NULLIF($13,'')::uuid,NULLIF($14,''),$15,$16,$17,NULLIF($18,'')::timestamptz)`, s.ID, s.MessageID, s.Envelope.Account.ID, s.Envelope.From, s.HeaderFrom, s.Subject, s.ReceivedAt, queued, s.Archive.Path, s.Archive.Size, s.Archive.SHA256, source, apiKeyID, keyHash, business.ClientReference, business.Tags, stream, expiry)
+ (id,message_id,source_type,smtp_account_id,envelope_from,header_from,subject,created_at,queued_at,status,eml_path,eml_size,eml_sha256,next_attempt_at,api_key_id,idempotency_key,client_reference,business_tags,message_stream,expires_at,environment)
+ VALUES($1,$2,$12,NULLIF($3,'')::uuid,$4,$5,$6,$7,$8,$19,$9,$10,$11,CASE WHEN $20='production' THEN $8::timestamptz ELSE NULL END,NULLIF($13,'')::uuid,NULLIF($14,''),$15,$16,$17,NULLIF($18,'')::timestamptz,$20)`, s.ID, s.MessageID, s.Envelope.Account.ID, s.Envelope.From, s.HeaderFrom, s.Subject, s.ReceivedAt, queued, s.Archive.Path, s.Archive.Size, s.Archive.SHA256, source, apiKeyID, keyHash, business.ClientReference, business.Tags, stream, expiry, status, environment)
 	if err != nil {
 		return err
 	}
@@ -59,20 +68,29 @@ func enqueueTx(ctx context.Context, tx *sql.Tx, s Submission, source, apiKeyID, 
 		if err != nil {
 			return err
 		}
-		if _, err = tx.ExecContext(ctx, `INSERT INTO recipients(id,message_id,address,recipient_type,status,created_at) VALUES($1,$2,$3,'envelope','QUEUED',$4)`, id.String(), s.ID, address, s.ReceivedAt); err != nil {
+		if _, err = tx.ExecContext(ctx, `INSERT INTO recipients(id,message_id,address,recipient_type,status,created_at) VALUES($1,$2,$3,'envelope',$5,$4)`, id.String(), s.ID, address, s.ReceivedAt, status); err != nil {
 			return err
 		}
 	}
-	if err = suppression.Lock(ctx, tx, false); err != nil {
-		return err
-	}
-	if _, err = suppression.Apply(ctx, tx, s.ID, "", false); err != nil {
-		return err
-	}
-	if _, err = tx.ExecContext(ctx, `UPDATE messages SET status='SUPPRESSED',completed_at=now(),next_attempt_at=NULL WHERE id=$1 AND NOT EXISTS(SELECT 1 FROM recipients WHERE message_id=$1 AND status<>'SUPPRESSED')`, s.ID); err != nil {
-		return err
+	if environment == "sandbox" {
+		if _, err = tx.ExecContext(ctx, `UPDATE messages SET completed_at=clock_timestamp(),next_attempt_at=NULL WHERE id=$1`, s.ID); err != nil {
+			return err
+		}
+	} else {
+		if err = suppression.Lock(ctx, tx, false); err != nil {
+			return err
+		}
+		if _, err = suppression.Apply(ctx, tx, s.ID, "", false); err != nil {
+			return err
+		}
+		if _, err = tx.ExecContext(ctx, `UPDATE messages SET status='SUPPRESSED',completed_at=now(),next_attempt_at=NULL WHERE id=$1 AND NOT EXISTS(SELECT 1 FROM recipients WHERE message_id=$1 AND status<>'SUPPRESSED')`, s.ID); err != nil {
+			return err
+		}
 	}
 	queueEvent := "MESSAGE_QUEUED"
+	if environment == "sandbox" {
+		queueEvent = "SANDBOX_STORED"
+	}
 	var messageStatus string
 	if err = tx.QueryRowContext(ctx, `SELECT status FROM messages WHERE id=$1`, s.ID).Scan(&messageStatus); err != nil {
 		return err
@@ -89,6 +107,10 @@ func enqueueTx(ctx context.Context, tx *sql.Tx, s Submission, source, apiKeyID, 
 			return err
 		}
 		eventData := map[string]any{"source": source}
+		if environment == "sandbox" {
+			eventData["simulation"] = true
+			eventData["environment"] = "sandbox"
+		}
 		if event.kind == "MESSAGE_RECEIVED" {
 			eventData["message_stream"] = stream
 			if expiry != "" {

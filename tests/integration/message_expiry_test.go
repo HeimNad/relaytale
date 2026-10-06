@@ -260,13 +260,17 @@ func TestMessageExpiryGateChecksClockAfterLockWait(t *testing.T) {
 	if _, err = blocker.Exec(`SELECT id FROM messages WHERE id=$1 FOR UPDATE`, id); err != nil {
 		t.Fatal(err)
 	}
+	var blockerPID int
+	if err = blocker.QueryRow(`SELECT pg_backend_pid()`).Scan(&blockerPID); err != nil {
+		t.Fatal(err)
+	}
 	done := make(chan error, 1)
 	go func() { done <- f.worker.Repo.ArmData(context.Background(), j) }()
 	// ArmData began before the deadline, but message serialization holds it back.
 	deadline := time.Now().Add(time.Second)
 	for {
 		var n int
-		if err = f.db.QueryRow(`SELECT count(*) FROM pg_stat_activity WHERE wait_event_type='Lock' AND query LIKE 'SELECT id FROM messages WHERE id=$1 AND status=%'`).Scan(&n); err != nil {
+		if err = f.db.QueryRow(`SELECT count(*) FROM pg_stat_activity WHERE $1=ANY(pg_blocking_pids(pid))`, blockerPID).Scan(&n); err != nil {
 			t.Fatal(err)
 		}
 		if n > 0 {

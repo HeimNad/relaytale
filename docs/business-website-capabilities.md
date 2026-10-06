@@ -64,6 +64,8 @@ SpaceMail 当前公开页写明试用与付费邮箱存在小时限额，并列�
 
 ## 8E.3：真正不会发出去的沙箱
 
+[8E.3a 安全基础](phase-8e3a-sandbox.md) 已实现不可变测试身份、测试存档、零 SMTP 尝试及明确标记的通知。8E.3b 继续完成下述 MIME 检查、受控结果模拟、网站示例与契约；整体仍未完成。
+
 测试与生产凭证明确分开。测试邮件可以查看 MIME、附件结构、时间线和模拟 Webhook，但 worker 在最终出站闸门强制拒绝真实投递，不依赖 UI 上的 test 勾选。记录 simulation=true，模拟事件使用独立命名/环境；不在生产数据里伪造 SMTP_ACCEPTED/DELIVERED。测试模式转生产不能放行历史测试队列。
 
 先提供一套小型网站示例与 HTTP/OpenAPI 契约：提交、持久化 message_id、相同幂等键重试、状态查询、验签、通知去重和乱序处理。按真实接入需求补 PHP/Laravel、Node.js、Python；不一开始维护所有语言 SDK。SMTP 应用另有最小改动接入指南，不让它们被迫迁移 API。

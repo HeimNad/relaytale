@@ -31,6 +31,7 @@ const states = {
   SUPPRESSED: ["已抑制", ""],
   CANCELLED: ["已取消", ""],
   EXPIRED: ["已过期", ""],
+  SANDBOX_STORED: ["测试存档 · 不发信", ""],
   RECEIVED: ["已接收", ""],
   ARCHIVED: ["已存档", ""],
   HEALTHY: ["健康", "good"],
@@ -727,6 +728,7 @@ async function listPage(view, generation) {
               "SUPPRESSED",
               "CANCELLED",
               "EXPIRED",
+              "SANDBOX_STORED",
             ].includes(k),
           )
           .map((k) => el("option", { value: k }, states[k][0]))
@@ -1016,7 +1018,9 @@ async function messageDetail(id, generation) {
             },
             m.status === "DELIVERY_UNKNOWN"
               ? "远端可能已经接收。系统不会自动重发，请先核对收件情况。"
-              : "SMTP 接受仅代表远端接受了邮件，不等于收件人已收到。",
+              : m.status === "SANDBOX_STORED"
+                ? "这是测试沙箱邮件，系统禁止真实投递，也没有远端接收事实。"
+                : "SMTP 接受仅代表远端接受了邮件，不等于收件人已收到。",
           ),
         ),
         el(

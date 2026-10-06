@@ -168,7 +168,7 @@ func (r Repository) Claim(ctx context.Context) (Job, error) {
 	return j, nil
 }
 func fence(ctx context.Context, tx *sql.Tx, j Job, requireLive bool) error {
-	query := `SELECT id FROM messages WHERE id=$1 AND status='SENDING' AND locked_by=$2`
+	query := `SELECT id FROM messages WHERE id=$1 AND environment='production' AND status='SENDING' AND locked_by=$2`
 	if requireLive {
 		query += ` AND lease_expires_at>clock_timestamp()`
 	}

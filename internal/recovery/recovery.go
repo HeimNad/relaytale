@@ -426,6 +426,12 @@ func verify(ctx context.Context, q queryer, original, actual string, box *encryp
 	if bad {
 		return r, errors.New("queue fairness identity missing")
 	}
+	if err = q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM messages m LEFT JOIN api_keys k ON k.id=m.api_key_id WHERE (m.source_type='api' AND m.environment IS DISTINCT FROM k.environment) OR (m.environment='sandbox' AND (m.status<>'SANDBOX_STORED' OR m.attempt_count<>0 OR m.locked_by IS NOT NULL OR m.route_provider_id IS NOT NULL OR EXISTS(SELECT 1 FROM delivery_attempts a WHERE a.message_id=m.id) OR EXISTS(SELECT 1 FROM recipients r WHERE r.message_id=m.id AND r.status<>'SANDBOX_STORED'))))`).Scan(&bad); err != nil {
+		return r, err
+	}
+	if bad {
+		return r, errors.New("sandbox isolation inconsistency")
+	}
 	if err = q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM delivery_attempts a JOIN messages m ON m.id=a.message_id WHERE m.expires_at IS NOT NULL AND a.data_armed_at>=m.expires_at)`).Scan(&bad); err != nil {
 		return r, err
 	}
@@ -448,7 +454,7 @@ func verify(ctx context.Context, q queryer, original, actual string, box *encryp
 	if err = q.QueryRowContext(ctx, `SELECT count(*) FROM archive_retirements`).Scan(&r.Retirements); err != nil {
 		return r, err
 	}
-	if err = q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM webhook_outbox o JOIN webhook_endpoints e ON e.id=o.endpoint_id JOIN messages m ON m.id=o.message_id JOIN events v ON v.id=o.event_id WHERE m.api_key_id IS DISTINCT FROM e.api_key_id OR m.source_type<>'api' OR v.message_id<>m.id OR (o.payload::jsonb->>'event_id') IS DISTINCT FROM o.event_id::text OR (o.payload::jsonb->>'message_id') IS DISTINCT FROM o.message_id::text OR (o.payload::jsonb->>'sequence') IS DISTINCT FROM o.sequence::text OR (o.payload::jsonb->>'schema_version'='2' AND (o.payload::jsonb->'business') IS DISTINCT FROM jsonb_build_object('client_reference',m.client_reference,'tags',m.business_tags)))`).Scan(&bad); err != nil {
+	if err = q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM webhook_outbox o JOIN webhook_endpoints e ON e.id=o.endpoint_id JOIN messages m ON m.id=o.message_id JOIN events v ON v.id=o.event_id WHERE m.api_key_id IS DISTINCT FROM e.api_key_id OR m.source_type<>'api' OR v.message_id<>m.id OR (o.payload::jsonb->>'event_id') IS DISTINCT FROM o.event_id::text OR (o.payload::jsonb->>'message_id') IS DISTINCT FROM o.message_id::text OR (o.payload::jsonb->>'sequence') IS DISTINCT FROM o.sequence::text OR (m.environment='sandbox' AND ((o.payload::jsonb->>'environment') IS DISTINCT FROM 'sandbox' OR (o.payload::jsonb->>'simulation') IS DISTINCT FROM 'true')) OR (m.environment='production' AND o.payload::jsonb ? 'simulation') OR (o.payload::jsonb->>'schema_version'='2' AND (o.payload::jsonb->'business') IS DISTINCT FROM jsonb_build_object('client_reference',m.client_reference,'tags',m.business_tags)))`).Scan(&bad); err != nil {
 		return r, err
 	}
 	if bad {

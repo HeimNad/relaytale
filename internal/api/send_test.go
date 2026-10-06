@@ -39,3 +39,27 @@ func TestSendBudgetConfigurationBounds(t *testing.T) {
 		}
 	}
 }
+
+func TestSendEnvironmentIsExplicitAndValidated(t *testing.T) {
+	for _, env := range []string{"", "production", "sandbox", "test", "Sandbox"} {
+		key := SendKey{ID: uuid.NewString(), Token: "rts_" + strings.Repeat("a", 64), AllowedFrom: []string{"sender@example.test"}, Environment: env}
+		raw, _ := json.Marshal([]SendKey{key})
+		keys, err := ParseSendKeys(string(raw))
+		if env == "test" || env == "Sandbox" {
+			if err == nil {
+				t.Fatal("invalid environment accepted")
+			}
+			continue
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		expected := env
+		if env == "" {
+			expected = "production"
+		}
+		if keys[0].Environment != expected {
+			t.Fatal(keys)
+		}
+	}
+}

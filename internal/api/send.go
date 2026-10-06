@@ -22,6 +22,7 @@ import (
 )
 
 type SendKey struct {
+	Environment string                   `json:"environment,omitempty"`
 	Streams     []message.StreamPolicy   `json:"streams,omitempty"`
 	Budget      message.SubmissionBudget `json:"budget,omitempty"`
 	ID          string                   `json:"id"`
@@ -49,6 +50,12 @@ func ParseSendKeys(raw string) ([]SendKey, error) {
 	ids, tokens := map[string]bool{}, map[string]bool{}
 	for i := range keys {
 		k := &keys[i]
+		if k.Environment == "" {
+			k.Environment = "production"
+		}
+		if k.Environment != "production" && k.Environment != "sandbox" {
+			return nil, invalid
+		}
 		var streamErr error
 		k.Streams, streamErr = message.CanonicalStreams(k.Streams)
 		if streamErr != nil {
@@ -130,13 +137,13 @@ func NewSendHandler(ctx context.Context, raw string, receiver message.APIReceive
 	people := make([]*sendIdentity, 0, len(keys))
 	for _, key := range keys {
 		digest := sha256.Sum256([]byte(key.Token))
-		_, e = tx.ExecContext(ctx, `INSERT INTO api_keys(id,name,key_hash,prefix,enabled,submission_minute_limit,submission_hour_limit,submission_day_limit) VALUES($1,$2,$3,'rts_',true,$4,$5,$6)
- ON CONFLICT(id) DO UPDATE SET key_hash=EXCLUDED.key_hash,enabled=true,submission_minute_limit=EXCLUDED.submission_minute_limit,submission_hour_limit=EXCLUDED.submission_hour_limit,submission_day_limit=EXCLUDED.submission_day_limit WHERE api_keys.prefix='rts_'`, key.ID, "http:"+key.ID, hex.EncodeToString(digest[:]), key.Budget.Minute, key.Budget.Hour, key.Budget.Day)
+		_, e = tx.ExecContext(ctx, `INSERT INTO api_keys(id,name,key_hash,prefix,enabled,submission_minute_limit,submission_hour_limit,submission_day_limit,environment) VALUES($1,$2,$3,'rts_',true,$4,$5,$6,$7)
+ ON CONFLICT(id) DO UPDATE SET key_hash=EXCLUDED.key_hash,enabled=true,submission_minute_limit=EXCLUDED.submission_minute_limit,submission_hour_limit=EXCLUDED.submission_hour_limit,submission_day_limit=EXCLUDED.submission_day_limit WHERE api_keys.prefix='rts_' AND api_keys.environment=EXCLUDED.environment`, key.ID, "http:"+key.ID, hex.EncodeToString(digest[:]), key.Budget.Minute, key.Budget.Hour, key.Budget.Day, key.Environment)
 		if e != nil {
 			return nil, errors.New("send API identity synchronization failed")
 		}
-		var hash string
-		if e = tx.QueryRowContext(ctx, `SELECT key_hash FROM api_keys WHERE id=$1 AND prefix='rts_' AND enabled`, key.ID).Scan(&hash); e != nil || hash != hex.EncodeToString(digest[:]) {
+		var hash, environment string
+		if e = tx.QueryRowContext(ctx, `SELECT key_hash,environment FROM api_keys WHERE id=$1 AND prefix='rts_' AND enabled`, key.ID).Scan(&hash, &environment); e != nil || hash != hex.EncodeToString(digest[:]) || environment != key.Environment {
 			return nil, errors.New("send API identity conflicts with an existing key")
 		}
 		if _, e = tx.ExecContext(ctx, `UPDATE api_message_streams SET enabled=false WHERE api_key_id=$1 AND name<>'normal'`, key.ID); e != nil {
@@ -147,7 +154,7 @@ func NewSendHandler(ctx context.Context, raw string, receiver message.APIReceive
 				return nil, e
 			}
 		}
-		auditData, _ := json.Marshal(map[string]any{"id": key.ID, "allowed_from": key.AllowedFrom, "budget": key.Budget, "streams": key.Streams})
+		auditData, _ := json.Marshal(map[string]any{"id": key.ID, "allowed_from": key.AllowedFrom, "budget": key.Budget, "streams": key.Streams, "environment": key.Environment})
 		if _, e = tx.ExecContext(ctx, `INSERT INTO maintenance_audit(id,action,actor,data) VALUES($1,'API_SEND_CONFIGURED','startup_config',$2)`, uuid.NewString(), string(auditData)); e != nil {
 			return nil, errors.New("send API configuration audit failed")
 		}
@@ -219,6 +226,7 @@ func NewSendHandler(ctx context.Context, raw string, receiver message.APIReceive
 			respond(w, 401, "invalid_credentials")
 			return
 		}
+		w.Header().Set("X-RelayTale-Environment", who.key.Environment)
 		limiter := who
 		if read {
 			limiter = readLimits[who.key.ID]
@@ -381,7 +389,13 @@ func NewSendHandler(ctx context.Context, raw string, receiver message.APIReceive
 			}
 			return
 		}
-		output(w, 202, map[string]any{"message_id": result.MessageID, "replayed": result.Replayed, "status": "GATEWAY_ACCEPTED"})
+		response := map[string]any{"message_id": result.MessageID, "replayed": result.Replayed, "status": "GATEWAY_ACCEPTED"}
+		if who.key.Environment == "sandbox" {
+			response["status"] = "SANDBOX_STORED"
+			response["simulation"] = true
+			response["environment"] = "sandbox"
+		}
+		output(w, 202, response)
 	}), nil
 }
 

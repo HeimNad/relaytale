@@ -89,6 +89,8 @@ type MessageSummary struct {
 	Business    message.Business `json:"business"`
 }
 type MessageList struct {
+	Simulation    bool             `json:"simulation,omitempty"`
+	Environment   string           `json:"environment,omitempty"`
 	SchemaVersion int              `json:"schema_version"`
 	SnapshotAt    time.Time        `json:"snapshot_at"`
 	Messages      []MessageSummary `json:"messages"`
@@ -108,6 +110,10 @@ func readMessageList(ctx context.Context, w http.ResponseWriter, r *http.Request
 	}
 	defer tx.Rollback()
 	out := MessageList{SchemaVersion: 2, Messages: []MessageSummary{}}
+	if who.key.Environment == "sandbox" {
+		out.Simulation = true
+		out.Environment = "sandbox"
+	}
 	if err := tx.QueryRowContext(ctx, `SELECT transaction_timestamp()`).Scan(&out.SnapshotAt); err != nil {
 		respond(w, 503, "unavailable")
 		return
