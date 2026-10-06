@@ -12,7 +12,7 @@ Your Apps → SMTP ingress → Durable queue + EML archive → Provider router
                             Event ledger         Your existing SMTP providers
 ```
 
-## 当前进度：Phase 8E.3b（沙箱工具与网站接入示例）
+## 当前进度：Phase 9B.1（显式迁移与启动 schema 门槛）
 
 已实现 Go 服务入口、配置优先级、PostgreSQL 连接、内嵌 Goose 迁移、核心数据库表、存储可写检查、健康接口、JSON 日志、优雅退出和 Docker Compose。
 
@@ -30,7 +30,9 @@ Your Apps → SMTP ingress → Durable queue + EML archive → Provider router
 
 已增加 [测试沙箱安全基础](docs/phase-8e3a-sandbox.md)：独立不可变测试身份、SANDBOX_STORED 状态、零 SMTP 投递、明确标记的签名通知，以及备份恢复保护；[8E.3b](docs/phase-8e3b-sandbox-tools.md) 已补齐 MIME 检查、受控模拟、签名通知对账示例和 OpenAPI 契约。
 
-面向业务网站的后续能力及官方资料依据见 [业务网站能力规划](docs/business-website-capabilities.md)：接下来完成测试网站示例与模拟结果；JSON/模板、定时与入站回复分阶段推进。这些新增项尚未实现。
+面向业务网站的后续能力及官方资料依据见 [业务网站能力规划](docs/business-website-capabilities.md)：沙箱示例与模拟结果已完成；JSON/模板、定时与入站回复仍按后续阶段推进。
+
+已完成 [显式迁移与 schema 门槛](docs/phase-9b1-migrations.md)：迁移使用数据库会话锁串行执行，运行启动不再修改 schema；单实例保护、最小权限部署和密钥轮换仍待后续验收。
 
 ## 启动
 
@@ -41,12 +43,13 @@ cp .env.example .env
 # 修改 .env 中的 POSTGRES_PASSWORD，建议用 openssl rand -hex 24 生成。
 # 首次启动：显式生成仅用于 localhost 开发的自签证书（已有证书时不要重复执行）。
 docker compose run --build --rm relaytale init-dev-tls
+docker compose run --build --rm relaytale migrate --offline
 docker compose up --build -d
 curl http://localhost:8080/health/live
 curl http://localhost:8080/health/ready
 ```
 
-首次启动自动执行迁移。成功响应分别为 `{"status":"alive"}` 和 `{"status":"ready"}`。依赖不可用时 ready 返回 HTTP 503。根路径暂时返回 404。
+首次启动和升级都必须先显式执行迁移；正常启动只做只读 schema 检查，缺失、较旧、有空洞或含未知版本的数据库会阻止启动。迁移命令的 `--offline` 是操作者停写确认，不会自动停止运行实例。见 [9B.1 升级流程](docs/phase-9b1-migrations.md)。成功响应分别为 `{"status":"alive"}` 和 `{"status":"ready"}`。依赖不可用时 ready 返回 HTTP 503。根路径暂时返回 404。
 
 默认仅绑定本机，Caddy HTTP 入口为 8080。PostgreSQL 不向主机公开端口。当前 Compose 是本地开发配置；SMTP STARTTLS 入口为本机 1587，容器内部监听 587。生产需要替换为有效域名证书，并配置正式端口和 HTTPS。
 
@@ -69,6 +72,7 @@ export DATABASE_URL='postgres://user:password@localhost:5432/relaytale?sslmode=d
 make test
 make vet
 make build
+go run ./cmd/relaytale migrate --offline
 go run ./cmd/relaytale --config config.example.yaml
 ```
 

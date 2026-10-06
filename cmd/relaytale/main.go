@@ -44,6 +44,8 @@ func main() {
 func run(log *slog.Logger) error {
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
+		case "migrate":
+			return runMigrate(os.Args[2:])
 		case "backup", "restore", "verify-restore":
 			return runRecovery(os.Args[1], os.Args[2:])
 		case "feedback-collection-status":
@@ -94,8 +96,8 @@ func run(log *slog.Logger) error {
 		return errors.New("database connection failed; check DATABASE_URL and PostgreSQL availability")
 	}
 	defer db.Close()
-	if err := database.Migrate(startup, db); err != nil {
-		return errors.New("database migration failed; check database schema and migration permissions")
+	if err := database.CheckSchema(startup, db); err != nil {
+		return errors.New("database schema unavailable, busy or incompatible; stop all writers and run relaytale migrate --offline using this binary")
 	}
 
 	// Bind all listeners before reporting readiness. Missing TLS fails closed.

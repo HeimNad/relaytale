@@ -3,10 +3,14 @@ package database
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
+	"errors"
 	"fmt"
+	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
+	"github.com/pressly/goose/v3/lock"
 	"relaytale/migrations"
 )
 
@@ -24,12 +28,54 @@ func Open(ctx context.Context, url string) (*sql.DB, error) {
 	return db, nil
 }
 
-func Migrate(ctx context.Context, db *sql.DB) error {
-	p, err := goose.NewProvider(goose.DialectPostgres, db, migrations.Files)
+// migrationAdmission avoids exhausting one process's pool with lock waiters.
+var migrationAdmission = make(chan struct{}, 1)
+
+// Migrate guards Goose's otherwise-unlocked HasPending/bootstrap before Up.
+// Goose additionally holds an execution lock on its migration connection.
+func Migrate(ctx context.Context, db *sql.DB) (retErr error) {
+	select {
+	case migrationAdmission <- struct{}{}:
+		defer func() { <-migrationAdmission }()
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	if db.Stats().MaxOpenConnections == 1 {
+		return errors.New("migration requires at least two database connections")
+	}
+	bootstrap, err := lock.NewPostgresSessionLocker(lock.WithLockID(MigrationLockID), lock.WithLockTimeout(1, 300), lock.WithUnlockTimeout(1, 5))
+	if err != nil {
+		return err
+	}
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	if err = bootstrap.SessionLock(ctx, conn); err != nil {
+		// A canceled response can conceal a successfully acquired session lock.
+		// Discard this connection rather than returning possible ownership to the pool.
+		_ = conn.Raw(func(any) error { return driver.ErrBadConn })
+		return fmt.Errorf("migration admission: %w", err)
+	}
+	defer func() {
+		cleanup, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		unlockErr := bootstrap.SessionUnlock(cleanup, conn)
+		if unlockErr != nil {
+			_ = conn.Raw(func(any) error { return driver.ErrBadConn })
+		}
+		retErr = errors.Join(retErr, unlockErr)
+	}()
+	locker, err := lock.NewPostgresSessionLocker(lock.WithLockID(734219510), lock.WithLockTimeout(1, 300), lock.WithUnlockTimeout(1, 5))
+	if err != nil {
+		return err
+	}
+	p, err := goose.NewProvider(goose.DialectPostgres, db, migrations.Files, goose.WithSessionLocker(locker))
 	if err != nil {
 		return fmt.Errorf("create migration provider: %w", err)
 	}
-	if _, err := p.Up(ctx); err != nil {
+	if _, err = p.Up(ctx); err != nil {
 		return fmt.Errorf("migrate database: %w", err)
 	}
 	return nil
