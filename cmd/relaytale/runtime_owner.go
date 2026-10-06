@@ -23,10 +23,10 @@ func runRuntimeOwner(command string, args []string) error {
 	if f.NArg() != 0 {
 		return errors.New("unexpected ownership arguments")
 	}
-	if command == "release-runtime-owner" && (!*stopped || *id == "" || *actor == "" || *reason == "") {
+	if (command == "release-runtime-owner" || command == "release-auxiliary-owner") && (!*stopped || *id == "" || *actor == "" || *reason == "") {
 		return errors.New("release requires exact owner-id, confirm-stopped, actor and reason; stop the original process and reconcile in-flight sends first")
 	}
-	if command == "list-runtime-owner" && (*id != "" || *stopped || *actor != "" || *reason != "") {
+	if (command == "list-runtime-owner" || command == "list-auxiliary-owners") && (*id != "" || *stopped || *actor != "" || *reason != "") {
 		return errors.New("listing accepts no release arguments")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
@@ -40,6 +40,19 @@ func runRuntimeOwner(command string, args []string) error {
 		return errors.New("ownership database unavailable")
 	}
 	defer db.Close()
+	if command == "list-auxiliary-owners" {
+		owners, err := database.ListAuxiliaryOwners(ctx, db)
+		if err != nil {
+			return errors.New("auxiliary metadata unavailable; verify schema")
+		}
+		return json.NewEncoder(os.Stdout).Encode(map[string]any{"owners": owners, "automatic_takeover": false})
+	}
+	if command == "release-auxiliary-owner" {
+		if err := database.ReleaseStaleAuxiliary(ctx, db, *id, *actor, *reason); err != nil {
+			return errors.New("auxiliary release refused; verify exact owner, stopped process and live session")
+		}
+		return json.NewEncoder(os.Stdout).Encode(map[string]string{"operation": command, "result": "complete"})
+	}
 	if command == "list-runtime-owner" {
 		owner, err := database.ListRuntimeOwner(ctx, db)
 		if err != nil {

@@ -15,7 +15,7 @@ import (
 	"relaytale/internal/provider"
 )
 
-func createProvider(args []string) error {
+func createProvider(args []string) (runErr error) {
 	fs := flag.NewFlagSet("create-provider", flag.ContinueOnError)
 	name := fs.String("name", "", "provider name")
 	host := fs.String("host", "", "SMTP hostname")
@@ -55,6 +55,11 @@ func createProvider(args []string) error {
 		return errors.New("database connection failed")
 	}
 	defer db.Close()
+	ctx, finish, err := auxiliaryOperation(ctx, db, "create-provider")
+	if err != nil {
+		return err
+	}
+	defer finish(&runErr)
 	id, err := provider.Create(ctx, db, box, provider.Provider{Name: *name, Host: *host, Port: *port, Security: *security, Username: *username, Priority: *priority, MaxConnections: *connections, Timeout: *timeout, HourlyLimit: *hourly, DailyLimit: *daily}, password, strings.Split(*domains, ","))
 	if err != nil {
 		return err

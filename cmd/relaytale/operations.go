@@ -32,7 +32,7 @@ func operationDB(ctx context.Context) (*sql.DB, error) {
 	}
 	return db, nil
 }
-func runOperation(command string, args []string) error {
+func runOperation(command string, args []string) (runErr error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 	defer cancel()
 	db, err := operationDB(ctx)
@@ -40,6 +40,11 @@ func runOperation(command string, args []string) error {
 		return err
 	}
 	defer db.Close()
+	ctx, finish, err := auxiliaryOperation(ctx, db, command)
+	if err != nil {
+		return err
+	}
+	defer finish(&runErr)
 	switch command {
 	case "create-provider-quota-group", "configure-provider-quota-group", "attach-provider-quota-group", "list-provider-quota-groups":
 		return runQuotaGroup(ctx, db, command, args)

@@ -14,7 +14,7 @@ import (
 	"relaytale/internal/feedbackimap"
 )
 
-func collectFeedback(args []string) error {
+func collectFeedback(args []string) (runErr error) {
 	fs := flag.NewFlagSet("collect-feedback", flag.ContinueOnError)
 	source := fs.String("source", "", "stable mailbox source name")
 	folder := fs.String("folder", "", "explicit mailbox folder (required)")
@@ -39,6 +39,11 @@ func collectFeedback(args []string) error {
 		return err
 	}
 	defer db.Close()
+	ctx, finish, err := auxiliaryOperation(ctx, db, "collect-feedback:"+*source)
+	if err != nil {
+		return err
+	}
+	defer finish(&runErr)
 	for {
 		result, err := (feedback.Service{DB: db}).Collect(ctx, feedback.CollectOptions{Source: *source, IdentitySHA256: cfg.Identity(), Batch: *batch, AcceptUIDValidity: uint32(*accept)}, func(ctx context.Context) (feedback.Mailbox, error) { return feedbackimap.Dial(ctx, cfg) })
 		if e := json.NewEncoder(os.Stdout).Encode(result); e != nil {
@@ -66,7 +71,7 @@ func collectFeedback(args []string) error {
 	}
 }
 
-func feedbackCollectionStatus(args []string) error {
+func feedbackCollectionStatus(args []string) (runErr error) {
 	fs := flag.NewFlagSet("feedback-collection-status", flag.ContinueOnError)
 	source := fs.String("source", "", "mailbox source name")
 	epoch := fs.Uint64("uidvalidity", 0, "receipt epoch; default current")
@@ -85,6 +90,11 @@ func feedbackCollectionStatus(args []string) error {
 		return err
 	}
 	defer db.Close()
+	ctx, finish, err := auxiliaryOperation(ctx, db, "feedback-collection-status")
+	if err != nil {
+		return err
+	}
+	defer finish(&runErr)
 	result, err := (feedback.Service{DB: db}).CollectionStatus(ctx, *source, uint32(*epoch), uint32(*after), *limit)
 	if err != nil {
 		return errors.New("collection status unavailable; check source, bounds and database")

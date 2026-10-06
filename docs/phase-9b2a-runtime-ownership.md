@@ -46,3 +46,5 @@ relaytale release-runtime-owner --owner-id '<观察到的 UUID>' \
 完整 `make ci` 通过：格式检查、go vet、构建及全部 race 测试通过，隔离 PostgreSQL 集成测试耗时 217.434 秒。真实二进制进程验收通过：二实例拒绝、运行中迁移拒绝、活跃占用拒绝人工释放、正常退出释放、占用连接丢失后非零退出、SIGKILL 后保留占用，以及准确 UUID 人工释放并恢复启动。
 
 全部发送故障注入仍使用 Fake SMTP；这不是跨区域 HA、自动容灾或真实 Provider 最终送达验收。
+
+后续 [9B.2b](phase-9b2b-auxiliary-ownership.md) 已将当前受支持的辅助 CLI 纳入登记；上文未覆盖辅助进程的限制描述的是 9B.2a 当时的版本。

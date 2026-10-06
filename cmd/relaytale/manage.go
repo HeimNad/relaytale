@@ -18,7 +18,7 @@ import (
 	"relaytale/internal/devtls"
 )
 
-func manage(args []string) error {
+func manage(args []string) (runErr error) {
 	switch args[0] {
 	case "create-provider":
 		return createProvider(args[1:])
@@ -74,6 +74,11 @@ func manage(args []string) error {
 			return errors.New("database connection failed")
 		}
 		defer db.Close()
+		ctx, finish, err := auxiliaryOperation(ctx, db, "create-smtp-account")
+		if err != nil {
+			return err
+		}
+		defer finish(&runErr)
 		id, err := uuid.NewV7()
 		if err != nil {
 			return err

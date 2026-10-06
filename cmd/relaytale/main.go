@@ -44,7 +44,7 @@ func main() {
 func run(log *slog.Logger) (runErr error) {
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
-		case "list-runtime-owner", "release-runtime-owner":
+		case "list-runtime-owner", "release-runtime-owner", "list-auxiliary-owners", "release-auxiliary-owner":
 			return runRuntimeOwner(os.Args[1], os.Args[2:])
 		case "migrate":
 			return runMigrate(os.Args[2:])

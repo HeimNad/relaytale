@@ -34,6 +34,11 @@ var migrationAdmission = make(chan struct{}, 1)
 // Migrate guards Goose's otherwise-unlocked HasPending/bootstrap before Up.
 // Goose additionally holds an execution lock on its migration connection.
 func Migrate(ctx context.Context, db *sql.DB) (retErr error) {
+	// Long-lived collectors hold shared admission. Refuse their persistent
+	// occupancy before entering Goose's bounded migration lock wait.
+	if err := CheckNoAuxiliary(ctx, db); err != nil {
+		return err
+	}
 	select {
 	case migrationAdmission <- struct{}{}:
 		defer func() { <-migrationAdmission }()

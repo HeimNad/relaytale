@@ -131,7 +131,7 @@ func Backup(ctx context.Context, o Options) error {
 	if _, err = tx.ExecContext(ctx, "SET LOCAL lock_timeout='5s'"); err != nil {
 		return err
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT tablename FROM pg_tables WHERE schemaname='public' AND tablename<>'runtime_owner' ORDER BY tablename`)
+	rows, err := tx.QueryContext(ctx, `SELECT tablename FROM pg_tables WHERE schemaname='public' AND tablename NOT IN ('runtime_owner','auxiliary_owner') ORDER BY tablename`)
 	if err != nil {
 		return err
 	}
@@ -172,7 +172,7 @@ func Backup(ctx context.Context, o Options) error {
 		return err
 	}
 	dump := filepath.Join(bundle, "database.dump")
-	if err = command(ctx, o.DatabaseURL, "pg_dump", "--format=custom", "--no-owner", "--no-privileges", "--schema=public", "--exclude-table-data=public.runtime_owner", "--snapshot="+snapshot, "--file="+dump); err != nil {
+	if err = command(ctx, o.DatabaseURL, "pg_dump", "--format=custom", "--no-owner", "--no-privileges", "--schema=public", "--exclude-table-data=public.runtime_owner", "--exclude-table-data=public.auxiliary_owner", "--snapshot="+snapshot, "--file="+dump); err != nil {
 		return err
 	}
 	if err = os.Chmod(dump, 0600); err != nil {

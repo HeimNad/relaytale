@@ -29,11 +29,12 @@ type RuntimeOwner struct {
 	LastSeenAt time.Time `json:"last_seen_at"`
 }
 type RuntimeGuard struct {
-	conn   *sql.Conn
-	id     string
-	cancel context.CancelFunc
-	done   chan struct{}
-	lost   chan struct{}
+	auxiliary bool
+	conn      *sql.Conn
+	id        string
+	cancel    context.CancelFunc
+	done      chan struct{}
+	lost      chan struct{}
 }
 
 func discard(conn *sql.Conn) {
@@ -74,9 +75,10 @@ func AcquireRuntime(ctx context.Context, db *sql.DB) (*RuntimeGuard, error) {
 	committed = true
 	return startGuard(conn, id), nil
 }
-func startGuard(conn *sql.Conn, id string) *RuntimeGuard {
+func startGuard(conn *sql.Conn, id string) *RuntimeGuard { return startOwnershipGuard(conn, id, false) }
+func startOwnershipGuard(conn *sql.Conn, id string, auxiliary bool) *RuntimeGuard {
 	monitor, cancel := context.WithCancel(context.Background())
-	g := &RuntimeGuard{conn: conn, id: id, cancel: cancel, done: make(chan struct{}), lost: make(chan struct{})}
+	g := &RuntimeGuard{auxiliary: auxiliary, conn: conn, id: id, cancel: cancel, done: make(chan struct{}), lost: make(chan struct{})}
 	go g.watch(monitor)
 	return g
 }
@@ -125,6 +127,8 @@ func (g *RuntimeGuard) watch(ctx context.Context) {
 		if g.id == "" {
 			err = g.conn.PingContext(check)
 			ok = err == nil
+		} else if g.auxiliary {
+			err = g.conn.QueryRowContext(check, `UPDATE public.auxiliary_owner SET last_seen_at=clock_timestamp() WHERE owner_id=$1 AND backend_pid=pg_backend_pid() RETURNING true`, g.id).Scan(&ok)
 		} else {
 			err = g.conn.QueryRowContext(check, `UPDATE public.runtime_owner SET last_seen_at=clock_timestamp() WHERE owner_id=$1 AND backend_pid=pg_backend_pid() RETURNING true`, g.id).Scan(&ok)
 		}
@@ -163,7 +167,11 @@ func (g *RuntimeGuard) Release(ctx context.Context) error {
 	if _, err = tx.ExecContext(ctx, `SET LOCAL synchronous_commit=on`); err != nil {
 		return err
 	}
-	result, err := tx.ExecContext(ctx, `DELETE FROM public.runtime_owner WHERE owner_id=$1 AND backend_pid=pg_backend_pid()`, g.id)
+	query := `DELETE FROM public.runtime_owner WHERE owner_id=$1 AND backend_pid=pg_backend_pid()`
+	if g.auxiliary {
+		query = `DELETE FROM public.auxiliary_owner WHERE owner_id=$1 AND backend_pid=pg_backend_pid()`
+	}
+	result, err := tx.ExecContext(ctx, query, g.id)
 	if err != nil {
 		return err
 	}
@@ -196,7 +204,7 @@ func CheckNoRuntime(ctx context.Context, q interface {
 	if occupied {
 		return ErrRuntimeOccupied
 	}
-	return nil
+	return CheckNoAuxiliary(ctx, q)
 }
 
 type offlineContextKey struct{}
