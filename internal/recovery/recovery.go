@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"relaytale/internal/database"
 	"relaytale/internal/encryption"
 )
 
@@ -108,6 +109,9 @@ func paths(o Options) (string, string, error) {
 }
 
 func Backup(ctx context.Context, o Options) error {
+	if err := database.CheckNoRuntime(ctx, o.DB); err != nil {
+		return err
+	}
 	root, bundle, err := paths(o)
 	if err != nil {
 		return err
@@ -127,7 +131,7 @@ func Backup(ctx context.Context, o Options) error {
 	if _, err = tx.ExecContext(ctx, "SET LOCAL lock_timeout='5s'"); err != nil {
 		return err
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT tablename FROM pg_tables WHERE schemaname='public' ORDER BY tablename`)
+	rows, err := tx.QueryContext(ctx, `SELECT tablename FROM pg_tables WHERE schemaname='public' AND tablename<>'runtime_owner' ORDER BY tablename`)
 	if err != nil {
 		return err
 	}
@@ -168,7 +172,7 @@ func Backup(ctx context.Context, o Options) error {
 		return err
 	}
 	dump := filepath.Join(bundle, "database.dump")
-	if err = command(ctx, o.DatabaseURL, "pg_dump", "--format=custom", "--no-owner", "--no-privileges", "--schema=public", "--snapshot="+snapshot, "--file="+dump); err != nil {
+	if err = command(ctx, o.DatabaseURL, "pg_dump", "--format=custom", "--no-owner", "--no-privileges", "--schema=public", "--exclude-table-data=public.runtime_owner", "--snapshot="+snapshot, "--file="+dump); err != nil {
 		return err
 	}
 	if err = os.Chmod(dump, 0600); err != nil {
@@ -255,6 +259,9 @@ func Backup(ctx context.Context, o Options) error {
 }
 
 func Restore(ctx context.Context, o Options) error {
+	if err := database.CheckNoRuntime(ctx, o.DB); err != nil {
+		return err
+	}
 	root, bundle, err := paths(o)
 	if err != nil {
 		return err
@@ -360,6 +367,9 @@ func VerifyRestored(ctx context.Context, db *sql.DB, root string, box *encryptio
 }
 
 func verify(ctx context.Context, q queryer, original, actual string, box *encryption.Box, keys bool) (Report, error) {
+	if err := database.CheckNoRuntime(ctx, q); err != nil {
+		return Report{}, err
+	}
 	var r Report
 	var version int64
 	if err := q.QueryRowContext(ctx, `SELECT coalesce(max(version_id),0) FROM goose_db_version WHERE is_applied`).Scan(&version); err != nil {

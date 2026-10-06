@@ -41,9 +41,11 @@ func main() {
 	}
 }
 
-func run(log *slog.Logger) error {
+func run(log *slog.Logger) (runErr error) {
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
+		case "list-runtime-owner", "release-runtime-owner":
+			return runRuntimeOwner(os.Args[1], os.Args[2:])
 		case "migrate":
 			return runMigrate(os.Args[2:])
 		case "backup", "restore", "verify-restore":
@@ -100,6 +102,23 @@ func run(log *slog.Logger) error {
 		return errors.New("database schema unavailable, busy or incompatible; stop all writers and run relaytale migrate --offline using this binary")
 	}
 
+	guard, err := database.AcquireRuntime(startup, db)
+	if err != nil {
+		return errors.New("runtime ownership unavailable; inspect list-runtime-owner before any takeover")
+	}
+	active := false
+	defer func() {
+		if active && runErr != nil {
+			guard.Retain()
+			return
+		}
+		cleanup, done := context.WithTimeout(context.Background(), 5*time.Second)
+		defer done()
+		if err := guard.Release(cleanup); err != nil {
+			runErr = errors.Join(runErr, errors.New("runtime ownership retained; verify stopped processes before release"))
+		}
+	}()
+
 	// Bind all listeners before reporting readiness. Missing TLS fails closed.
 	httpListener, err := net.Listen("tcp", cfg.HTTPAddr)
 	if err != nil {
@@ -128,8 +147,27 @@ func run(log *slog.Logger) error {
 	if err = webhook.Sync(startup, db, endpoints); err != nil {
 		return errors.New("webhook configuration failed")
 	}
-	srv := &http.Server{Handler: api.Handler(db, func() error { return storage.CheckWritable(cfg.StorageDir) }, &metrics.Handler{DB: db, Resources: resources, Token: cfg.MetricsToken}, admin, send), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 60 * time.Second}
+	srv := &http.Server{Handler: api.Handler(db, func() error {
+		select {
+		case <-guard.Lost():
+			return database.ErrOwnerLost
+		default:
+			return storage.CheckWritable(cfg.StorageDir)
+		}
+	}, &metrics.Handler{DB: db, Resources: resources, Token: cfg.MetricsToken}, admin, send), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 60 * time.Second}
 	result := make(chan error, 2)
+	var workerBox *encryption.Box
+	if cfg.WorkerCount > 0 {
+		workerBox, err = encryption.New(cfg.MasterKey)
+		if err != nil {
+			return err
+		}
+	}
+	select {
+	case <-guard.Lost():
+		return database.ErrOwnerLost
+	default:
+	}
 	var shutdownSMTP func(context.Context) error
 	var closeSMTP func() error
 	if cfg.SMTPAddr != "" {
@@ -150,8 +188,10 @@ func run(log *slog.Logger) error {
 		defer listener.Close()
 		shutdownSMTP = smtp.Shutdown
 		closeSMTP = smtp.Close
+		active = true
 		go func() { result <- smtp.Serve(listener) }()
 	}
+	active = true
 	go func() { result <- srv.Serve(httpListener) }()
 	claimCtx, stopClaims := context.WithCancel(context.Background())
 	defer stopClaims()
@@ -166,11 +206,7 @@ func run(log *slog.Logger) error {
 	}()
 	workersDone := make(chan struct{})
 	if cfg.WorkerCount > 0 {
-		box, err := encryption.New(cfg.MasterKey)
-		if err != nil {
-			return err
-		}
-		worker := queue.Worker{Resources: resources, SnapshotDir: cfg.SnapshotDir, Repo: queue.Repository{DB: db, RetryEnabled: cfg.RetryEnabled, FailoverEnabled: cfg.FailoverEnabled, HealthEnabled: cfg.HealthEnabled}, Box: box, Sender: smtpclient.Client{Domain: cfg.SMTPDomain}, StorageRoot: cfg.StorageDir, MaxBytes: cfg.MaxMessageBytes, Log: log}
+		worker := queue.Worker{Resources: resources, SnapshotDir: cfg.SnapshotDir, Repo: queue.Repository{DB: db, RetryEnabled: cfg.RetryEnabled, FailoverEnabled: cfg.FailoverEnabled, HealthEnabled: cfg.HealthEnabled}, Box: workerBox, Sender: smtpclient.Client{Domain: cfg.SMTPDomain}, StorageRoot: cfg.StorageDir, MaxBytes: cfg.MaxMessageBytes, Log: log}
 		go func() { defer close(workersDone); worker.Run(claimCtx, operationCtx, cfg.WorkerCount) }()
 	} else {
 		close(workersDone)
@@ -190,6 +226,8 @@ func run(log *slog.Logger) error {
 	var serveErr error
 	select {
 	case serveErr = <-result:
+	case <-guard.Lost():
+		serveErr = database.ErrOwnerLost
 	case <-ctx.Done():
 	}
 	stopClaims()

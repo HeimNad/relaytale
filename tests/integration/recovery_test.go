@@ -125,10 +125,25 @@ func TestRecoveryRoundTripAndFailureGates(t *testing.T) {
 	ctx := context.Background()
 	opts := recovery.Options{DB: source, DatabaseURL: sourceURL, StorageRoot: f.root, Bundle: bundle, Offline: true}
 	start := time.Now()
-	if err = recovery.Backup(ctx, opts); err != nil {
+	backupGuard, err := database.AcquireOffline(ctx, source)
+	if err != nil {
 		t.Fatal(err)
 	}
+	backupCtx, stopBackup := backupGuard.Context(ctx)
+	if err = recovery.Backup(backupCtx, opts); err != nil {
+		stopBackup()
+		_ = backupGuard.Close()
+		t.Fatal(err)
+	}
+	stopBackup()
+	if err = backupGuard.Close(); err != nil {
+		t.Fatal(err)
+	}
+
 	t.Logf("backup duration: %s", time.Since(start))
+	if owner, err := database.ListRuntimeOwner(ctx, source); err != nil || owner != nil {
+		t.Fatal("backup ownership not released", owner, err)
+	}
 	m, err := recovery.VerifyBundle(ctx, bundle)
 	if err != nil {
 		t.Fatal(err)

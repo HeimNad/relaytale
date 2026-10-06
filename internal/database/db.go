@@ -58,15 +58,23 @@ func Migrate(ctx context.Context, db *sql.DB) (retErr error) {
 		_ = conn.Raw(func(any) error { return driver.ErrBadConn })
 		return fmt.Errorf("migration admission: %w", err)
 	}
+	if err = CheckNoRuntime(ctx, conn); err != nil {
+		discard(conn)
+		return err
+	}
+	guard, err := registerOffline(ctx, conn)
+	if err != nil {
+		discard(conn)
+		return err
+	}
+	operation, stop := guard.OfflineContext(ctx)
+	defer stop()
 	defer func() {
 		cleanup, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		unlockErr := bootstrap.SessionUnlock(cleanup, conn)
-		if unlockErr != nil {
-			_ = conn.Raw(func(any) error { return driver.ErrBadConn })
-		}
-		retErr = errors.Join(retErr, unlockErr)
+		retErr = errors.Join(retErr, guard.Release(cleanup))
 	}()
+	ctx = operation
 	locker, err := lock.NewPostgresSessionLocker(lock.WithLockID(734219510), lock.WithLockTimeout(1, 300), lock.WithUnlockTimeout(1, 5))
 	if err != nil {
 		return err

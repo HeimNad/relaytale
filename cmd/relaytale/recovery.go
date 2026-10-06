@@ -15,7 +15,7 @@ import (
 	"relaytale/internal/recovery"
 )
 
-func runRecovery(name string, args []string) error {
+func runRecovery(name string, args []string) (runErr error) {
 	f := flag.NewFlagSet(name, flag.ContinueOnError)
 	root := f.String("storage-dir", os.Getenv("EML_STORAGE_DIR"), "absolute EML storage directory (required)")
 	bundle := f.String("bundle", "", "private backup directory")
@@ -39,6 +39,17 @@ func runRecovery(name string, args []string) error {
 		return errors.New("recovery database unavailable")
 	}
 	defer db.Close()
+	guard, err := database.AcquireOffline(ctx, db)
+	if err != nil {
+		return errors.New("recovery blocked by runtime ownership or another offline operation")
+	}
+	defer func() {
+		if err := guard.Close(); err != nil {
+			runErr = errors.Join(runErr, errors.New("offline ownership retained; confirm original process stopped before release"))
+		}
+	}()
+	ctx, stopOwnership := guard.Context(ctx)
+	defer stopOwnership()
 	o := recovery.Options{DB: db, DatabaseURL: url, StorageRoot: *root, Bundle: *bundle, Offline: *offline}
 	switch name {
 	case "backup":

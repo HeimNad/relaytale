@@ -12,7 +12,7 @@ Your Apps → SMTP ingress → Durable queue + EML archive → Provider router
                             Event ledger         Your existing SMTP providers
 ```
 
-## 当前进度：Phase 9B.1（显式迁移与启动 schema 门槛）
+## 当前进度：Phase 9B.2a（持久单实例占用）
 
 已实现 Go 服务入口、配置优先级、PostgreSQL 连接、内嵌 Goose 迁移、核心数据库表、存储可写检查、健康接口、JSON 日志、优雅退出和 Docker Compose。
 
@@ -32,7 +32,7 @@ Your Apps → SMTP ingress → Durable queue + EML archive → Provider router
 
 面向业务网站的后续能力及官方资料依据见 [业务网站能力规划](docs/business-website-capabilities.md)：沙箱示例与模拟结果已完成；JSON/模板、定时与入站回复仍按后续阶段推进。
 
-已完成 [显式迁移与 schema 门槛](docs/phase-9b1-migrations.md)：迁移使用数据库会话锁串行执行，运行启动不再修改 schema；单实例保护、最小权限部署和密钥轮换仍待后续验收。
+已完成 [显式迁移与 schema 门槛](docs/phase-9b1-migrations.md)：迁移使用数据库会话锁串行执行，运行启动不再修改 schema；[9B.2a](docs/phase-9b2a-runtime-ownership.md) 已增加持久单实例占用、异常停机禁止自动接管，以及核心离线命令互斥；独立采集/维护进程互斥、最小权限部署和密钥轮换仍待后续验收。
 
 ## 启动
 
@@ -59,6 +59,8 @@ docker compose down
 ```
 
 `down` 保留数据卷；不要使用 `down -v`，除非确实要删除数据库和存档。
+
+异常停机可能留下占用记录并阻止重启。先用 `list-runtime-owner` 检查；确认原进程和发送已停止、完成对账后，按 [人工释放流程](docs/phase-9b2a-runtime-ownership.md) 操作。不要自动清除或仅凭时间超时接管。
 
 ## 本地开发
 
