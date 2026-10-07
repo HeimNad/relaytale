@@ -195,7 +195,7 @@ func Load(args []string) (Config, error) {
 		return c, err
 	}
 	if c.WebUIOrigin != "" {
-		if _, err := encryption.New(c.MasterKey); err != nil {
+		if _, err := encryption.NewEnvironment(c.MasterKey); err != nil {
 			return c, errors.New("Web UI requires a valid master key")
 		}
 	}
@@ -210,7 +210,7 @@ func Load(args []string) (Config, error) {
 				return c, errors.New("admin and metrics tokens must differ")
 			}
 		}
-		if _, err := encryption.New(c.MasterKey); err != nil {
+		if _, err := encryption.NewEnvironment(c.MasterKey); err != nil {
 			return c, errors.New("management API requires a valid master key")
 		}
 	}
@@ -343,7 +343,7 @@ func Load(args []string) (Config, error) {
 		return c, errors.New("memory budget must be 8 MiB..16 GiB; spool budget must cover max message size and be at most 64 GiB")
 	}
 	if c.WorkerCount > 0 {
-		if _, err := encryption.New(c.MasterKey); err != nil {
+		if _, err := encryption.NewEnvironment(c.MasterKey); err != nil {
 			return c, err
 		}
 	}

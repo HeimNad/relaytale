@@ -12,7 +12,7 @@ Your Apps → SMTP ingress → Durable queue + EML archive → Provider router
                             Event ledger         Your existing SMTP providers
 ```
 
-## 当前进度：Phase 9B.3（数据库最小权限）
+## 当前进度：Phase 9B.4（Provider 凭证密钥轮换）
 
 已实现 Go 服务入口、配置优先级、PostgreSQL 连接、内嵌 Goose 迁移、核心数据库表、存储可写检查、健康接口、JSON 日志、优雅退出和 Docker Compose。
 
@@ -32,7 +32,7 @@ Your Apps → SMTP ingress → Durable queue + EML archive → Provider router
 
 面向业务网站的后续能力及官方资料依据见 [业务网站能力规划](docs/business-website-capabilities.md)：沙箱示例与模拟结果已完成；JSON/模板、定时与入站回复仍按后续阶段推进。
 
-已完成 [显式迁移与 schema 门槛](docs/phase-9b1-migrations.md)：迁移使用数据库会话锁串行执行，运行启动不再修改 schema；[9B.2a](docs/phase-9b2a-runtime-ownership.md) 已增加持久单实例占用、异常停机禁止自动接管，以及核心离线命令互斥；[9B.2b](docs/phase-9b2b-auxiliary-ownership.md) 将独立采集、维护、诊断和配置 CLI 纳入持久占用，允许在线共存并阻止离线操作；[9B.3](docs/phase-9b3-database-privileges.md) 分离运行、迁移和恢复账号，并拒绝高权限账号运行服务；密钥轮换仍待后续验收。
+已完成 [显式迁移与 schema 门槛](docs/phase-9b1-migrations.md)：迁移使用数据库会话锁串行执行，运行启动不再修改 schema；[9B.2a](docs/phase-9b2a-runtime-ownership.md) 已增加持久单实例占用、异常停机禁止自动接管，以及核心离线命令互斥；[9B.2b](docs/phase-9b2b-auxiliary-ownership.md) 将独立采集、维护、诊断和配置 CLI 纳入持久占用，允许在线共存并阻止离线操作；[9B.3](docs/phase-9b3-database-privileges.md) 分离运行、迁移和恢复账号，并拒绝高权限账号运行服务；[9B.4](docs/phase-9b4-key-rotation.md) 增加带版本密钥环、离线检查和事务式凭证轮换，保留旧格式兼容。
 
 ## 启动
 
@@ -188,7 +188,7 @@ docker compose --profile test stop postgres-test
 
 ## 启用 Provider 投递（Phase 2）
 
-1. 生成主密钥：`openssl rand -hex 32`。将结果保存到 `.env` 的 `RELAYTALE_MASTER_KEY`。该值用于加密 Provider 密码，需要独立备份；更换或丢失会导致已有凭证无法解密。
+1. 生成主密钥：`openssl rand -hex 32`。将结果保存到 `.env` 的 `RELAYTALE_MASTER_KEY`。该值用于加密 Provider 密码，需要独立备份；直接替换或丢失会导致已有凭证无法解密；安全更换请使用 [离线密钥轮换](docs/phase-9b4-key-rotation.md)。
 2. 保持 `WORKER_COUNT=0`，运行 `docker compose up -d --build`，让容器载入主密钥并应用迁移。
 3. 使用仅本地可读的密码文件创建 Provider，例如：
 

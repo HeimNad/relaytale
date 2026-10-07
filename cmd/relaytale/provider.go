@@ -35,7 +35,7 @@ func createProvider(args []string) (runErr error) {
 	if fs.NArg() != 0 || !*stdin {
 		return errors.New("use --password-stdin to supply the provider password")
 	}
-	box, err := encryption.New(encryption.EnvironmentKey())
+	box, err := encryption.NewEnvironment(encryption.EnvironmentKey())
 	if err != nil {
 		return err
 	}

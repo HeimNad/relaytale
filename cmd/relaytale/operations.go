@@ -238,7 +238,7 @@ func runOperation(command string, args []string) (runErr error) {
 			return errors.New("invalid provider timeout")
 		}
 		p.Timeout = time.Duration(seconds) * time.Second
-		box, err := encryption.New(encryption.EnvironmentKey())
+		box, err := encryption.NewEnvironment(encryption.EnvironmentKey())
 		if err != nil {
 			return err
 		}

@@ -61,8 +61,8 @@ func runRecovery(name string, args []string) (runErr error) {
 		err = recovery.Restore(ctx, o)
 	case "verify-restore":
 		var box *encryption.Box
-		if key := encryption.EnvironmentKey(); key != "" {
-			box, err = encryption.New(key)
+		if key := encryption.EnvironmentKey(); encryption.Configured() {
+			box, err = encryption.NewEnvironment(key)
 			if err != nil {
 				return err
 			}

@@ -4,7 +4,7 @@
 
 项目统一命名为 **RelayTale**，改名不改变投递语义或历史阶段标签。升级边界见 [改名说明](rename-relaytale.md)。
 
-当前检查点：**[9B.3 数据库最小权限](phase-9b3-database-privileges.md)**。受支持进程已接入占用保护，运行、迁移与恢复数据库账号已分开；密钥轮换仍未完成。新增需求的调研依据、优先级和验收边界见 [业务网站能力规划](business-website-capabilities.md)。尚未验收的条目仍是规划；成熟产品常见能力不等同于已证明的市场需求排名。
+当前检查点：**[9B.4 Provider 凭证密钥轮换](phase-9b4-key-rotation.md)**。受支持进程已接入占用保护，运行、迁移与恢复数据库账号已分开；已增加带版本密钥环和离线事务式轮换。新增需求的调研依据、优先级和验收边界见 [业务网站能力规划](business-website-capabilities.md)。尚未验收的条目仍是规划；成熟产品常见能力不等同于已证明的市场需求排名。
 
 Phase 7 的可信反馈自动化仍受来源认证证据约束；9B 已补齐当前受支持进程的单实例/迁移互斥，密钥轮换及后续生产验收仍是生产门槛，不因便利功能后置。历史验收记录见各阶段链接。
 
@@ -141,7 +141,7 @@ Generic SMTP（STARTTLS / implicit TLS）、Provider 凭证加密、priority 与
 
 **9A：停写备份与受控恢复。** 已实现配套数据库快照与 EML 清单、空目标恢复、启动阻断，以及原文/凭证/幂等/退役一致性校验；验收结果和 RPO/RTO 边界见 [运维手册](phase-9a-backup-recovery.md)。校验不自动解除启动阻断，备份之后的外部发送必须人工对账。完成后优先回到 8D 网站结果查询与回调；9B 的最小权限、迁移及生命周期工作继续待排。
 
-**9B：运行安全与 Provider 可见性（分段实现）。** 9B.1 [显式迁移与启动 schema 门槛](phase-9b1-migrations.md) 已完成；9B.2a [持久单实例占用](phase-9b2a-runtime-ownership.md) 已完成核心范围；9B.2b [辅助进程持久占用](phase-9b2b-auxiliary-ownership.md) 补齐受支持 CLI；9B.3 [数据库最小权限](phase-9b3-database-privileges.md) 分离账号并实施启动检查；后续 9B.4 密钥轮换，再补 Provider 能力与告警。 升级故障演练、Provider 能力/限制来源、发件域诊断、共享额度和队列年龄告警仍继续排期。与 8E 同优先层推进，不等待模板和定时功能。DNS 正常不是入箱证明，网关用量不冒充 Provider 实际余额。
+**9B：运行安全与 Provider 可见性（分段实现）。** 9B.1 [显式迁移与启动 schema 门槛](phase-9b1-migrations.md) 已完成；9B.2a [持久单实例占用](phase-9b2a-runtime-ownership.md) 已完成核心范围；9B.2b [辅助进程持久占用](phase-9b2b-auxiliary-ownership.md) 补齐受支持 CLI；9B.3 [数据库最小权限](phase-9b3-database-privileges.md) 分离账号并实施启动检查；9B.4 [密钥轮换](phase-9b4-key-rotation.md) 增加向后读取兼容与离线原子更新；后续补 Provider 能力与告警。 升级故障演练、Provider 能力/限制来源、发件域诊断、共享额度和队列年龄告警仍继续排期。与 8E 同优先层推进，不等待模板和定时功能。DNS 正常不是入箱证明，网关用量不冒充 Provider 实际余额。
 
 **9C：协调保留与网站运营视图（待实现）。** 在现有审计、指标、导出与 EML 清理上补按项目统计和协调生命周期；验证码等敏感原文保留策略不能破坏 UNKNOWN、有效幂等记录和反馈证据。
 

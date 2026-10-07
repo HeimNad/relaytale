@@ -50,6 +50,8 @@ func run(log *slog.Logger) (runErr error) {
 			return runRuntimeOwner(os.Args[1], os.Args[2:])
 		case "migrate":
 			return runMigrate(os.Args[2:])
+		case "rotate-provider-keys":
+			return runKeyRotation(os.Args[2:])
 		case "backup", "restore", "verify-restore":
 			return runRecovery(os.Args[1], os.Args[2:])
 		case "feedback-collection-status":
@@ -133,7 +135,7 @@ func run(log *slog.Logger) (runErr error) {
 	defer httpListener.Close()
 	var adminBox *encryption.Box
 	if cfg.AdminAPIKeys != "" || cfg.WebUIOrigin != "" {
-		adminBox, err = encryption.New(cfg.MasterKey)
+		adminBox, err = encryption.NewEnvironment(cfg.MasterKey)
 		if err != nil {
 			return err
 		}
@@ -164,7 +166,7 @@ func run(log *slog.Logger) (runErr error) {
 	result := make(chan error, 2)
 	var workerBox *encryption.Box
 	if cfg.WorkerCount > 0 {
-		workerBox, err = encryption.New(cfg.MasterKey)
+		workerBox, err = encryption.NewEnvironment(cfg.MasterKey)
 		if err != nil {
 			return err
 		}
