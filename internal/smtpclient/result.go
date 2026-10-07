@@ -24,6 +24,7 @@ type Event struct {
 	Response          string
 }
 type Result struct {
+	Capabilities                                                                                                                    *Capabilities
 	Stage                                                                                                                           string
 	DNSStartedAt, DNSCompletedAt                                                                                                    time.Time
 	Timings                                                                                                                         map[string]int64

@@ -251,6 +251,9 @@ func (c Client) Send(ctx context.Context, p provider.Provider, password, from st
 			return
 		}
 	}
+	if c.probe {
+		out.Capabilities = observedCapabilities(caps)
+	}
 	if !event("AUTH_STARTED", "", 0, "") {
 		return
 	}

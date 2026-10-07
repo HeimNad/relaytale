@@ -46,6 +46,8 @@ func runOperation(command string, args []string) (runErr error) {
 	}
 	defer finish(&runErr)
 	switch command {
+	case "diagnose-sender-domain":
+		return runDomainDiagnostic(ctx, db, args)
 	case "record-provider-evidence", "list-provider-evidence":
 		return runProviderEvidence(ctx, db, command, args)
 	case "create-provider-quota-group", "configure-provider-quota-group", "attach-provider-quota-group", "list-provider-quota-groups":
@@ -232,7 +234,8 @@ func runOperation(command string, args []string) (runErr error) {
 		}
 		var p provider.Provider
 		var seconds int
-		err = db.QueryRowContext(ctx, `SELECT id,name,host,port,security,username,password_ciphertext,nonce,timeout_seconds FROM providers WHERE id=$1`, parsed.String()).Scan(&p.ID, &p.Name, &p.Host, &p.Port, &p.Security, &p.Username, &p.Ciphertext, &p.Nonce, &seconds)
+		var revision int64
+		err = db.QueryRowContext(ctx, `SELECT id,name,host,port,security,username,password_ciphertext,nonce,timeout_seconds,revision FROM providers WHERE id=$1`, parsed.String()).Scan(&p.ID, &p.Name, &p.Host, &p.Port, &p.Security, &p.Username, &p.Ciphertext, &p.Nonce, &seconds, &revision)
 		if err != nil {
 			return errors.New("provider not found or unavailable")
 		}
@@ -249,10 +252,10 @@ func runOperation(command string, args []string) (runErr error) {
 			return err
 		}
 		out := (smtpclient.Client{Domain: "localhost"}).Probe(ctx, p, password)
-		if err := operations.Audit(ctx, db, "PROVIDER_DIAGNOSTIC", "local_cli", map[string]any{"provider_id": p.ID, "status": out.Status, "error_class": out.ErrorClass, "timings": out.Timings}); err != nil {
+		if err := operations.Audit(ctx, db, "PROVIDER_DIAGNOSTIC", "local_cli", map[string]any{"provider_id": p.ID, "status": out.Status, "error_class": out.ErrorClass, "timings": out.Timings, "provider_revision": revision, "capabilities": out.Capabilities, "trust": "tls_ehlo_observation", "affects_delivery": false}); err != nil {
 			return err
 		}
-		if err := json.NewEncoder(os.Stdout).Encode(map[string]any{"provider_id": p.ID, "status": out.Status, "error_class": out.ErrorClass, "smtp_code": out.Code, "timings": out.Timings, "events": out.Events}); err != nil {
+		if err := json.NewEncoder(os.Stdout).Encode(map[string]any{"provider_id": p.ID, "status": out.Status, "error_class": out.ErrorClass, "smtp_code": out.Code, "timings": out.Timings, "events": out.Events, "provider_revision": revision, "capabilities": out.Capabilities, "affects_delivery": false}); err != nil {
 			return err
 		}
 		if out.Status != "READY" {

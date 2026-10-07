@@ -63,7 +63,7 @@ func run(log *slog.Logger) (runErr error) {
 		case "license":
 			fmt.Print(project.LicenseText)
 			return nil
-		case "record-provider-evidence", "list-provider-evidence", "create-provider-quota-group", "configure-provider-quota-group", "attach-provider-quota-group", "list-provider-quota-groups", "list-webhooks", "pause-webhook", "replay-webhook", "find-feedback-candidates", "explain-feedback", "inspect-feedback", "import-feedback", "list-feedback", "show-feedback", "dismiss-feedback", "scan-archives", "list-archive-observations", "reclaim-archive", "inventory-eml", "preflight-eml", "add-suppression", "release-suppression", "list-suppressions", "resolve-unknown", "export-records", "cleanup", "list-providers", "test-provider", "doctor":
+		case "diagnose-sender-domain", "record-provider-evidence", "list-provider-evidence", "create-provider-quota-group", "configure-provider-quota-group", "attach-provider-quota-group", "list-provider-quota-groups", "list-webhooks", "pause-webhook", "replay-webhook", "find-feedback-candidates", "explain-feedback", "inspect-feedback", "import-feedback", "list-feedback", "show-feedback", "dismiss-feedback", "scan-archives", "list-archive-observations", "reclaim-archive", "inventory-eml", "preflight-eml", "add-suppression", "release-suppression", "list-suppressions", "resolve-unknown", "export-records", "cleanup", "list-providers", "test-provider", "doctor":
 			return runOperation(os.Args[1], os.Args[2:])
 		}
 	}
