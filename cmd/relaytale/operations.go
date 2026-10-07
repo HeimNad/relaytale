@@ -46,6 +46,8 @@ func runOperation(command string, args []string) (runErr error) {
 	}
 	defer finish(&runErr)
 	switch command {
+	case "capacity-report":
+		return runCapacity(ctx, db, args)
 	case "preflight-retention":
 		return runLifecycle(ctx, db, args)
 	case "diagnose-sender-domain":

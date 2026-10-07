@@ -14,8 +14,9 @@ import (
 )
 
 type ArchiveInventoryItem struct {
-	Path   string `json:"path"`
-	Reason string `json:"reason"`
+	Path          string `json:"path"`
+	Reason        string `json:"reason"`
+	ObservedBytes *int64 `json:"observed_bytes,omitempty"`
 }
 type ArchiveInventoryReport struct {
 	Complete  bool                   `json:"complete"`
@@ -115,6 +116,16 @@ func InventoryArchivesPage(ctx context.Context, db *sql.DB, root, day, cursor st
 				} else {
 					item.Reason = "NO_VISIBLE_REFERENCE_REVIEW"
 				}
+			}
+		}
+
+		if e == nil && info.Mode().IsRegular() {
+			second, checkErr := dir.Lstat(path)
+			if checkErr != nil || !os.SameFile(info, second) || info.Size() != second.Size() || !info.ModTime().Equal(second.ModTime()) {
+				item.Reason = "CHANGED_DURING_OBSERVATION"
+			} else {
+				size := second.Size()
+				item.ObservedBytes = &size
 			}
 		}
 		report.Scanned++

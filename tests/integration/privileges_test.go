@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"relaytale/internal/database"
 	"relaytale/internal/message"
+	"relaytale/internal/operations"
 	"relaytale/internal/testsmtp"
 )
 
@@ -82,6 +83,10 @@ func TestRestrictedDatabaseRoleDeliveryAndBoundaries(t *testing.T) {
 	restricted := open(runtime)
 	if err := database.CheckRuntimePrivileges(ctx, restricted); err != nil {
 		t.Fatal(err)
+	}
+	capacity, capacityErr := operations.Capacity(ctx, restricted, t.TempDir(), "", 1)
+	if capacityErr != nil || len(capacity.Relations) != 8 || len(capacity.Items) != 0 {
+		t.Fatal("restricted runtime capacity observation", capacity, capacityErr)
 	}
 	if err := database.CheckRuntimePrivileges(ctx, migrateDB); err == nil {
 		t.Fatal("owner accepted as runtime")
