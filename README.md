@@ -12,7 +12,7 @@ Your Apps → SMTP ingress → Durable queue + EML archive → Provider router
                             Event ledger         Your existing SMTP providers
 ```
 
-## 当前进度：Phase 9B.2b（辅助进程互斥）
+## 当前进度：Phase 9B.3（数据库最小权限）
 
 已实现 Go 服务入口、配置优先级、PostgreSQL 连接、内嵌 Goose 迁移、核心数据库表、存储可写检查、健康接口、JSON 日志、优雅退出和 Docker Compose。
 
@@ -32,7 +32,7 @@ Your Apps → SMTP ingress → Durable queue + EML archive → Provider router
 
 面向业务网站的后续能力及官方资料依据见 [业务网站能力规划](docs/business-website-capabilities.md)：沙箱示例与模拟结果已完成；JSON/模板、定时与入站回复仍按后续阶段推进。
 
-已完成 [显式迁移与 schema 门槛](docs/phase-9b1-migrations.md)：迁移使用数据库会话锁串行执行，运行启动不再修改 schema；[9B.2a](docs/phase-9b2a-runtime-ownership.md) 已增加持久单实例占用、异常停机禁止自动接管，以及核心离线命令互斥；[9B.2b](docs/phase-9b2b-auxiliary-ownership.md) 将独立采集、维护、诊断和配置 CLI 纳入持久占用，允许在线共存并阻止离线操作；最小权限部署和密钥轮换仍待后续验收。
+已完成 [显式迁移与 schema 门槛](docs/phase-9b1-migrations.md)：迁移使用数据库会话锁串行执行，运行启动不再修改 schema；[9B.2a](docs/phase-9b2a-runtime-ownership.md) 已增加持久单实例占用、异常停机禁止自动接管，以及核心离线命令互斥；[9B.2b](docs/phase-9b2b-auxiliary-ownership.md) 将独立采集、维护、诊断和配置 CLI 纳入持久占用，允许在线共存并阻止离线操作；[9B.3](docs/phase-9b3-database-privileges.md) 分离运行、迁移和恢复账号，并拒绝高权限账号运行服务；密钥轮换仍待后续验收。
 
 ## 启动
 
@@ -40,16 +40,17 @@ Your Apps → SMTP ingress → Durable queue + EML archive → Provider router
 
 ```sh
 cp .env.example .env
-# 修改 .env 中的 POSTGRES_PASSWORD，建议用 openssl rand -hex 24 生成。
+# 按 docs/phase-9b3-database-privileges.md 配置独立角色、密码、三份 URI 和权限。
+# 必须先完成该流程的显式迁移与授权，日常服务不再使用管理员账号。
 # 首次启动：显式生成仅用于 localhost 开发的自签证书（已有证书时不要重复执行）。
 docker compose run --build --rm relaytale init-dev-tls
-docker compose run --build --rm relaytale migrate --offline
+docker compose run --build --rm relaytale check-db-permissions
 docker compose up --build -d
 curl http://localhost:8080/health/live
 curl http://localhost:8080/health/ready
 ```
 
-首次启动和升级都必须先显式执行迁移；正常启动只做只读 schema 检查，缺失、较旧、有空洞或含未知版本的数据库会阻止启动。迁移命令的 `--offline` 是操作者停写确认，不会自动停止运行实例。见 [9B.1 升级流程](docs/phase-9b1-migrations.md)。成功响应分别为 `{"status":"alive"}` 和 `{"status":"ready"}`。依赖不可用时 ready 返回 HTTP 503。根路径暂时返回 404。
+首次启动和升级都必须按 [权限部署流程](docs/phase-9b3-database-privileges.md) 显式迁移并重新应用授权；正常启动只做只读 schema 检查，缺失、较旧、有空洞或含未知版本的数据库会阻止启动。迁移命令的 `--offline` 是操作者停写确认，不会自动停止运行实例。见 [9B.1 升级流程](docs/phase-9b1-migrations.md)。成功响应分别为 `{"status":"alive"}` 和 `{"status":"ready"}`。依赖不可用时 ready 返回 HTTP 503。根路径暂时返回 404。
 
 默认仅绑定本机，Caddy HTTP 入口为 8080。PostgreSQL 不向主机公开端口。当前 Compose 是本地开发配置；SMTP STARTTLS 入口为本机 1587，容器内部监听 587。生产需要替换为有效域名证书，并配置正式端口和 HTTPS。
 
@@ -70,11 +71,14 @@ Go 1.27.1+。需可访问的 PostgreSQL，并设置 `DATABASE_URL`。
 export GO111MODULE=on
 export SMTP_TLS_CERT='/path/to/smtp.crt'
 export SMTP_TLS_KEY='/path/to/smtp.key'
-export DATABASE_URL='postgres://user:password@localhost:5432/relaytale?sslmode=disable'
+# 先按权限部署文档准备本地角色；本机 URI 主机改为 localhost。
+export DATABASE_URL="$RUNTIME_DATABASE_URL"
 make test
 make vet
 make build
-go run ./cmd/relaytale migrate --offline
+DATABASE_URL="$MIGRATION_DATABASE_URL" go run ./cmd/relaytale migrate --offline
+# 迁移后重新应用 runtime-grants.sql，再检查运行账号。
+go run ./cmd/relaytale check-db-permissions
 go run ./cmd/relaytale --config config.example.yaml
 ```
 

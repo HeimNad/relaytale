@@ -35,6 +35,9 @@ func runMigrate(args []string) error {
 		return errors.New("migration database unavailable")
 	}
 	defer db.Close()
+	if err := database.CheckOfflinePrivileges(ctx, db); err != nil {
+		return err
+	}
 	if err = database.Migrate(ctx, db); err != nil {
 		return errors.New("migration failed; keep writers stopped and inspect schema before retrying; no automatic downgrade")
 	}

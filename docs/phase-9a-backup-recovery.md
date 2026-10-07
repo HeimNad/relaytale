@@ -25,9 +25,9 @@ relaytale backup --offline --storage-dir /data/eml --bundle /backups/2026-09-27-
 Compose 可将宿主的私有备份目录挂到 `/backups`，例如：
 
 ```sh
-docker compose run --rm --no-deps \
+docker compose --profile ops run --rm --no-deps \
   -v "$BACKUP_PARENT:/backups" \
-  relaytale backup --offline --storage-dir /data/eml --bundle /backups/2026-09-27-001
+  recovery backup --offline --storage-dir /data/eml --bundle /backups/2026-09-27-001
 ```
 
 `BACKUP_PARENT` 必须已创建，只有运行 UID 10001 和负责备份的操作者可写；不要通过 0777 解决权限问题。已存在的 bundle 会被拒绝，失败目录保留供排查，不覆盖重试。
@@ -82,3 +82,5 @@ relaytale verify-restore --offline --storage-dir /data/eml
 ## 8D.2 通知恢复补充
 
 备份与恢复现包含 Webhook endpoint、outbox 和发送日志，校验报告增加 `webhook_pending_or_in_flight`。恢复后保持 `WEBHOOK_ENABLED=false`，核对外部网站已处理的事件后再恢复通知；旧备份可能重放已收到事件，网站须持久化 event_id 去重。签名环境配置不在数据库备份内，需独立保管。详见 [8D.2](phase-8d2-webhooks.md)。
+
+9B.3 起 Compose 的备份/恢复使用 ops profile 的 recovery 服务与独立凭证；直接二进制命令仍是 relaytale backup / restore / verify-restore。恢复后重新应用 runtime-grants.sql，账号配置见 [数据库权限部署](phase-9b3-database-privileges.md)。

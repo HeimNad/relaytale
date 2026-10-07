@@ -39,6 +39,9 @@ func runRecovery(name string, args []string) (runErr error) {
 		return errors.New("recovery database unavailable")
 	}
 	defer db.Close()
+	if err := database.CheckOfflinePrivileges(ctx, db); err != nil {
+		return err
+	}
 	guard, err := database.AcquireOffline(ctx, db)
 	if err != nil {
 		return errors.New("recovery blocked by runtime ownership or another offline operation")

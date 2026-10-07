@@ -29,7 +29,7 @@ services:
     logging: *runtime-logging
     build: .
     environment:
-      DATABASE_URL: postgres://${POSTGRES_USER:-relaytale}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-relaytale}?sslmode=disable
+      DATABASE_URL: ${RUNTIME_DATABASE_URL:-}
       HTTP_LISTEN_ADDR: ':8080'
       EML_STORAGE_DIR: /data/eml
       SHUTDOWN_TIMEOUT: 30s
@@ -80,6 +80,28 @@ services:
       retries: 3
     stop_grace_period: 50s
     restart: unless-stopped
+  migrate:
+    profiles: [ops]
+    build: .
+    environment:
+      DATABASE_URL: ${MIGRATION_DATABASE_URL:-}
+    command: [migrate, --offline]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: 'no'
+  recovery:
+    profiles: [ops]
+    build: .
+    environment:
+      DATABASE_URL: ${RECOVERY_DATABASE_URL:-}
+      RELAYTALE_MASTER_KEY: ${RELAYTALE_MASTER_KEY-${MAILGATEWAY_MASTER_KEY:-}}
+    volumes:
+      - mail_data:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: 'no'
   caddy:
     logging: *runtime-logging
     image: caddy:2-alpine

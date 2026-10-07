@@ -44,6 +44,8 @@ func main() {
 func run(log *slog.Logger) (runErr error) {
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
+		case "check-db-permissions":
+			return checkDatabasePrivileges(os.Args[2:])
 		case "list-runtime-owner", "release-runtime-owner", "list-auxiliary-owners", "release-auxiliary-owner":
 			return runRuntimeOwner(os.Args[1], os.Args[2:])
 		case "migrate":
@@ -100,6 +102,10 @@ func run(log *slog.Logger) (runErr error) {
 	defer db.Close()
 	if err := database.CheckSchema(startup, db); err != nil {
 		return errors.New("database schema unavailable, busy or incompatible; stop all writers and run relaytale migrate --offline using this binary")
+	}
+
+	if err := database.CheckRuntimePrivileges(startup, db); err != nil {
+		return err
 	}
 
 	guard, err := database.AcquireRuntime(startup, db)

@@ -15,14 +15,14 @@
 ## 首次部署
 
 1. 准备数据库及开发 TLS，按 README 配置。
-2. `docker compose run --build --rm relaytale migrate --offline`。
+2. `docker compose --profile ops run --build --rm migrate`。
 3. `docker compose up --build -d`，验证 ready 和配置。
 
 ## 已有部署升级
 
 1. 停止 Gateway、反馈采集和外部维护进程；确认所有发送均已停止。
 2. 使用 9A 的停写备份流程保存数据库及 EML。不要删除卷。
-3. 构建目标版本，用同一目标版本执行 `docker compose run --build --rm relaytale migrate --offline`。
+3. 构建目标版本，用同一目标版本执行 `docker compose --profile ops run --build --rm migrate`。
 4. 成功后启动一个实例，验证 ready、队列、凭证与保守状态。迁移失败保持停写，检查历史；不要盲目改版本表。
 
 重跑同一迁移命令是无待执行迁移时的幂等操作。历史 Down 中有显式禁止回退的迁移；升级失败不自动降级。较旧二进制遇到新版本历史拒绝启动；回退应使用明确恢复方案并对账备份之后的外部发送。
@@ -36,3 +36,5 @@
 完整 make ci 通过（格式、go vet、go build、全部 go test -race；隔离 PostgreSQL 集成测试 202.135 秒）。最终同进程准入/连接池保护后重跑格式、相关 go vet 与迁移 race 专项通过（1.683 秒）。实际二进制验证空库拒绝启动且零 schema 写入、显式迁移、两个独立进程并发初始化、重复迁移、ready 与正常退出；单实例、故障升级恢复、最小权限、密钥轮换及生产发布尚未通过本阶段验收。
 
 后续 [9B.2a](phase-9b2a-runtime-ownership.md) 已接入持久占用检查；显式迁移期间的运行登记不再仅依靠停写确认。辅助进程覆盖仍待 9B.2b。
+
+9B.3 起日常服务拒绝管理员/所有者账号，Compose 迁移入口改为 ops profile 的 migrate 服务；迁移后必须重新应用授权，完整配置见 [数据库权限部署](phase-9b3-database-privileges.md)。
