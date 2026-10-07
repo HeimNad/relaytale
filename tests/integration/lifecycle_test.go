@@ -123,8 +123,9 @@ func TestLifecyclePreflightProtectionAndNoMutation(t *testing.T) {
 	if check("IDEMPOTENCY_REFERENCE").UnreviewedFeedback {
 		t.Fatal("reviewed evidence still unreviewed")
 	}
-	exec("UPDATE messages SET archive_state='PURGED' WHERE id=$1", id)
-	check("ARCHIVE_NOT_AVAILABLE")
+	if _, err := f.db.Exec("UPDATE messages SET archive_state='PURGED' WHERE id=$1", id); err == nil {
+		t.Fatal("protected archive allowed retirement")
+	}
 }
 
 func TestLifecyclePaginationAndInvalidInput(t *testing.T) {

@@ -71,7 +71,7 @@ func TestSandboxToolsInspectionIntegrityAndScope(t *testing.T) {
 		t.Fatal(err)
 	}
 	requireStatus(t, toolRequest(h, key, id, "inspection", "", nil), 503)
-	mustExec(t, f, `UPDATE messages SET archive_state='PURGED',eml_purged_at=now() WHERE id=$1`, id)
+	legacyPurgedFixture(t, f, id)
 	requireStatus(t, toolRequest(h, key, id, "inspection", "", nil), 410)
 	noWork(t, f)
 	if f.fake.Connections.Load() != 0 {

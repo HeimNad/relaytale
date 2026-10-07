@@ -14,6 +14,8 @@ import (
 )
 
 func TestRetentionAndExport(t *testing.T) {
+	_, url := recoveryDB(t)
+	t.Setenv("TEST_DATABASE_URL", url)
 	f := delivery(t, testsmtp.Options{}, 1)
 	id := f.seed(t)
 	runOne(t, f.worker)
@@ -118,6 +120,8 @@ func TestEventsPersistBeforeCompletion(t *testing.T) {
 }
 
 func TestCleanupRefusesOutsideRoot(t *testing.T) {
+	_, url := recoveryDB(t)
+	t.Setenv("TEST_DATABASE_URL", url)
 	f := delivery(t, testsmtp.Options{}, 1)
 	id := f.seed(t)
 	runOne(t, f.worker)
@@ -128,7 +132,6 @@ func TestCleanupRefusesOutsideRoot(t *testing.T) {
 	if _, err := f.db.Exec(`UPDATE messages SET completed_at=now()-interval '200 days' WHERE id=$1`, id); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { f.db.Exec(`UPDATE messages SET archive_state='AVAILABLE',completed_at=now() WHERE id=$1`, id) })
 	report, err := operations.Cleanup(context.Background(), f.db, t.TempDir(), operations.Retention{EMLDays: 180, Batch: 100, Apply: true})
 	if err == nil || len(report.Failures) != 1 {
 		t.Fatal("outside-root deletion not rejected", report, err)

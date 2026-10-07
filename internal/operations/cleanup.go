@@ -37,6 +37,14 @@ const terminal = `m.status IN ('SMTP_ACCEPTED','PERM_FAILED','DELIVERED','BOUNCE
  AND NOT EXISTS(SELECT 1 FROM delivery_attempts a WHERE a.message_id=m.id AND a.result='IN_PROGRESS')
  AND NOT EXISTS(SELECT 1 FROM recipients r WHERE r.message_id=m.id AND (r.status IN ('QUEUED','SENDING','TEMP_FAILED','DELIVERY_UNKNOWN') OR (r.status='EXPIRED' AND r.decision->>'may_have_delivered'='true')))`
 
+// New intents require all coordinated dependencies to be clear. A committed
+// PURGE_PENDING intent is irreversible and uses the established recovery path.
+const retentionDependencies = `m.idempotency_key IS NULL
+ AND NOT EXISTS(SELECT 1 FROM api_submission_ledger l WHERE l.message_id=m.id)
+ AND NOT EXISTS(SELECT 1 FROM webhook_outbox w WHERE w.message_id=m.id AND w.state IN ('PENDING','IN_FLIGHT','DEAD'))
+ AND NOT EXISTS(SELECT 1 FROM feedback_reports f WHERE NOT EXISTS(SELECT 1 FROM feedback_reviews r WHERE r.feedback_id=f.id))`
+const retentionCandidate = `((m.archive_state='AVAILABLE' AND m.completed_at<$1 AND ` + retentionDependencies + `) OR m.archive_state='PURGE_PENDING')`
+
 func validateRetention(p *Retention) error {
 	if p.Now.IsZero() {
 		p.Now = time.Now().UTC()
@@ -74,7 +82,7 @@ func Cleanup(ctx context.Context, db *sql.DB, root string, p Retention) (Cleanup
 	}()
 	if p.EMLDays > 0 {
 		cutoff := p.Now.AddDate(0, 0, -p.EMLDays)
-		rows, err := conn.QueryContext(ctx, `SELECT m.id,m.archive_state,m.eml_path FROM messages m WHERE `+terminal+` AND m.archive_state<>'PURGED' AND (m.completed_at<$1 OR m.archive_state='PURGE_PENDING') ORDER BY m.completed_at,m.id LIMIT $2`, cutoff, p.Batch)
+		rows, err := conn.QueryContext(ctx, `SELECT m.id,m.archive_state,m.eml_path FROM messages m WHERE `+terminal+` AND `+retentionCandidate+` ORDER BY m.completed_at,m.id LIMIT $2`, cutoff, p.Batch)
 		if err != nil {
 			return report, err
 		}
@@ -167,8 +175,17 @@ func purge(ctx context.Context, conn *sql.Conn, root string, item CleanupItem, p
 	if _, err := tx.ExecContext(ctx, `SET LOCAL synchronous_commit=on`); err != nil {
 		return err
 	}
+	// Acquire the unscoped feedback gate before the message lock. Following
+	// statements have fresh READ COMMITTED snapshots after either lock wait.
+	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(78320420)`); err != nil {
+		return err
+	}
+	var lockedID string
+	if err := tx.QueryRowContext(ctx, `SELECT id FROM messages WHERE id=$1 FOR UPDATE`, item.ID).Scan(&lockedID); err != nil {
+		return err
+	}
 	var path string
-	err = tx.QueryRowContext(ctx, `UPDATE messages m SET archive_state='PURGE_PENDING' WHERE m.id=$1 AND `+terminal+` AND m.archive_state<>'PURGED' AND (m.completed_at<$2 OR m.archive_state='PURGE_PENDING') RETURNING eml_path`, item.ID, p.Now.AddDate(0, 0, -p.EMLDays)).Scan(&path)
+	err = tx.QueryRowContext(ctx, `UPDATE messages m SET archive_state='PURGE_PENDING' WHERE m.id=$1 AND `+terminal+` AND ((m.archive_state='AVAILABLE' AND m.completed_at<$2 AND `+retentionDependencies+`) OR m.archive_state='PURGE_PENDING') RETURNING eml_path`, item.ID, p.Now.AddDate(0, 0, -p.EMLDays)).Scan(&path)
 	if err != nil {
 		return err
 	}

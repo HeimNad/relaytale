@@ -99,7 +99,7 @@ func TestRecoveryRoundTripAndFailureGates(t *testing.T) {
 	if err = f.db.QueryRow(`SELECT eml_path FROM messages WHERE id=$1`, purged).Scan(&purgedPath); err != nil {
 		t.Fatal(err)
 	}
-	mustExec(t, f, `UPDATE messages SET archive_state='PURGED',eml_purged_at=now() WHERE id=$1`, purged)
+	legacyPurgedFixture(t, f, purged)
 	if err = os.Remove(purgedPath); err != nil {
 		t.Fatal(err)
 	}
