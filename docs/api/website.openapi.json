@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "RelayTale website API",
-    "version": "8E.3b",
+    "version": "9C.3",
     "description": "Server-to-server gateway API and externally configured Webhook contract. Transport JSON/body evolution is opt-in; no implicit SMTP/inbox equivalence."
   },
   "servers": [
@@ -1080,6 +1080,129 @@
           }
         }
       }
+    },
+    "/v1/statistics": {
+      "get": {
+        "operationId": "websiteStatistics",
+        "summary": "Read current status and logical archive capacity for this website identity.",
+        "description": "Inclusive from, exclusive until; at most 31 days and 10000 messages. RFC3339 precision at most microseconds; until must not be in the future. Unknown/duplicate parameters and GET bodies are rejected. Does not expose trusted feedback, recipient success rates or physical storage usage. Uses the existing independently limited read path.",
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "description": "Inclusive submission timestamp."
+          },
+          {
+            "name": "until",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "description": "Exclusive submission timestamp, not after database snapshot."
+          }
+        ],
+        "responses": {
+          "400": {
+            "description": "Malformed query, headers, envelope, JSON, or MIME.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unknown, revoked or rotated credential.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sender/stream denied, browser request forbidden, or sandbox identity required.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "Method not allowed; see Allow header.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Read concurrency or rate limit reached; respect Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Read unavailable or failed; no partial statistics returned.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "statistics_window_too_large: more than 10000 messages; narrow the submission window. No partial statistics.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Bounded, read-only identity-scoped statistics.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebsiteStatistics"
+                }
+              }
+            },
+            "headers": {
+              "X-RelayTale-Environment": {
+                "description": "Environment and simulation are always explicit in this response body.",
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "production",
+                    "sandbox"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "webhooks": {
@@ -1754,6 +1877,85 @@
             }
           }
         ]
+      },
+      "WebsiteStatistics": {
+        "type": "object",
+        "required": [
+          "schema_version",
+          "environment",
+          "simulation",
+          "snapshot_at",
+          "from",
+          "until",
+          "message_count",
+          "messages_by_status",
+          "archives_by_state",
+          "logical_raw_bytes_by_archive_state",
+          "feedback_availability"
+        ],
+        "properties": {
+          "schema_version": {
+            "type": "integer",
+            "const": 1
+          },
+          "environment": {
+            "type": "string",
+            "enum": [
+              "production",
+              "sandbox"
+            ]
+          },
+          "simulation": {
+            "type": "boolean"
+          },
+          "snapshot_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "from": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "until": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "message_count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10000
+          },
+          "messages_by_status": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 10000
+            }
+          },
+          "archives_by_state": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 10000
+            }
+          },
+          "logical_raw_bytes_by_archive_state": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            }
+          },
+          "feedback_availability": {
+            "type": "string",
+            "const": "NOT_EXPOSED"
+          }
+        },
+        "additionalProperties": false,
+        "description": "Current message states for an identity-scoped submission cohort. Raw-byte values are logical historical EML sizes, not physical disk usage; SMTP_ACCEPTED does not prove inbox delivery."
       }
     }
   }

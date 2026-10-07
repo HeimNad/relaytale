@@ -175,9 +175,10 @@ func NewSendHandler(ctx context.Context, raw string, receiver message.APIReceive
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		readID := strings.TrimPrefix(r.URL.Path, "/v1/messages/")
 		list := r.URL.Path == "/v1/messages" && r.Method == "GET"
+		statistics := r.URL.Path == "/v1/statistics"
 		sandboxID, sandboxOperation, auxiliary := sandboxRoute(r.URL.Path)
 		read := strings.HasPrefix(r.URL.Path, "/v1/messages/") && readID != "" && !strings.Contains(readID, "/")
-		read = read || list
+		read = read || list || statistics
 		if r.URL.Path != "/v1/messages" && !read && !auxiliary {
 			http.NotFound(w, r)
 			return
@@ -246,6 +247,10 @@ func NewSendHandler(ctx context.Context, raw string, receiver message.APIReceive
 			} else {
 				simulateSandbox(ctx, w, r, receiver.Repo.DB, who, sandboxID)
 			}
+			return
+		}
+		if statistics {
+			readWebsiteStatistics(ctx, w, r, receiver.Repo.DB, who)
 			return
 		}
 		if list {

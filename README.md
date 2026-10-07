@@ -12,7 +12,7 @@ Your Apps → SMTP ingress → Durable queue + EML archive → Provider router
                             Event ledger         Your existing SMTP providers
 ```
 
-## 当前进度：Phase 9C.2（协调清理与依赖栅栏）
+## 当前进度：Phase 9C.3（网站运营统计）
 
 已实现 Go 服务入口、配置优先级、PostgreSQL 连接、内嵌 Goose 迁移、核心数据库表、存储可写检查、健康接口、JSON 日志、优雅退出和 Docker Compose。
 
@@ -34,7 +34,7 @@ Your Apps → SMTP ingress → Durable queue + EML archive → Provider router
 
 已完成 [显式迁移与 schema 门槛](docs/phase-9b1-migrations.md)：迁移使用数据库会话锁串行执行，运行启动不再修改 schema；[9B.2a](docs/phase-9b2a-runtime-ownership.md) 已增加持久单实例占用、异常停机禁止自动接管，以及核心离线命令互斥；[9B.2b](docs/phase-9b2b-auxiliary-ownership.md) 将独立采集、维护、诊断和配置 CLI 纳入持久占用，允许在线共存并阻止离线操作；[9B.3](docs/phase-9b3-database-privileges.md) 分离运行、迁移和恢复账号，并拒绝高权限账号运行服务；[9B.4](docs/phase-9b4-key-rotation.md) 增加带版本密钥环、离线检查和事务式凭证轮换，保留旧格式兼容；[9B.5a](docs/phase-9b5a-operations-alerts.md) 补齐共享额度指标、UNKNOWN 收件人数及可选告警规则与处置手册；[9B.5b.1](docs/phase-9b5b1-provider-evidence.md) 提供绑定配置版本的能力声明与限制来源台账，[9B.5b.2](docs/phase-9b5b2-diagnostics.md) 增加 TLS 后 EHLO 能力观察及精确域名 DNS 诊断，认证对齐和跨 Provider 身份仍需验收。[9B.6](docs/phase-9b6-upgrade-drills.md) 增加真实迁移失败、取消与连接丢失演练，并明确显式恢复流程。
 
-[9C.1 保留预检](docs/phase-9c1-retention-preflight.md) 提供有界分页、逐消息保留原因和原文复核候选；默认不提出候选，不授权删除。元数据、审计及配额账本继续保留，[9C.2 协调原文清理](docs/phase-9c2-coordinated-cleanup.md) 已将依赖保护接入清理与维护调度，增加数据库栅栏和锁后复查；运营视图尚未实现。
+[9C.1 保留预检](docs/phase-9c1-retention-preflight.md) 提供有界分页、逐消息保留原因和原文复核候选；默认不提出候选，不授权删除。元数据、审计及配额账本继续保留，[9C.2 协调原文清理](docs/phase-9c2-coordinated-cleanup.md) 已将依赖保护接入清理与维护调度，增加数据库栅栏和锁后复查；[9C.3 网站统计](docs/phase-9c3-website-statistics.md) 提供身份隔离的提交窗口状态汇总与逻辑原文容量；管理可视化与物理容量盘点尚未实现。
 
 ## 启动
 
