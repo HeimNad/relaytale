@@ -46,6 +46,8 @@ func runOperation(command string, args []string) (runErr error) {
 	}
 	defer finish(&runErr)
 	switch command {
+	case "record-provider-evidence", "list-provider-evidence":
+		return runProviderEvidence(ctx, db, command, args)
 	case "create-provider-quota-group", "configure-provider-quota-group", "attach-provider-quota-group", "list-provider-quota-groups":
 		return runQuotaGroup(ctx, db, command, args)
 	case "list-webhooks", "pause-webhook", "replay-webhook":
