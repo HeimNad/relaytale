@@ -1,0 +1,38 @@
+groups:
+  - name: relaytale-operations
+    rules:
+      - alert: RelaytaleMetricsUnavailable
+        expr: up{job="relaytale"} == 0 or relaytale_metrics_scrape_success{job="relaytale"} == 0 or (up{job="relaytale"} == 1 unless on(job,instance) relaytale_metrics_scrape_success{job="relaytale"})
+        for: 2m
+        labels:
+          severity: critical
+      - alert: RelaytaleQueueStalled
+        expr: relaytale_queue_oldest_seconds{job="relaytale"} > 300
+        for: 5m
+        labels:
+          severity: warning
+      - alert: RelaytaleDeliveryUnknown
+        expr: relaytale_recipients_delivery_unknown{job="relaytale"} > 0
+        for: 2m
+        labels:
+          severity: warning
+      - alert: RelaytaleQuotaExhausted
+        expr: relaytale_providers_quota_exhausted{job="relaytale"} > 0
+        for: 5m
+        labels:
+          severity: warning
+      - alert: RelaytaleNoEnabledProvider
+        expr: relaytale_providers_enabled{job="relaytale"} == 0
+        for: 2m
+        labels:
+          severity: warning
+      - alert: RelaytaleCircuitOpen
+        expr: relaytale_providers_circuit_open{job="relaytale"} > 0
+        for: 5m
+        labels:
+          severity: warning
+      - alert: RelaytaleResourceWaiting
+        expr: relaytale_resource_waiters{job="relaytale"} > 0
+        for: 10m
+        labels:
+          severity: warning

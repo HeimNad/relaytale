@@ -1,0 +1,141 @@
+rule_files: [alerts.yml]
+evaluation_interval: 1m
+tests:
+  - interval: 1m
+    input_series:
+      - series: 'up{job="relaytale",instance="test"}'
+        values: '1x20'
+      - series: 'relaytale_metrics_scrape_success{job="relaytale",instance="test"}'
+        values: '1x20'
+      - series: 'relaytale_queue_oldest_seconds{job="relaytale",instance="test"}'
+        values: '1000x11 0x9'
+      - series: 'relaytale_recipients_delivery_unknown{job="relaytale",instance="test"}'
+        values: '1x11 0x9'
+      - series: 'relaytale_providers_quota_exhausted{job="relaytale",instance="test"}'
+        values: '1x11 0x9'
+      - series: 'relaytale_providers_enabled{job="relaytale",instance="test"}'
+        values: '0x11 1x9'
+      - series: 'relaytale_providers_circuit_open{job="relaytale",instance="test"}'
+        values: '1x11 0x9'
+      - series: 'relaytale_resource_waiters{job="relaytale",instance="test"}'
+        values: '1x11 0x9'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: RelaytaleQueueStalled
+        exp_alerts: []
+      - eval_time: 11m
+        alertname: RelaytaleQueueStalled
+        exp_alerts:
+          - exp_labels: {job: relaytale, instance: test, severity: warning}
+      - eval_time: 15m
+        alertname: RelaytaleQueueStalled
+        exp_alerts: []
+      - eval_time: 1m
+        alertname: RelaytaleDeliveryUnknown
+        exp_alerts: []
+      - eval_time: 11m
+        alertname: RelaytaleDeliveryUnknown
+        exp_alerts:
+          - exp_labels: {job: relaytale, instance: test, severity: warning}
+      - eval_time: 15m
+        alertname: RelaytaleDeliveryUnknown
+        exp_alerts: []
+      - eval_time: 1m
+        alertname: RelaytaleQuotaExhausted
+        exp_alerts: []
+      - eval_time: 11m
+        alertname: RelaytaleQuotaExhausted
+        exp_alerts:
+          - exp_labels: {job: relaytale, instance: test, severity: warning}
+      - eval_time: 15m
+        alertname: RelaytaleQuotaExhausted
+        exp_alerts: []
+      - eval_time: 1m
+        alertname: RelaytaleNoEnabledProvider
+        exp_alerts: []
+      - eval_time: 11m
+        alertname: RelaytaleNoEnabledProvider
+        exp_alerts:
+          - exp_labels: {job: relaytale, instance: test, severity: warning}
+      - eval_time: 15m
+        alertname: RelaytaleNoEnabledProvider
+        exp_alerts: []
+      - eval_time: 1m
+        alertname: RelaytaleCircuitOpen
+        exp_alerts: []
+      - eval_time: 11m
+        alertname: RelaytaleCircuitOpen
+        exp_alerts:
+          - exp_labels: {job: relaytale, instance: test, severity: warning}
+      - eval_time: 15m
+        alertname: RelaytaleCircuitOpen
+        exp_alerts: []
+      - eval_time: 1m
+        alertname: RelaytaleResourceWaiting
+        exp_alerts: []
+      - eval_time: 11m
+        alertname: RelaytaleResourceWaiting
+        exp_alerts:
+          - exp_labels: {job: relaytale, instance: test, severity: warning}
+      - eval_time: 15m
+        alertname: RelaytaleResourceWaiting
+        exp_alerts: []
+  - interval: 1m
+    input_series:
+      - series: 'up{job="relaytale",instance="test"}'
+        values: '0x3 1x4'
+      - series: 'relaytale_metrics_scrape_success{job="relaytale",instance="test"}'
+        values: '_ _ _ _ 1x4'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: RelaytaleMetricsUnavailable
+        exp_alerts: []
+      - eval_time: 3m
+        alertname: RelaytaleMetricsUnavailable
+        exp_alerts:
+          - exp_labels: {job: relaytale, instance: test, severity: critical}
+      - eval_time: 6m
+        alertname: RelaytaleMetricsUnavailable
+        exp_alerts: []
+  - interval: 1m
+    input_series:
+      - series: 'up{job="relaytale",instance="test"}'
+        values: '1x8'
+      - series: 'relaytale_metrics_scrape_success{job="relaytale",instance="test"}'
+        values: '0x3 1x4'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: RelaytaleMetricsUnavailable
+        exp_alerts: []
+      - eval_time: 3m
+        alertname: RelaytaleMetricsUnavailable
+        exp_alerts:
+          - exp_labels: {job: relaytale, instance: test, severity: critical}
+      - eval_time: 6m
+        alertname: RelaytaleMetricsUnavailable
+        exp_alerts: []
+  - interval: 1m
+    input_series:
+      - series: 'up{job="relaytale",instance="test"}'
+        values: '1x8'
+      - series: 'relaytale_metrics_scrape_success{job="relaytale",instance="test"}'
+        values: '_ _ _ _ 1x4'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: RelaytaleMetricsUnavailable
+        exp_alerts: []
+      - eval_time: 3m
+        alertname: RelaytaleMetricsUnavailable
+        exp_alerts:
+          - exp_labels: {job: relaytale, instance: test, severity: critical}
+      - eval_time: 6m
+        alertname: RelaytaleMetricsUnavailable
+        exp_alerts: []
+  - interval: 1m
+    input_series:
+      - series: 'up{job="unrelated",instance="test"}'
+        values: '0x5'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: RelaytaleMetricsUnavailable
+        exp_alerts: []

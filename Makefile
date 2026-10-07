@@ -1,4 +1,4 @@
-.PHONY: test build run fmt fmt-check vet ci
+.PHONY: test build run fmt fmt-check vet ci test-alerts
 test:
 	go test -race ./...
 build:
@@ -15,3 +15,6 @@ fmt-check:
 ci: fmt-check vet
 	go build ./...
 	REQUIRE_INTEGRATION_TESTS=1 go test -race -count=1 -timeout=8m ./...
+
+test-alerts:
+	sh scripts/test-alerts.sh

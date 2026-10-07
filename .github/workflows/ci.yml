@@ -49,3 +49,13 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: Browser workflows with isolated PostgreSQL and Fake SMTP
         run: sh scripts/test-browser.sh
+
+  alert-rules:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Validate alert rules and firing/recovery scenarios
+        run: make test-alerts

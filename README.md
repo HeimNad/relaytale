@@ -12,7 +12,7 @@ Your Apps → SMTP ingress → Durable queue + EML archive → Provider router
                             Event ledger         Your existing SMTP providers
 ```
 
-## 当前进度：Phase 9B.4（Provider 凭证密钥轮换）
+## 当前进度：Phase 9B.5a（共享额度指标与运维告警）
 
 已实现 Go 服务入口、配置优先级、PostgreSQL 连接、内嵌 Goose 迁移、核心数据库表、存储可写检查、健康接口、JSON 日志、优雅退出和 Docker Compose。
 
@@ -32,7 +32,7 @@ Your Apps → SMTP ingress → Durable queue + EML archive → Provider router
 
 面向业务网站的后续能力及官方资料依据见 [业务网站能力规划](docs/business-website-capabilities.md)：沙箱示例与模拟结果已完成；JSON/模板、定时与入站回复仍按后续阶段推进。
 
-已完成 [显式迁移与 schema 门槛](docs/phase-9b1-migrations.md)：迁移使用数据库会话锁串行执行，运行启动不再修改 schema；[9B.2a](docs/phase-9b2a-runtime-ownership.md) 已增加持久单实例占用、异常停机禁止自动接管，以及核心离线命令互斥；[9B.2b](docs/phase-9b2b-auxiliary-ownership.md) 将独立采集、维护、诊断和配置 CLI 纳入持久占用，允许在线共存并阻止离线操作；[9B.3](docs/phase-9b3-database-privileges.md) 分离运行、迁移和恢复账号，并拒绝高权限账号运行服务；[9B.4](docs/phase-9b4-key-rotation.md) 增加带版本密钥环、离线检查和事务式凭证轮换，保留旧格式兼容。
+已完成 [显式迁移与 schema 门槛](docs/phase-9b1-migrations.md)：迁移使用数据库会话锁串行执行，运行启动不再修改 schema；[9B.2a](docs/phase-9b2a-runtime-ownership.md) 已增加持久单实例占用、异常停机禁止自动接管，以及核心离线命令互斥；[9B.2b](docs/phase-9b2b-auxiliary-ownership.md) 将独立采集、维护、诊断和配置 CLI 纳入持久占用，允许在线共存并阻止离线操作；[9B.3](docs/phase-9b3-database-privileges.md) 分离运行、迁移和恢复账号，并拒绝高权限账号运行服务；[9B.4](docs/phase-9b4-key-rotation.md) 增加带版本密钥环、离线检查和事务式凭证轮换，保留旧格式兼容；[9B.5a](docs/phase-9b5a-operations-alerts.md) 补齐共享额度指标、UNKNOWN 收件人数及可选告警规则与处置手册。
 
 ## 启动
 

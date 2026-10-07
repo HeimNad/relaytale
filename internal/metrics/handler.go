@@ -101,13 +101,21 @@ func (h *Handler) collect(ctx context.Context, b *bytes.Buffer) error {
 		return err
 	}
 	var limited, open, half int64
-	err = h.DB.QueryRowContext(ctx, `SELECT count(*) FILTER(WHERE (p.hourly_limit IS NOT NULL AND q.hourly>=p.hourly_limit) OR (p.daily_limit IS NOT NULL AND q.daily>=p.daily_limit)),count(*) FILTER(WHERE h.circuit_state='OPEN'),count(*) FILTER(WHERE h.circuit_state='HALF_OPEN') FROM providers p LEFT JOIN provider_health h ON h.provider_id=p.id CROSS JOIN LATERAL(SELECT coalesce(sum(units) FILTER(WHERE reserved_at>clock_timestamp()-interval '1 hour'),0) hourly,coalesce(sum(units),0) daily FROM provider_quota WHERE provider_id=p.id AND reserved_at>clock_timestamp()-interval '24 hours') q WHERE p.enabled`).Scan(&limited, &open, &half)
+	err = h.DB.QueryRowContext(ctx, `SELECT count(*) FILTER(WHERE (p.hourly_limit IS NOT NULL AND q.hourly>=p.hourly_limit) OR (p.daily_limit IS NOT NULL AND q.daily>=p.daily_limit) OR (g.hourly_limit>0 AND g.hourly_reserved>=g.hourly_limit) OR (g.daily_limit>0 AND g.daily_reserved>=g.daily_limit)),count(*) FILTER(WHERE h.circuit_state='OPEN'),count(*) FILTER(WHERE h.circuit_state='HALF_OPEN') FROM providers p LEFT JOIN provider_health h ON h.provider_id=p.id LEFT JOIN provider_quota_group_usage g ON g.id=p.quota_group_id CROSS JOIN LATERAL(SELECT coalesce(sum(units) FILTER(WHERE reserved_at>clock_timestamp()-interval '1 hour'),0) hourly,coalesce(sum(units),0) daily FROM provider_quota WHERE provider_id=p.id AND reserved_at>clock_timestamp()-interval '24 hours') q WHERE p.enabled`).Scan(&limited, &open, &half)
 	if err != nil {
 		return err
 	}
-	gauge(b, "relaytale_providers_quota_exhausted", "Enabled providers with exhausted rolling quota.", limited)
+	gauge(b, "relaytale_providers_quota_exhausted", "Enabled providers blocked by individual or shared rolling recipient-attempt quota.", limited)
 	gauge(b, "relaytale_providers_circuit_open", "Enabled providers recorded OPEN; enforcement can be disabled.", open)
 	gauge(b, "relaytale_providers_circuit_half_open", "Enabled providers recorded HALF_OPEN.", half)
+	var enabled, groups, exhaustedGroups, unknown int64
+	if err = h.DB.QueryRowContext(ctx, `SELECT (SELECT count(*) FROM providers WHERE enabled),count(*),count(*) FILTER(WHERE (g.hourly_limit>0 AND g.hourly_reserved>=g.hourly_limit) OR (g.daily_limit>0 AND g.daily_reserved>=g.daily_limit)),(SELECT count(*) FROM recipients WHERE status='DELIVERY_UNKNOWN') FROM provider_quota_group_usage g WHERE EXISTS(SELECT 1 FROM providers p WHERE p.enabled AND p.quota_group_id=g.id)`).Scan(&enabled, &groups, &exhaustedGroups, &unknown); err != nil {
+		return err
+	}
+	gauge(b, "relaytale_providers_enabled", "Configured enabled providers; not proof of route eligibility or inbox delivery.", enabled)
+	gauge(b, "relaytale_quota_groups_active", "Shared quota groups with an enabled member.", groups)
+	gauge(b, "relaytale_quota_groups_exhausted", "Active groups exhausted by all members including disabled historical members.", exhaustedGroups)
+	gauge(b, "relaytale_recipients_delivery_unknown", "Recipients requiring manual delivery reconciliation; never automatically resend.", unknown)
 	stats := h.Resources.Stats()
 	gauge(b, "relaytale_memory_reserved_bytes", "Active work reservations, not process RSS.", stats.Memory)
 	gauge(b, "relaytale_memory_budget_bytes", "Admission working-set budget.", stats.MemoryLimit)
