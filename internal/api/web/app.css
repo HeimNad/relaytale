@@ -1062,3 +1062,7 @@ label {
 .feedback-panel .facts dd {
   overflow-wrap: anywhere;
 }
+
+.statistics-identity {
+  overflow-wrap: anywhere;
+}

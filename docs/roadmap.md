@@ -143,7 +143,7 @@ Generic SMTP（STARTTLS / implicit TLS）、Provider 凭证加密、priority 与
 
 **9B：运行安全与 Provider 可见性（分段实现）。** 9B.1 [显式迁移与启动 schema 门槛](phase-9b1-migrations.md) 已完成；9B.2a [持久单实例占用](phase-9b2a-runtime-ownership.md) 已完成核心范围；9B.2b [辅助进程持久占用](phase-9b2b-auxiliary-ownership.md) 补齐受支持 CLI；9B.3 [数据库最小权限](phase-9b3-database-privileges.md) 分离账号并实施启动检查；9B.4 [密钥轮换](phase-9b4-key-rotation.md) 增加向后读取兼容与离线原子更新；9B.5a [运维告警](phase-9b5a-operations-alerts.md) 补齐共享额度与人工处置指标；9B.5b.1 [能力证据台账](phase-9b5b1-provider-evidence.md) 记录来源、配置版本和复核提示；9B.5b.2 [协议与 DNS 诊断](phase-9b5b2-diagnostics.md) 提供 TLS 后观察与精确域名 TXT 候选报告；组织域策略发现和跨 Provider 身份仍需验收。 [9B.6 升级故障演练](phase-9b6-upgrade-drills.md) 已通过完整本地验收，覆盖版本写入失败、取消与离线连接丢失后的阻断及显式恢复；主机级故障与 Provider 身份的真实链路验收仍待补齐；共享额度与队列年龄告警规则已提供，通知接收端部署仍需运维接通。与 8E 同优先层推进，不等待模板和定时功能。DNS 正常不是入箱证明，网关用量不冒充 Provider 实际余额。
 
-**9C：协调保留与网站运营视图（分段实现）。** 9C.1 [保留规则与只读预检](phase-9c1-retention-preflight.md) 提供逐消息依赖说明、保守原文候选和有界分页，不授权删除；9C.2 [协调原文清理](phase-9c2-coordinated-cleanup.md) 将保留依赖接入既有清理和维护调度，以数据库栅栏与锁后复查保护并发写入；9C.3 [网站运营统计](phase-9c3-website-statistics.md) 提供身份隔离、有界窗口查询及逻辑原文字节，管理可视化与物理容量盘点随后推进。 在现有审计、指标、导出与 EML 清理上补按项目统计和协调生命周期；验证码等敏感原文保留策略不能破坏 UNKNOWN、有效幂等记录和反馈证据。
+**9C：协调保留与网站运营视图（分段实现）。** 9C.1 [保留规则与只读预检](phase-9c1-retention-preflight.md) 提供逐消息依赖说明、保守原文候选和有界分页，不授权删除；9C.2 [协调原文清理](phase-9c2-coordinated-cleanup.md) 将保留依赖接入既有清理和维护调度，以数据库栅栏与锁后复查保护并发写入；9C.3 [网站运营统计](phase-9c3-website-statistics.md) 提供身份隔离、有界窗口查询及逻辑原文字节，9C.4 [工作台统计与逻辑容量](phase-9c4-console-statistics.md) 增加管理范围的跨网站/来源/环境分组视图；物理存档容量与数据库增长盘点仍待实施。 在现有审计、指标、导出与 EML 清理上补按项目统计和协调生命周期；验证码等敏感原文保留策略不能破坏 UNKNOWN、有效幂等记录和反馈证据。
 
 完成备份/恢复演练、最小数据库权限、迁移与回退方案、密钥轮换、告警与值班手册。定义 EML、元数据、events、attempts 和 quota ledger 的协调保留策略；保留 UNKNOWN/待处理数据与审计约束，清理不得重置有效配额窗口或破坏反馈关联。
 

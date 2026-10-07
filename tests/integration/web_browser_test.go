@@ -66,6 +66,11 @@ func TestBrowserWorkspaceFixture(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	sendHandler, sendKey, _ := sendFixture(t, f)
+	submitStatusFixture(t, sendHandler, sendKey, f.raw(), nil)
+	sandboxHandler, sandboxKey, _ := sandboxFixture(t, f)
+	submitStatusFixture(t, sandboxHandler, sandboxKey, f.raw(), nil)
+	mustExec(t, f, `UPDATE messages SET created_at=clock_timestamp()-interval '5 minutes'`)
 	hash, err := auth.Hash("browser-test-password-only")
 	if err != nil {
 		t.Fatal(err)

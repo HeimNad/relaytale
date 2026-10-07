@@ -10,6 +10,7 @@ const S = {
   page: null,
 };
 const titles = {
+  statistics: "统计与容量",
   messages: "邮件记录",
   providers: "发送通道",
   suppressions: "地址抑制",
@@ -106,12 +107,17 @@ function problem(message) {
   $("#notice").textContent = message || "";
 }
 function errorText(e) {
+  if (S.view === "statistics" && e.status === 400)
+    return "统计时间范围无效，请核对本机时间。";
+  if (S.view === "statistics" && e.status === 422)
+    return "统计范围过大，请缩短查询时间。未展示不完整的汇总。";
   return (
     {
       401: "会话已失效，请重新登录。",
       403: "没有此操作的权限，或请求来源验证未通过。",
       409: "对象已变化或不满足处理条件。请刷新后重新核对，不要重复提交。",
       400: "请检查输入内容和必填字段。",
+      422: "请求不满足处理条件，请核对输入和对象状态。",
       415: "请求格式不受支持。",
       429: "登录尝试过于频繁，请稍后再试。",
       503: "操作未能确认完成。请刷新核对对象状态，再决定是否继续。",
@@ -1137,6 +1143,7 @@ function route(reset = true) {
     work = parts[1]
       ? feedbackDetail(parts[1], generation)
       : feedbackList(generation);
+  else if (view === "statistics") work = statisticsView(generation);
   else work = listPage(view, generation);
   work.catch((e) => {
     if (S.generation !== generation) return;
@@ -1145,7 +1152,16 @@ function route(reset = true) {
       heading(
         titles[view],
         "记录暂时无法读取。",
-        button("重新加载", () => route(false)),
+        button(
+          view === "statistics" && e.status === 422
+            ? "缩短为一小时"
+            : "重新加载",
+          () => {
+            if (view === "statistics" && e.status === 422)
+              S.statisticsHours = 1;
+            route(false);
+          },
+        ),
       ),
       el(
         "div",
@@ -1424,5 +1440,140 @@ async function feedbackDetail(id, generation) {
       form,
       results,
     ),
+  );
+}
+
+async function statisticsView(generation) {
+  const hours = Number(S.statisticsHours || 24);
+  // Leave the current minute out; this is a submission cohort, not event counts.
+  const until = new Date(Date.now() - 60000);
+  const from = new Date(until.getTime() - hours * 3600000);
+  const data = await api(
+    "statistics?" +
+      new URLSearchParams({
+        from: from.toISOString(),
+        until: until.toISOString(),
+      }),
+  );
+  if (S.generation !== generation) return;
+  const range = el(
+    "select",
+    {
+      "aria-label": "统计范围",
+      value: String(hours),
+      onChange: (e) => {
+        S.statisticsHours = e.target.value;
+        route(false);
+      },
+    },
+    [1, 24, 168, 744].map((n) =>
+      el(
+        "option",
+        { value: String(n), selected: n === hours ? "" : null },
+        n === 1 ? "最近 1 小时" : "最近 " + n / 24 + " 天",
+      ),
+    ),
+  );
+  const bytes = (n) =>
+    (Number.isSafeInteger(n) ? "" : "约 ") +
+    Number(n).toLocaleString("zh-CN") +
+    " 字节";
+  const rows = data.groups.map((g) =>
+    el(
+      "tr",
+      {},
+      el(
+        "td",
+        {},
+        g.source === "api"
+          ? el(
+              "code",
+              { class: "statistics-identity" },
+              g.api_key_id || "未记录网站身份",
+            )
+          : g.source === "smtp"
+            ? "SMTP 来源合计"
+            : "内部来源合计",
+      ),
+      el("td", {}, g.environment === "sandbox" ? "测试 · 不发信" : "生产"),
+      el("td", {}, g.message_count),
+      el(
+        "td",
+        {},
+        el(
+          "div",
+          {},
+          Object.entries(g.messages_by_status).map(([state, count]) =>
+            el("div", {}, badge(state), " " + count),
+          ),
+        ),
+      ),
+      el(
+        "td",
+        {},
+        el(
+          "div",
+          {},
+          Object.entries(g.archives_by_state).map(([state, count]) =>
+            el(
+              "div",
+              {},
+              ({
+                AVAILABLE: "可读取",
+                PURGE_PENDING: "清理中",
+                PURGED: "已清理",
+              }[state] || state) +
+                "：" +
+                count +
+                " 封 / " +
+                bytes(g.logical_raw_bytes_by_archive_state[state] || 0),
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+  $("#view").replaceChildren(
+    heading(
+      "统计与容量",
+      "按网站身份和来源查看提交窗口内邮件的当前状态。",
+      range,
+      button("刷新", () => route(false)),
+    ),
+    el(
+      "p",
+      { class: "callout" },
+      "SMTP 已接受不代表已入箱；测试邮件不参与真实投递。原文字节是记录容量，已清理项仍保留历史大小，不代表磁盘占用。",
+    ),
+    el(
+      "p",
+      {},
+      "提交时间：" +
+        date(data.from) +
+        " 至 " +
+        date(data.until) +
+        "（不含结束时刻；排除最近一分钟）",
+    ),
+    el(
+      "p",
+      {},
+      "快照：" +
+        date(data.snapshot_at) +
+        " · " +
+        data.message_count +
+        " 封邮件",
+    ),
+    rows.length
+      ? table(
+          [
+            "网站身份 / 来源",
+            "环境",
+            "邮件数",
+            "当前状态",
+            "原文状态 / 逻辑字节",
+          ],
+          rows,
+        )
+      : empty("此范围没有邮件", "可扩大统计范围，或在网站提交邮件后刷新。"),
   );
 }

@@ -54,6 +54,15 @@ test("workspace: login, records, guarded writes, text isolation and mobile", asy
   await expect(
     page.getByText("永久失败", { exact: true }).first(),
   ).toBeVisible();
+  await page.getByRole("link", { name: "统计与容量" }).click();
+  await expect(page.getByRole("heading", { name: "统计与容量" })).toBeVisible();
+  await expect(page.getByText("SMTP 来源合计")).toBeVisible();
+  await page.getByLabel("统计范围").selectOption("168");
+  await expect(page.getByLabel("统计范围")).toHaveValue("168");
+  await page.screenshot({
+    path: "test-results/statistics-desktop.png",
+    fullPage: true,
+  });
   await page.getByRole("link", { name: "地址抑制" }).click();
   await page.getByRole("button", { name: "添加抑制" }).click();
   const email = "browser-" + Date.now() + "@example.test";
@@ -215,4 +224,62 @@ test("empty state, fetch failure, keyboard focus and client session expiry", asy
     page.getByRole("heading", { name: "登录 RelayTale" }),
   ).toBeVisible();
   expect(await page.locator("#view").textContent()).toBe("");
+});
+
+test("statistics: viewer, mobile, bounded failure and empty window", async ({
+  page,
+}) => {
+  await page.goto("/console/#statistics");
+  await page.getByLabel("账户", { exact: true }).fill("reader");
+  await page
+    .getByLabel("密码", { exact: true })
+    .fill("browser-test-password-only");
+  await page.getByRole("button", { name: "登录工作台" }).click();
+  await expect(page.getByRole("heading", { name: "统计与容量" })).toBeVisible();
+  await expect(page.getByText("SMTP 来源合计")).toBeVisible();
+  await expect(
+    page.getByText("SMTP 已接受不代表已入箱", { exact: false }),
+  ).toBeVisible();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.getByText("SMTP 来源合计")).toBeVisible();
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+  await page.screenshot({
+    path: "test-results/statistics-mobile.png",
+    fullPage: true,
+  });
+  await page.route("**/console/api/statistics?*", (route) =>
+    route.fulfill({
+      status: 422,
+      contentType: "application/json",
+      body: '{"status":"statistics_window_too_large"}',
+    }),
+  );
+  await page.getByRole("button", { name: "刷新", exact: true }).click();
+  await expect(page.getByText("SMTP 来源合计")).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "缩短为一小时" }),
+  ).toBeVisible();
+  await page.unroute("**/console/api/statistics?*");
+  await page.getByRole("button", { name: "缩短为一小时" }).click();
+  await expect(page.getByLabel("统计范围")).toHaveValue("1");
+  await page.route("**/console/api/statistics?*", (route) =>
+    route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        snapshot_at: new Date().toISOString(),
+        from: new Date(Date.now() - 3600000).toISOString(),
+        until: new Date().toISOString(),
+        message_count: 0,
+        groups: [],
+      }),
+    }),
+  );
+  await page.getByRole("button", { name: "刷新", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "此范围没有邮件" }),
+  ).toBeVisible();
 });

@@ -129,6 +129,7 @@ type principalKey struct{}
 
 func (a Management) operations() http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /admin/v1/statistics", a.capacityStatistics)
 	mux.HandleFunc("GET /admin/v1/provider-quota-groups", a.quotaGroups)
 	mux.HandleFunc("GET /admin/v1/provider-quota-groups/{id}", a.quotaGroup)
 	mux.HandleFunc("POST /admin/v1/provider-quota-groups", a.writeQuotaGroup)
