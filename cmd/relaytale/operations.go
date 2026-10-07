@@ -46,6 +46,8 @@ func runOperation(command string, args []string) (runErr error) {
 	}
 	defer finish(&runErr)
 	switch command {
+	case "preflight-retention":
+		return runLifecycle(ctx, db, args)
 	case "diagnose-sender-domain":
 		return runDomainDiagnostic(ctx, db, args)
 	case "record-provider-evidence", "list-provider-evidence":
