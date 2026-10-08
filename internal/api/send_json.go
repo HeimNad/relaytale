@@ -24,13 +24,14 @@ const jsonMessageLimit = 32 << 10
 var errJSONMessage = errors.New("invalid JSON message")
 
 type jsonMessage struct {
-	Date        string           `json:"date"`
-	Subject     string           `json:"subject"`
-	FromName    string           `json:"from_name"`
-	ReplyTo     string           `json:"reply_to"`
-	Text        string           `json:"text"`
-	HTML        string           `json:"html"`
-	Attachments []jsonAttachment `json:"attachments,omitempty"`
+	Date        string                 `json:"date"`
+	Subject     string                 `json:"subject"`
+	FromName    string                 `json:"from_name"`
+	ReplyTo     string                 `json:"reply_to"`
+	Text        string                 `json:"text"`
+	HTML        string                 `json:"html"`
+	Attachments []jsonAttachment       `json:"attachments,omitempty"`
+	Template    *jsonTemplateReference `json:"template,omitempty"`
 }
 
 // Lazy construction runs only when APIReceiver has acquired its resource budget.
@@ -42,6 +43,7 @@ type jsonMessageReader struct {
 	identity, key string
 	rendered      *bytes.Reader
 	initialized   bool
+	templates     []SendTemplate
 }
 
 func (r *jsonMessageReader) Read(p []byte) (int, error) {
@@ -55,6 +57,10 @@ func (r *jsonMessageReader) Read(p []byte) (int, error) {
 			return 0, err
 		}
 		value, err := decodeJSONMessage(raw)
+		if err != nil {
+			return 0, err
+		}
+		value, err = resolveJSONTemplate(value, r.templates)
 		if err != nil {
 			return 0, err
 		}
@@ -87,6 +93,13 @@ func decodeJSONMessage(raw []byte) (jsonMessage, error) {
 			return out, errJSONMessage
 		}
 		seen[key] = true
+		if key == "template" {
+			out.Template, err = decodeJSONTemplate(d)
+			if err != nil {
+				return out, err
+			}
+			continue
+		}
 		if key == "attachments" {
 			out.Attachments, err = decodeJSONAttachments(d)
 			if err != nil {
@@ -115,6 +128,9 @@ func decodeJSONMessage(raw []byte) (jsonMessage, error) {
 		default:
 			return out, errJSONMessage
 		}
+	}
+	if out.Template != nil && (seen["subject"] || seen["text"] || seen["html"]) {
+		return out, errJSONMessage
 	}
 	token, err = d.Token()
 	if err != nil || token != json.Delim('}') {
@@ -156,6 +172,9 @@ func renderJSONMessage(v jsonMessage, from string, to []string, identity, key st
 			return nil, err
 		}
 	}
+	if v.Template != nil {
+		version = 3
+	}
 	canonical, _ := json.Marshal(struct {
 		Version       int
 		Message       jsonMessage
@@ -180,7 +199,13 @@ func renderJSONMessage(v jsonMessage, from string, to []string, identity, key st
 	if version == 2 {
 		builder = "json-v2"
 	}
+	if version == 3 {
+		builder = "json-v3"
+	}
 	b.WriteString("Message-ID: <" + tag + "@relaytale.invalid>\r\nX-RelayTale-Builder: " + builder + "\r\nMIME-Version: 1.0\r\n")
+	if v.Template != nil {
+		b.WriteString("X-RelayTale-Template: " + v.Template.ID + "\r\nX-RelayTale-Template-Version: " + v.Template.Version + "\r\n")
+	}
 	if v.ReplyTo != "" {
 		b.WriteString("Reply-To: " + (&mail.Address{Address: v.ReplyTo}).String() + "\r\n")
 	}
@@ -194,7 +219,7 @@ func renderJSONMessage(v jsonMessage, from string, to []string, identity, key st
 		b.WriteString(encoded + "\r\n")
 	}
 	mixed := "relaytale-json-v2-mixed-" + tag[:40]
-	if version == 2 {
+	if len(v.Attachments) > 0 {
 		b.WriteString("Content-Type: multipart/mixed;\r\n boundary=\"" + mixed + "\"\r\n\r\n--" + mixed + "\r\n")
 	}
 	if v.Text != "" && v.HTML != "" {
@@ -209,7 +234,7 @@ func renderJSONMessage(v jsonMessage, from string, to []string, identity, key st
 	} else {
 		part("html", v.HTML)
 	}
-	if version == 2 {
+	if len(v.Attachments) > 0 {
 		for _, a := range v.Attachments {
 			b.WriteString("--" + mixed + "\r\nContent-Type: " + a.ContentType + "\r\n")
 			b.WriteString("Content-Disposition: " + mime.FormatMediaType("attachment", map[string]string{"filename": a.Filename}) + "\r\nContent-Transfer-Encoding: base64\r\n\r\n")

@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "RelayTale website API",
-    "version": "8F.2",
+    "version": "8F.3",
     "description": "Server-to-server gateway API and externally configured Webhook contract. Transport JSON/body evolution is opt-in; no implicit SMTP/inbox equivalence."
   },
   "servers": [
@@ -20,7 +20,7 @@
       "post": {
         "operationId": "submitMessage",
         "summary": "Persist original MIME or build a bounded JSON message.",
-        "description": "Server-side credential only; Origin/cross-site browser requests are refused. Test/production environment is fixed on the credential, never a request header. SMTP provider acceptance is not inbox delivery. Canonical deadline, stream, business association, envelope order, and exact MIME bytes participate in idempotency. Missing fields preserve the legacy fingerprint. JSON v1 requires an explicit stable whole-second RFC3339 date; generated MIME is deterministic and then shares the existing durable queue. JSON body <=32768 bytes; text/html each <=16384 UTF-8 bytes. Optional attachments: <=4 parts and <=16384 decoded bytes in aggregate; ordered metadata and content participate in idempotency. Empty attachment arrays preserve json-v1 bytes. Templates are not accepted.",
+        "description": "Server-side credential only; Origin/cross-site browser requests are refused. Test/production environment is fixed on the credential, never a request header. SMTP provider acceptance is not inbox delivery. Canonical deadline, stream, business association, envelope order, and exact MIME bytes participate in idempotency. Missing fields preserve the legacy fingerprint. JSON v1 requires an explicit stable whole-second RFC3339 date; generated MIME is deterministic and then shares the existing durable queue. JSON body <=32768 bytes; text/html each <=16384 UTF-8 bytes. Optional attachments: <=4 parts and <=16384 decoded bytes in aggregate; ordered metadata and content participate in idempotency. Empty attachment arrays preserve json-v1 bytes. Optional template reference selects an exact version from this credential startup catalog. Subject/text/html cannot accompany it. Missing, extra or unsafe variables fail closed; generated output remains bounded. Template version and parameters participate in deterministic json-v3 MIME, while legacy json-v1/v2 bytes are preserved.",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -1968,28 +1968,6 @@
         "required": [
           "date"
         ],
-        "anyOf": [
-          {
-            "required": [
-              "text"
-            ],
-            "properties": {
-              "text": {
-                "minLength": 1
-              }
-            }
-          },
-          {
-            "required": [
-              "html"
-            ],
-            "properties": {
-              "html": {
-                "minLength": 1
-              }
-            }
-          }
-        ],
         "properties": {
           "date": {
             "type": "string",
@@ -2023,8 +2001,66 @@
             "items": {
               "$ref": "#/components/schemas/JsonAttachment"
             }
+          },
+          "template": {
+            "$ref": "#/components/schemas/TemplateReference"
           }
-        }
+        },
+        "oneOf": [
+          {
+            "required": [
+              "template"
+            ],
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "subject"
+                  ]
+                },
+                {
+                  "required": [
+                    "text"
+                  ]
+                },
+                {
+                  "required": [
+                    "html"
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "not": {
+              "required": [
+                "template"
+              ]
+            },
+            "anyOf": [
+              {
+                "required": [
+                  "text"
+                ],
+                "properties": {
+                  "text": {
+                    "minLength": 1
+                  }
+                }
+              },
+              {
+                "required": [
+                  "html"
+                ],
+                "properties": {
+                  "html": {
+                    "minLength": 1
+                  }
+                }
+              }
+            ]
+          }
+        ]
       },
       "JsonAttachment": {
         "type": "object",
@@ -2046,6 +2082,37 @@
           "content_base64": {
             "type": "string",
             "description": "Canonical padded standard base64, no whitespace; binary content is not fetched or scanned."
+          }
+        }
+      },
+      "TemplateReference": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "version",
+          "variables"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]{0,31}$"
+          },
+          "version": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "description": "Exact immutable content version explicitly published for this credential; never latest."
+          },
+          "variables": {
+            "type": "object",
+            "maxProperties": 16,
+            "propertyNames": {
+              "pattern": "^[a-z][a-z0-9_]{0,31}$"
+            },
+            "additionalProperties": {
+              "type": "string",
+              "description": "<=1024 UTF-8 bytes; <=8192 aggregate variable value bytes. Must exactly match declared variable names."
+            }
           }
         }
       }

@@ -22,6 +22,7 @@ import (
 )
 
 type SendKey struct {
+	Templates   []SendTemplate           `json:"templates,omitempty"`
 	Environment string                   `json:"environment,omitempty"`
 	Streams     []message.StreamPolicy   `json:"streams,omitempty"`
 	Budget      message.SubmissionBudget `json:"budget,omitempty"`
@@ -54,6 +55,9 @@ func ParseSendKeys(raw string) ([]SendKey, error) {
 			k.Environment = "production"
 		}
 		if k.Environment != "production" && k.Environment != "sandbox" {
+			return nil, invalid
+		}
+		if err := prepareTemplates(k.Templates); err != nil {
 			return nil, invalid
 		}
 		var streamErr error
@@ -154,7 +158,7 @@ func NewSendHandler(ctx context.Context, raw string, receiver message.APIReceive
 				return nil, e
 			}
 		}
-		auditData, _ := json.Marshal(map[string]any{"id": key.ID, "allowed_from": key.AllowedFrom, "budget": key.Budget, "streams": key.Streams, "environment": key.Environment})
+		auditData, _ := json.Marshal(map[string]any{"id": key.ID, "allowed_from": key.AllowedFrom, "budget": key.Budget, "streams": key.Streams, "environment": key.Environment, "templates": templateVersions(key.Templates)})
 		if _, e = tx.ExecContext(ctx, `INSERT INTO maintenance_audit(id,action,actor,data) VALUES($1,'API_SEND_CONFIGURED','startup_config',$2)`, uuid.NewString(), string(auditData)); e != nil {
 			return nil, errors.New("send API configuration audit failed")
 		}
@@ -376,7 +380,7 @@ func NewSendHandler(ctx context.Context, raw string, receiver message.APIReceive
 				respond(w, 413, "message_too_large")
 				return
 			}
-			payload = &jsonMessageReader{body: r.Body, from: sender, recipients: recipients, identity: who.key.ID, key: idem[0]}
+			payload = &jsonMessageReader{body: r.Body, from: sender, recipients: recipients, identity: who.key.ID, key: idem[0], templates: who.key.Templates}
 		}
 		result, e := receiver.ReceiveExpiring(ctx, message.Envelope{Account: account, From: sender, Recipients: recipients}, payload, who.key.ID, idem[0], stream, expiresAt, business)
 		if e != nil {
