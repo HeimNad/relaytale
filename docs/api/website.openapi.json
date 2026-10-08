@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "RelayTale website API",
-    "version": "9C.3",
+    "version": "8F.1",
     "description": "Server-to-server gateway API and externally configured Webhook contract. Transport JSON/body evolution is opt-in; no implicit SMTP/inbox equivalence."
   },
   "servers": [
@@ -19,8 +19,8 @@
     "/v1/messages": {
       "post": {
         "operationId": "submitMessage",
-        "summary": "Persist original MIME and an immutable envelope.",
-        "description": "Server-side credential only; Origin/cross-site browser requests are refused. Test/production environment is fixed on the credential, never a request header. SMTP provider acceptance is not inbox delivery. Canonical deadline, stream, business association, envelope order, and exact MIME bytes participate in idempotency. Missing fields preserve the legacy fingerprint.",
+        "summary": "Persist original MIME or build a bounded JSON message.",
+        "description": "Server-side credential only; Origin/cross-site browser requests are refused. Test/production environment is fixed on the credential, never a request header. SMTP provider acceptance is not inbox delivery. Canonical deadline, stream, business association, envelope order, and exact MIME bytes participate in idempotency. Missing fields preserve the legacy fingerprint. JSON v1 requires an explicit stable whole-second RFC3339 date; generated MIME is deterministic and then shares the existing durable queue. JSON body <=32768 bytes; text/html each <=16384 UTF-8 bytes. Attachments and templates are not accepted.",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -109,6 +109,11 @@
               "schema": {
                 "type": "string",
                 "description": "Exact original EML with CRLF and a final CRLF. Size is configured per deployment. No Content-Encoding or content-type parameters."
+              }
+            },
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonMessage"
               }
             }
           }
@@ -1956,6 +1961,62 @@
         },
         "additionalProperties": false,
         "description": "Current message states for an identity-scoped submission cohort. Raw-byte values are logical historical EML sizes, not physical disk usage; SMTP_ACCEPTED does not prove inbox delivery."
+      },
+      "JsonMessage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "date"
+        ],
+        "anyOf": [
+          {
+            "required": [
+              "text"
+            ],
+            "properties": {
+              "text": {
+                "minLength": 1
+              }
+            }
+          },
+          {
+            "required": [
+              "html"
+            ],
+            "properties": {
+              "html": {
+                "minLength": 1
+              }
+            }
+          }
+        ],
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Whole-second RFC3339, 1970–9999; preserve on retries. Not a schedule."
+          },
+          "subject": {
+            "type": "string",
+            "description": "<=256 UTF-8 bytes, no control characters"
+          },
+          "from_name": {
+            "type": "string",
+            "description": "<=128 UTF-8 bytes, no control characters"
+          },
+          "reply_to": {
+            "type": "string",
+            "description": "Single mailbox <=254 UTF-8 bytes, no control characters"
+          },
+          "text": {
+            "type": "string",
+            "description": "<=16384 UTF-8 bytes"
+          },
+          "html": {
+            "type": "string",
+            "description": "<=16384 UTF-8 bytes, no server-side rendering"
+          }
+        }
       }
     }
   }

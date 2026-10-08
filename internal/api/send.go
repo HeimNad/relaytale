@@ -274,8 +274,8 @@ func NewSendHandler(ctx context.Context, raw string, receiver message.APIReceive
 			return
 		}
 		media, params, e := mime.ParseMediaType(r.Header.Get("Content-Type"))
-		if len(r.Header.Values("Content-Type")) != 1 || e != nil || media != "message/rfc822" || len(params) != 0 || len(r.Header.Values("Content-Encoding")) != 0 {
-			respond(w, 415, "use_message_rfc822")
+		if len(r.Header.Values("Content-Type")) != 1 || e != nil || (media != "message/rfc822" && media != "application/json") || len(params) != 0 || len(r.Header.Values("Content-Encoding")) != 0 {
+			respond(w, 415, "use_message_rfc822_or_json")
 			return
 		}
 		if r.URL.RawQuery != "" {
@@ -370,9 +370,19 @@ func NewSendHandler(ctx context.Context, raw string, receiver message.APIReceive
 			respond(w, 413, "message_too_large")
 			return
 		}
-		result, e := receiver.ReceiveExpiring(ctx, message.Envelope{Account: account, From: sender, Recipients: recipients}, io.LimitReader(r.Body, receiver.MaxBytes+1), who.key.ID, idem[0], stream, expiresAt, business)
+		var payload io.Reader = io.LimitReader(r.Body, receiver.MaxBytes+1)
+		if media == "application/json" {
+			if r.ContentLength > jsonMessageLimit {
+				respond(w, 413, "message_too_large")
+				return
+			}
+			payload = &jsonMessageReader{body: r.Body, from: sender, recipients: recipients, identity: who.key.ID, key: idem[0]}
+		}
+		result, e := receiver.ReceiveExpiring(ctx, message.Envelope{Account: account, From: sender, Recipients: recipients}, payload, who.key.ID, idem[0], stream, expiresAt, business)
 		if e != nil {
 			switch {
+			case errors.Is(e, errJSONMessage):
+				respond(w, 400, "invalid_json_message")
 			case errors.Is(e, message.ErrExpiredSubmission):
 				respond(w, 410, "expiry_elapsed")
 			case errors.Is(e, message.ErrInvalidExpiry):
