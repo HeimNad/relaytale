@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "RelayTale website API",
-    "version": "8F.1",
+    "version": "8F.2",
     "description": "Server-to-server gateway API and externally configured Webhook contract. Transport JSON/body evolution is opt-in; no implicit SMTP/inbox equivalence."
   },
   "servers": [
@@ -20,7 +20,7 @@
       "post": {
         "operationId": "submitMessage",
         "summary": "Persist original MIME or build a bounded JSON message.",
-        "description": "Server-side credential only; Origin/cross-site browser requests are refused. Test/production environment is fixed on the credential, never a request header. SMTP provider acceptance is not inbox delivery. Canonical deadline, stream, business association, envelope order, and exact MIME bytes participate in idempotency. Missing fields preserve the legacy fingerprint. JSON v1 requires an explicit stable whole-second RFC3339 date; generated MIME is deterministic and then shares the existing durable queue. JSON body <=32768 bytes; text/html each <=16384 UTF-8 bytes. Attachments and templates are not accepted.",
+        "description": "Server-side credential only; Origin/cross-site browser requests are refused. Test/production environment is fixed on the credential, never a request header. SMTP provider acceptance is not inbox delivery. Canonical deadline, stream, business association, envelope order, and exact MIME bytes participate in idempotency. Missing fields preserve the legacy fingerprint. JSON v1 requires an explicit stable whole-second RFC3339 date; generated MIME is deterministic and then shares the existing durable queue. JSON body <=32768 bytes; text/html each <=16384 UTF-8 bytes. Optional attachments: <=4 parts and <=16384 decoded bytes in aggregate; ordered metadata and content participate in idempotency. Empty attachment arrays preserve json-v1 bytes. Templates are not accepted.",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -2015,6 +2015,37 @@
           "html": {
             "type": "string",
             "description": "<=16384 UTF-8 bytes, no server-side rendering"
+          },
+          "attachments": {
+            "type": "array",
+            "maxItems": 4,
+            "description": "Optional ordered attachments; <=16384 decoded bytes in aggregate. Entire JSON request remains <=32768 bytes. Empty array preserves json-v1 MIME.",
+            "items": {
+              "$ref": "#/components/schemas/JsonAttachment"
+            }
+          }
+        }
+      },
+      "JsonAttachment": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "filename",
+          "content_type",
+          "content_base64"
+        ],
+        "properties": {
+          "filename": {
+            "type": "string",
+            "description": "Nonempty basename <=120 UTF-8 bytes; no control characters or slash/backslash."
+          },
+          "content_type": {
+            "type": "string",
+            "description": "Bare MIME type <=100 bytes; no parameters, wildcards, multipart/* or message/*."
+          },
+          "content_base64": {
+            "type": "string",
+            "description": "Canonical padded standard base64, no whitespace; binary content is not fetched or scanned."
           }
         }
       }

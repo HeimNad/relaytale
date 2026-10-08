@@ -150,3 +150,42 @@ type countedJSONBody struct {
 
 func (r *countedJSONBody) Read(p []byte) (int, error) { r.reads.Add(1); return r.Reader.Read(p) }
 func (r *countedJSONBody) Close() error               { return nil }
+
+func TestJSONAttachmentsDurableReplay(t *testing.T) {
+	_, url := recoveryDB(t)
+	t.Setenv("TEST_DATABASE_URL", url)
+	f := delivery(t, testsmtp.Options{}, 1)
+	h, key, _ := sendFixture(t, f)
+	body := `{"date":"2026-10-07T12:00:00Z","text":"invoice","attachments":[{"filename":"订单.pdf","content_type":"application/pdf","content_base64":"AP8NCg=="}]}`
+	w := jsonSubmit(h, key, body, "attachment", nil)
+	requireStatus(t, w, 202)
+	var result struct {
+		MessageID string `json:"message_id"`
+		Replayed  bool   `json:"replayed"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	var path string
+	if err := f.db.QueryRow("SELECT eml_path FROM messages WHERE id=$1", result.MessageID).Scan(&path); err != nil {
+		t.Fatal(err)
+	}
+	archived, err := os.ReadFile(path)
+	if err != nil || !strings.Contains(string(archived), "json-v2") {
+		t.Fatal(err)
+	}
+	w = jsonSubmit(h, key, strings.Replace(body, "application/pdf", "APPLICATION/PDF", 1), "attachment", nil)
+	requireStatus(t, w, 202)
+	if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil || !result.Replayed {
+		t.Fatal(err)
+	}
+	requireStatus(t, jsonSubmit(h, key, strings.Replace(body, "AP8NCg==", "eA==", 1), "attachment", nil), 409)
+	requireStatus(t, jsonSubmit(h, key, strings.Replace(body, "订单.pdf", "../bad.pdf", 1), "bad-attachment", nil), 400)
+	assertCount(t, f, 1, "SELECT count(*) FROM messages")
+	runOne(t, f.worker)
+	assertCount(t, f, 1, "SELECT count(*) FROM messages WHERE status='SMTP_ACCEPTED'")
+	after, err := os.ReadFile(path)
+	if err != nil || string(after) != string(archived) {
+		t.Fatal("archive changed", err)
+	}
+}

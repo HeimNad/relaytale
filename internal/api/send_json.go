@@ -24,12 +24,13 @@ const jsonMessageLimit = 32 << 10
 var errJSONMessage = errors.New("invalid JSON message")
 
 type jsonMessage struct {
-	Date     string `json:"date"`
-	Subject  string `json:"subject"`
-	FromName string `json:"from_name"`
-	ReplyTo  string `json:"reply_to"`
-	Text     string `json:"text"`
-	HTML     string `json:"html"`
+	Date        string           `json:"date"`
+	Subject     string           `json:"subject"`
+	FromName    string           `json:"from_name"`
+	ReplyTo     string           `json:"reply_to"`
+	Text        string           `json:"text"`
+	HTML        string           `json:"html"`
+	Attachments []jsonAttachment `json:"attachments,omitempty"`
 }
 
 // Lazy construction runs only when APIReceiver has acquired its resource budget.
@@ -86,6 +87,13 @@ func decodeJSONMessage(raw []byte) (jsonMessage, error) {
 			return out, errJSONMessage
 		}
 		seen[key] = true
+		if key == "attachments" {
+			out.Attachments, err = decodeJSONAttachments(d)
+			if err != nil {
+				return out, err
+			}
+			continue
+		}
 		v, e := d.Token()
 		value, ok := v.(string)
 		if e != nil || !ok {
@@ -141,13 +149,20 @@ func renderJSONMessage(v jsonMessage, from string, to []string, identity, key st
 			return nil, errJSONMessage
 		}
 	}
+	version := 1
+	if len(v.Attachments) > 0 {
+		version = 2
+		if err := normalizeJSONAttachments(v.Attachments); err != nil {
+			return nil, err
+		}
+	}
 	canonical, _ := json.Marshal(struct {
 		Version       int
 		Message       jsonMessage
 		From          string
 		To            []string
 		Identity, Key string
-	}{1, v, from, to, identity, key})
+	}{version, v, from, to, identity, key})
 	digest := sha256.Sum256(canonical)
 	tag := hex.EncodeToString(digest[:])
 	var b strings.Builder
@@ -161,7 +176,11 @@ func renderJSONMessage(v jsonMessage, from string, to []string, identity, key st
 		b.WriteString((&mail.Address{Address: address}).String())
 	}
 	b.WriteString("\r\nSubject: " + mime.QEncoding.Encode("utf-8", v.Subject) + "\r\n")
-	b.WriteString("Message-ID: <" + tag + "@relaytale.invalid>\r\nX-RelayTale-Builder: json-v1\r\nMIME-Version: 1.0\r\n")
+	builder := "json-v1"
+	if version == 2 {
+		builder = "json-v2"
+	}
+	b.WriteString("Message-ID: <" + tag + "@relaytale.invalid>\r\nX-RelayTale-Builder: " + builder + "\r\nMIME-Version: 1.0\r\n")
 	if v.ReplyTo != "" {
 		b.WriteString("Reply-To: " + (&mail.Address{Address: v.ReplyTo}).String() + "\r\n")
 	}
@@ -174,6 +193,10 @@ func renderJSONMessage(v jsonMessage, from string, to []string, identity, key st
 		}
 		b.WriteString(encoded + "\r\n")
 	}
+	mixed := "relaytale-json-v2-mixed-" + tag[:40]
+	if version == 2 {
+		b.WriteString("Content-Type: multipart/mixed;\r\n boundary=\"" + mixed + "\"\r\n\r\n--" + mixed + "\r\n")
+	}
 	if v.Text != "" && v.HTML != "" {
 		boundary := "relaytale-json-v1-" + tag[:40]
 		b.WriteString("Content-Type: multipart/alternative;\r\n boundary=\"" + boundary + "\"\r\n\r\n--" + boundary + "\r\n")
@@ -185,6 +208,19 @@ func renderJSONMessage(v jsonMessage, from string, to []string, identity, key st
 		part("plain", v.Text)
 	} else {
 		part("html", v.HTML)
+	}
+	if version == 2 {
+		for _, a := range v.Attachments {
+			b.WriteString("--" + mixed + "\r\nContent-Type: " + a.ContentType + "\r\n")
+			b.WriteString("Content-Disposition: " + mime.FormatMediaType("attachment", map[string]string{"filename": a.Filename}) + "\r\nContent-Transfer-Encoding: base64\r\n\r\n")
+			encoded := a.ContentBase64
+			for len(encoded) > 76 {
+				b.WriteString(encoded[:76] + "\r\n")
+				encoded = encoded[76:]
+			}
+			b.WriteString(encoded + "\r\n")
+		}
+		b.WriteString("--" + mixed + "--\r\n")
 	}
 	return []byte(b.String()), nil
 }
