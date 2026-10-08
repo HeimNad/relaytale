@@ -37,6 +37,7 @@ func VersionTemplateJSON(raw []byte) (SendTemplate, error) {
 // Templates are explicit immutable, content-addressed startup configuration.
 type SendTemplate struct {
 	ID        string   `json:"id"`
+	Language  string   `json:"language,omitempty"`
 	Version   string   `json:"version"`
 	Subject   string   `json:"subject"`
 	Text      string   `json:"text"`
@@ -47,6 +48,7 @@ type SendTemplate struct {
 
 type jsonTemplateReference struct {
 	ID        string            `json:"id"`
+	Language  string            `json:"language,omitempty"`
 	Version   string            `json:"version"`
 	Variables map[string]string `json:"variables"`
 }
@@ -68,10 +70,18 @@ func templateName(s string) bool {
 // Variables are a sorted set. It does not include the supplied Version field.
 func TemplateVersion(t SendTemplate) string {
 	h := sha256.New()
-	h.Write([]byte("relaytale.template.v1\x00"))
+	if t.Language == "" {
+		h.Write([]byte("relaytale.template.v1\x00"))
+	} else {
+		h.Write([]byte("relaytale.template.v2\x00"))
+	}
 	names := append([]string(nil), t.Variables...)
 	sort.Strings(names)
-	for _, s := range append([]string{t.ID, t.Subject, t.Text, t.HTML}, names...) {
+	fields := []string{t.ID, t.Subject, t.Text, t.HTML}
+	if t.Language != "" {
+		fields = append(fields, t.Language)
+	}
+	for _, s := range append(fields, names...) {
 		var length [8]byte
 		binary.BigEndian.PutUint64(length[:], uint64(len(s)))
 		h.Write(length[:])
@@ -115,7 +125,7 @@ func prepareTemplates(catalog []SendTemplate) error {
 	seen := map[string]bool{}
 	for i := range catalog {
 		t := &catalog[i]
-		if !templateName(t.ID) || t.Version != TemplateVersion(*t) || seen[t.ID+":"+t.Version] || !safeJSONHeader(t.Subject, 256) || len(t.Text) > 16<<10 || len(t.HTML) > 16<<10 || !utf8.ValidString(t.Text) || !utf8.ValidString(t.HTML) || t.Text == "" && t.HTML == "" || len(t.Variables) > 16 {
+		if !templateName(t.ID) || !templateLanguage(t.Language) || t.Version != TemplateVersion(*t) || seen[t.ID+":"+t.Version] || !safeJSONHeader(t.Subject, 256) || len(t.Text) > 16<<10 || len(t.HTML) > 16<<10 || !utf8.ValidString(t.Text) || !utf8.ValidString(t.HTML) || t.Text == "" && t.HTML == "" || len(t.Variables) > 16 {
 			return errJSONMessage
 		}
 		seen[t.ID+":"+t.Version] = true
@@ -158,7 +168,7 @@ func prepareTemplates(catalog []SendTemplate) error {
 func templateVersions(catalog []SendTemplate) []map[string]string {
 	out := make([]map[string]string, 0, len(catalog))
 	for _, t := range catalog {
-		out = append(out, map[string]string{"id": t.ID, "version": t.Version})
+		out = append(out, map[string]string{"id": t.ID, "version": t.Version, "language": t.Language})
 	}
 	return out
 }
@@ -194,12 +204,14 @@ func decodeJSONTemplate(d *json.Decoder) (*jsonTemplateReference, error) {
 			out.ID = value
 		case "version":
 			out.Version = value
+		case "language":
+			out.Language = value
 		default:
 			return nil, errJSONMessage
 		}
 	}
 	t, err = d.Token()
-	if err != nil || t != json.Delim('}') || len(seen) != 3 {
+	if err != nil || t != json.Delim('}') || !seen["id"] || !seen["version"] || !seen["variables"] || !templateLanguage(out.Language) {
 		return nil, errJSONMessage
 	}
 	return out, nil
@@ -254,7 +266,7 @@ func resolveJSONTemplate(v jsonMessage, catalog []SendTemplate) (jsonMessage, er
 	}
 	ref := v.Template
 	for _, t := range catalog {
-		if t.ID != ref.ID || t.Version != ref.Version {
+		if t.ID != ref.ID || t.Version != ref.Version || t.Language != ref.Language {
 			continue
 		}
 		if len(ref.Variables) != len(t.Variables) || t.compiled == nil {
@@ -304,4 +316,55 @@ func resolveJSONTemplate(v jsonMessage, catalog []SendTemplate) (jsonMessage, er
 		return v, nil
 	}
 	return v, errJSONMessage
+}
+
+// Explicit constrained language tags, lowercase and with no implicit fallback.
+func templateLanguage(s string) bool {
+	if s == "" {
+		return true
+	}
+	if len(s) > 35 {
+		return false
+	}
+	for i, part := range strings.Split(s, "-") {
+		if len(part) < 1 || len(part) > 8 {
+			return false
+		}
+		for _, c := range part {
+			if c >= 'a' && c <= 'z' || i > 0 && c >= '0' && c <= '9' {
+				continue
+			}
+			return false
+		}
+	}
+	return true
+}
+
+// PreviewTemplateJSON renders locally and never receives, archives or enqueues.
+// HTML is returned as JSON source, never executed as a webpage.
+func PreviewTemplateJSON(source, variables []byte) (map[string]any, error) {
+	t, err := VersionTemplateJSON(source)
+	if err != nil {
+		return nil, err
+	}
+	if len(variables) > 16<<10 || !utf8.Valid(variables) {
+		return nil, errJSONMessage
+	}
+	d := json.NewDecoder(bytes.NewReader(variables))
+	values, err := decodeTemplateVariables(d)
+	if err != nil {
+		return nil, err
+	}
+	if _, err = d.Token(); err != io.EOF {
+		return nil, errJSONMessage
+	}
+	catalog := []SendTemplate{t}
+	if err = prepareTemplates(catalog); err != nil {
+		return nil, err
+	}
+	v, err := resolveJSONTemplate(jsonMessage{Template: &jsonTemplateReference{ID: t.ID, Version: t.Version, Language: t.Language, Variables: values}}, catalog)
+	if err != nil || !safeJSONHeader(v.Subject, 256) {
+		return nil, errJSONMessage
+	}
+	return map[string]any{"dry_run": true, "id": t.ID, "version": t.Version, "language": t.Language, "subject": v.Subject, "text": v.Text, "html": v.HTML}, nil
 }

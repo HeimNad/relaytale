@@ -174,6 +174,9 @@ func renderJSONMessage(v jsonMessage, from string, to []string, identity, key st
 	}
 	if v.Template != nil {
 		version = 3
+		if v.Template.Language != "" {
+			version = 4
+		}
 	}
 	canonical, _ := json.Marshal(struct {
 		Version       int
@@ -202,8 +205,14 @@ func renderJSONMessage(v jsonMessage, from string, to []string, identity, key st
 	if version == 3 {
 		builder = "json-v3"
 	}
+	if version == 4 {
+		builder = "json-v4"
+	}
 	b.WriteString("Message-ID: <" + tag + "@relaytale.invalid>\r\nX-RelayTale-Builder: " + builder + "\r\nMIME-Version: 1.0\r\n")
 	if v.Template != nil {
+		if v.Template.Language != "" {
+			b.WriteString("Content-Language: " + v.Template.Language + "\r\n")
+		}
 		b.WriteString("X-RelayTale-Template: " + v.Template.ID + "\r\nX-RelayTale-Template-Version: " + v.Template.Version + "\r\n")
 	}
 	if v.ReplyTo != "" {
