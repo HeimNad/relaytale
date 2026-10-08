@@ -3,6 +3,7 @@ package integration
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"net/url"
 	"os/exec"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"relaytale/internal/api"
 	"relaytale/internal/database"
 	"relaytale/internal/message"
 	"relaytale/internal/operations"
@@ -133,6 +135,16 @@ func TestRestrictedDatabaseRoleDeliveryAndBoundaries(t *testing.T) {
 	case <-f.fake.Payloads:
 	case <-time.After(time.Second):
 		t.Fatal("delivery unavailable with restricted role")
+	}
+	_, templateKey, _ := sendFixture(t, f)
+	template := api.SendTemplate{ID: "notice", Text: "Hello"}
+	template.Version = api.TemplateVersion(template)
+	templateRaw, _ := json.Marshal(template)
+	if _, err := api.PublishTemplate(ctx, restricted, templateKey.ID, templateRaw, "operator", "restricted publication test"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := restricted.ExecContext(ctx, "UPDATE api_template_versions SET language='en'"); err == nil {
+		t.Fatal("immutable template update permitted")
 	}
 	g, err := database.AcquireRuntime(ctx, restricted)
 	if err != nil {

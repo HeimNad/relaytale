@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"relaytale/internal/api"
 	"relaytale/internal/database"
 	"relaytale/internal/encryption"
 )
@@ -377,6 +378,9 @@ func verify(ctx context.Context, q queryer, original, actual string, box *encryp
 	}
 	if version != schemaVersion() {
 		return r, errors.New("database migration version does not match this binary")
+	}
+	if err := api.VerifyPublishedTemplates(ctx, q); err != nil {
+		return r, errors.New("published template catalog verification failed")
 	}
 	var extraTables bool
 	if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM pg_tables WHERE schemaname NOT IN ('public','pg_catalog','information_schema') AND schemaname NOT LIKE 'pg_toast%')`).Scan(&extraTables); err != nil {

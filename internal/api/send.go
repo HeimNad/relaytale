@@ -22,13 +22,14 @@ import (
 )
 
 type SendKey struct {
-	Templates   []SendTemplate           `json:"templates,omitempty"`
-	Environment string                   `json:"environment,omitempty"`
-	Streams     []message.StreamPolicy   `json:"streams,omitempty"`
-	Budget      message.SubmissionBudget `json:"budget,omitempty"`
-	ID          string                   `json:"id"`
-	Token       string                   `json:"token"`
-	AllowedFrom []string                 `json:"allowed_from"`
+	UsePublishedTemplates bool                     `json:"use_published_templates,omitempty"`
+	Templates             []SendTemplate           `json:"templates,omitempty"`
+	Environment           string                   `json:"environment,omitempty"`
+	Streams               []message.StreamPolicy   `json:"streams,omitempty"`
+	Budget                message.SubmissionBudget `json:"budget,omitempty"`
+	ID                    string                   `json:"id"`
+	Token                 string                   `json:"token"`
+	AllowedFrom           []string                 `json:"allowed_from"`
 }
 
 func ParseSendKeys(raw string) ([]SendKey, error) {
@@ -139,6 +140,7 @@ func NewSendHandler(ctx context.Context, raw string, receiver message.APIReceive
 		return nil, e
 	}
 	people := make([]*sendIdentity, 0, len(keys))
+	publishedBytes := 0
 	for _, key := range keys {
 		digest := sha256.Sum256([]byte(key.Token))
 		_, e = tx.ExecContext(ctx, `INSERT INTO api_keys(id,name,key_hash,prefix,enabled,submission_minute_limit,submission_hour_limit,submission_day_limit,environment) VALUES($1,$2,$3,'rts_',true,$4,$5,$6,$7)
@@ -149,6 +151,16 @@ func NewSendHandler(ctx context.Context, raw string, receiver message.APIReceive
 		var hash, environment string
 		if e = tx.QueryRowContext(ctx, `SELECT key_hash,environment FROM api_keys WHERE id=$1 AND prefix='rts_' AND enabled`, key.ID).Scan(&hash, &environment); e != nil || hash != hex.EncodeToString(digest[:]) || environment != key.Environment {
 			return nil, errors.New("send API identity conflicts with an existing key")
+		}
+		if key.UsePublishedTemplates {
+			n, err := loadPublishedTemplates(ctx, tx, &key)
+			if err != nil {
+				return nil, errors.New("published template catalog unavailable or invalid")
+			}
+			publishedBytes += n
+			if publishedBytes > 65536 {
+				return nil, errors.New("published template catalog exceeds startup limit")
+			}
 		}
 		if _, e = tx.ExecContext(ctx, `UPDATE api_message_streams SET enabled=false WHERE api_key_id=$1 AND name<>'normal'`, key.ID); e != nil {
 			return nil, e

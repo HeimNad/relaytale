@@ -121,6 +121,12 @@ func TestRecoveryRoundTripAndFailureGates(t *testing.T) {
 	simulation := toolRequest(sandboxHandler, sandboxKey, sandboxID, "simulations", "restore-simulation", simulationBody)
 	requireStatus(t, simulation, 200)
 
+	template := api.SendTemplate{ID: "notice", Text: "Hello"}
+	template.Version = api.TemplateVersion(template)
+	templateRaw, _ := json.Marshal(template)
+	if _, err := api.PublishTemplate(context.Background(), source, sandboxKey.ID, templateRaw, "backup_operator", "template backup test"); err != nil {
+		t.Fatal(err)
+	}
 	bundle := filepath.Join(t.TempDir(), "bundle")
 	ctx := context.Background()
 	opts := recovery.Options{DB: source, DatabaseURL: sourceURL, StorageRoot: f.root, Bundle: bundle, Offline: true}
@@ -206,6 +212,13 @@ func TestRecoveryRoundTripAndFailureGates(t *testing.T) {
 	t.Logf("restore plus verify duration: %s; report: %+v", time.Since(start), report)
 	if report.Messages != 3 || report.AvailableArchives != 2 || report.Unknown != 1 || report.IdempotencyRecords != 2 || report.Retirements != 1 || report.Providers != 1 || !report.GateRetained {
 		t.Fatal(report)
+	}
+	if err = api.VerifyPublishedTemplates(ctx, target); err != nil {
+		t.Fatal("restored template catalog invalid", err)
+	}
+	items, err := api.ListPublishedTemplates(ctx, target, sandboxKey.ID)
+	if err != nil || len(items) != 1 || items[0].Version != template.Version {
+		t.Fatal("template publication lost", err)
 	}
 	var sandboxEnvironment, sandboxStatus string
 	if err = target.QueryRow(`SELECT environment,status FROM messages WHERE id=$1`, sandboxID).Scan(&sandboxEnvironment, &sandboxStatus); err != nil || sandboxEnvironment != "sandbox" || sandboxStatus != "SANDBOX_STORED" {
