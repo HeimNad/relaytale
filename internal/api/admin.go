@@ -134,6 +134,7 @@ func (a Management) operations() http.Handler {
 	mux.HandleFunc("POST /admin/v1/templates/{id}/drafts", a.templateDraftSave)
 	mux.HandleFunc("GET /admin/v1/templates/{id}/drafts/{name}/revisions/{revision}", a.templateDraftSource)
 	mux.HandleFunc("POST /admin/v1/templates/{id}/drafts/{name}/publish", a.templateDraftPublish)
+	mux.HandleFunc("POST /admin/v1/templates/{id}/drafts/{name}/preview", a.templateDraftPreview)
 	mux.HandleFunc("GET /admin/v1/templates/{id}/versions", a.templateVersionList)
 	mux.HandleFunc("POST /admin/v1/templates/{id}/versions/{name}/{version}/retire", a.templateVersionRetire)
 

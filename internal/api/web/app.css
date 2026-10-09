@@ -1161,3 +1161,19 @@ label {
     white-space: nowrap;
   }
 }
+
+.template-preview-result {
+  margin: 28px 0;
+}
+.template-preview-frame {
+  width: 100%;
+  height: 420px;
+  border: 1px solid var(--line);
+  background: white;
+  border-radius: 7px;
+}
+
+.template-preview-form label {
+  display: block;
+  margin-bottom: 16px;
+}

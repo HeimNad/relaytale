@@ -68,7 +68,7 @@ func TestBrowserWorkspaceFixture(t *testing.T) {
 	}
 	sendHandler, sendKey, _ := sendFixture(t, f)
 	mustExec(t, f, "UPDATE api_keys SET name='模板验收网站' WHERE id=$1", sendKey.ID)
-	templateRaw, _ := json.Marshal(api.SendTemplate{ID: "welcome", Subject: "欢迎 {{name}}", Text: "你好 {{name}}", Variables: []string{"name"}, HTML: `<img src="https://untrusted.invalid/template-pixel" onerror="window.injected=true">`})
+	templateRaw, _ := json.Marshal(api.SendTemplate{ID: "welcome", Subject: "欢迎 {{name}}", Text: "你好 {{name}}", Variables: []string{"name"}, HTML: `<p>你好 {{name}}</p><img src="https://untrusted.invalid/template-pixel" onerror="window.injected=true"><a href="https://untrusted.invalid/link">链接文字</a><script>parent.injected=true</script><style>@import "https://untrusted.invalid/style";</style><iframe src="/console/"></iframe><form action="/console/logout"><input name="x"></form><svg onload="parent.injected=true"></svg>`})
 	if _, _, err := api.SaveTemplateDraft(context.Background(), f.db, sendKey.ID, 0, templateRaw, "browser-test", "synthetic template fixture"); err != nil {
 		t.Fatal(err)
 	}

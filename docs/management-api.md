@@ -116,3 +116,5 @@ action 允许 retry/mark-delivered/mark-failed。retry 必须显式 acknowledge_
 ## 模板管理
 
 见 [8F.5b.3 接口与角色说明](phase-8f5b3-template-management.md)。viewer 可查询目录元数据；operator/admin 可读取指定修订源码及保存草稿；只有 admin 可发布和退役。管理身份具有全局运营权限，网站发送凭证不能访问这些接口。发布不自动激活运行快照。
+
+模板预览：operator/admin 可 POST `/templates/{id}/drafts/{name}/preview`，提交精确 revision/version/language 与示例 variables，返回无投递的渲染 JSON；viewer 禁止。封套上限保持 16 KiB，样例不保存。见 [8F.5b.4](phase-8f5b4-template-preview.md)。

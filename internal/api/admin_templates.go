@@ -150,3 +150,58 @@ func (a Management) templateVersionRetire(w http.ResponseWriter, r *http.Request
 	}
 	output(w, 200, map[string]any{"retired": true, "replayed": replayed, "activation": "restart_required"})
 }
+
+// Preview is read-only: sample values are never stored, audited or enqueued.
+func (a Management) templateDraftPreview(w http.ResponseWriter, r *http.Request) {
+	var v struct {
+		Revision  int64           `json:"revision"`
+		Version   string          `json:"version"`
+		Language  string          `json:"language"`
+		Variables json.RawMessage `json:"variables"`
+	}
+	if !body(w, r, &v) {
+		return
+	}
+	id, ok := a.templateIdentity(w, r)
+	if !ok {
+		return
+	}
+	source, err := GetTemplateDraft(r.Context(), a.DB, id, r.PathValue("name"), v.Revision)
+	if err != nil {
+		templateFailure(w, err)
+		return
+	}
+	if source.Version != v.Version || source.Language != v.Language {
+		respond(w, 400, "invalid_template_preview")
+		return
+	}
+	heads, err := ListTemplateDrafts(r.Context(), a.DB, id)
+	if err != nil {
+		templateFailure(w, err)
+		return
+	}
+	current := false
+	for _, head := range heads {
+		if head.ID == source.ID && head.Revision == v.Revision {
+			current = true
+		}
+	}
+	if !current {
+		respond(w, 409, "draft_revision_conflict")
+		return
+	}
+	raw, err := json.Marshal(source)
+	if err != nil {
+		failure(w, err)
+		return
+	}
+	preview, err := PreviewTemplateJSON(raw, v.Variables)
+	if err != nil {
+		respond(w, 400, "invalid_template_preview")
+		return
+	}
+	preview["revision"] = v.Revision
+	preview["identity"] = id
+	preview["rendered_bytes"] = len(preview["subject"].(string)) + len(preview["text"].(string)) + len(preview["html"].(string))
+	output(w, 200, preview)
+}

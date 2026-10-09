@@ -110,6 +110,8 @@ function problem(message, tone = "") {
 function errorText(e) {
   if (S.view === "templates" && e.code === "draft_revision_conflict")
     return "草稿已被修改。你的输入仍保留，请取消后重新读取当前修订并核对，再保存或发布。";
+  if (S.view === "templates" && e.code === "invalid_template_preview")
+    return "无法生成预览。请完整填写声明的变量，核对语言、修订和渲染后的大小。";
   if (S.view === "templates" && e.code === "invalid_template_or_limits")
     return "模板内容或容量不符合要求。核对变量名称、正文和字节限制，再保存。";
   if (S.view === "statistics" && e.status === 400)
@@ -1652,6 +1654,8 @@ async function templatesView(generation) {
   if (generation !== S.generation) return;
   const edit = (draft) =>
     templateEditor(chosen, draft).catch((e) => problem(errorText(e)));
+  const preview = (draft) =>
+    templatePreview(chosen, draft).catch((e) => problem(errorText(e)));
   const review = (draft) =>
     templatePublish(chosen, draft).catch((e) => problem(errorText(e)));
   $("#view").replaceChildren(
@@ -1710,6 +1714,7 @@ async function templatesView(generation) {
                       canWrite() && chosen.enabled
                         ? button("编辑草稿", () => edit(d))
                         : null,
+                      canWrite() ? button("预览内容", () => preview(d)) : null,
                       canAdmin() && chosen.enabled
                         ? button("审阅并发布", () => review(d))
                         : null,
@@ -1967,5 +1972,164 @@ function templateRetire(identity, version) {
         notice: "已记录版本退役，重新加载服务后生效。",
       })),
     "此操作记录退役，需要重新加载服务后生效。",
+  );
+}
+
+// Parse into an inert template, then reconstruct a closed vocabulary. No URLs,
+// attributes, CSS, foreign namespaces or active elements reach the frame.
+function templatePreviewDocument(html) {
+  const inert = document.createElement("template");
+  inert.innerHTML = html;
+  const container = document.createElement("div");
+  const allowed = new Set(
+    "p div span h1 h2 h3 h4 h5 h6 strong b em i u s small sub sup br hr pre code blockquote ul ol li table caption thead tbody tfoot tr td th".split(
+      " ",
+    ),
+  );
+  const dropped = new Set(
+    "script style iframe object embed svg math template noscript head meta link base form input button select textarea video audio source".split(
+      " ",
+    ),
+  );
+  let count = 0;
+  function copy(node, target, depth) {
+    if (++count > 4096 || depth > 64) return;
+    if (node.nodeType === Node.TEXT_NODE) {
+      target.append(document.createTextNode(node.textContent));
+      return;
+    }
+    if (
+      node.nodeType !== Node.ELEMENT_NODE ||
+      node.namespaceURI !== "http://www.w3.org/1999/xhtml"
+    )
+      return;
+    const name = node.localName;
+    if (dropped.has(name)) return;
+    if (name === "img") {
+      target.append(document.createTextNode("[图片已隐藏]"));
+      return;
+    }
+    const next = allowed.has(name) ? document.createElement(name) : target;
+    if (next !== target) target.append(next);
+    for (const child of node.childNodes) copy(child, next, depth + 1);
+  }
+  for (const node of inert.content.childNodes) copy(node, container, 0);
+  return (
+    "<!doctype html><html><head><meta charset=\"utf-8\"><meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; base-uri 'none'; form-action 'none'\"></head><body>" +
+    container.innerHTML +
+    "</body></html>"
+  );
+}
+
+async function templatePreview(identity, draft) {
+  const generation = S.generation;
+  const source = await api(
+    `templates/${identity.id}/drafts/${draft.id}/revisions/${draft.revision}`,
+  );
+  if (generation !== S.generation) return;
+  const results = el("section", {
+    class: "template-preview-result",
+    "aria-live": "polite",
+  });
+  const error = el("p", { class: "form-error", role: "alert" });
+  const render = el("button", { type: "submit", class: "primary" }, "生成预览");
+  const publish = button(
+    "审阅并发布这个修订",
+    () => templatePublish(identity, draft).catch((e) => problem(errorText(e))),
+    "primary",
+  );
+  publish.disabled = true;
+  let requestNumber = 0;
+  const form = el(
+    "form",
+    {
+      class: "template-preview-form",
+      onInput: () => {
+        requestNumber++;
+        results.replaceChildren();
+        publish.disabled = true;
+        error.textContent = "";
+      },
+      onSubmit: async (e) => {
+        e.preventDefault();
+        if (!form.reportValidity()) return;
+        const number = ++requestNumber;
+        results.replaceChildren();
+        publish.disabled = true;
+        error.textContent = "";
+        render.disabled = true;
+        const values = Object.fromEntries(new FormData(form));
+        try {
+          const value = await api(
+            `templates/${identity.id}/drafts/${draft.id}/preview`,
+            {
+              revision: draft.revision,
+              version: source.version,
+              language: source.language || "",
+              variables: values,
+            },
+          );
+          if (generation !== S.generation || number !== requestNumber) return;
+          const frame = el("iframe", {
+            title: "隔离 HTML 预览",
+            sandbox: "",
+            referrerpolicy: "no-referrer",
+            class: "template-preview-frame",
+          });
+          frame.srcdoc = templatePreviewDocument(value.html);
+          results.replaceChildren(
+            el("h2", {}, "渲染结果"),
+            el(
+              "p",
+              { class: "muted" },
+              `修订 ${value.revision} · 渲染内容 ${value.rendered_bytes} 字节`,
+            ),
+            el("h3", {}, "主题"),
+            el("p", {}, value.subject || "（无主题）"),
+            el("h3", {}, "纯文本"),
+            el(
+              "pre",
+              { class: "template-source" },
+              value.text || "（无纯文本）",
+            ),
+            el("h3", {}, "HTML 结构预览"),
+            value.html ? frame : el("p", {}, "（无 HTML）"),
+          );
+          publish.disabled = false;
+        } catch (e) {
+          if (generation === S.generation && number === requestNumber)
+            error.textContent = errorText(e);
+        } finally {
+          render.disabled = false;
+        }
+      },
+    },
+    el("h2", {}, "示例变量"),
+    el(
+      "p",
+      { class: "muted" },
+      "只用于本次预览，不保存、不发送。修改变量后需要重新生成。",
+    ),
+    ...source.variables.map((name) =>
+      field(name, name, "", "text", { maxlength: 1024 }),
+    ),
+    error,
+    render,
+  );
+  $("#view").replaceChildren(
+    heading(
+      "预览模板",
+      `${identity.name} / ${source.id} / 修订 ${draft.revision}`,
+      button("返回模板目录", () => route(false)),
+    ),
+    facts({ 内容版本: source.version, 语言: source.language || "未指定" }),
+    el(
+      "p",
+      { class: "callout" },
+      "受限预览保留文字和基本结构，移除图片、链接、样式及活动内容。它不是邮件客户端的最终显示效果，也不会发送邮件。",
+    ),
+    form,
+    results,
+    ...(canAdmin() && identity.enabled ? [publish] : []),
   );
 }

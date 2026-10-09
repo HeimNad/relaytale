@@ -21,6 +21,8 @@ func TestManagementGuardsBeforeDatabase(t *testing.T) {
 		name, method, path, token, body, origin string
 		want                                    int
 	}{
+		{"viewer preview", "POST", "/admin/v1/templates/00000000-0000-0000-0000-000000000001/drafts/notice/preview", strings.Repeat("v", 32), `{}`, "", 403},
+		{"preview actor spoof", "POST", "/admin/v1/templates/00000000-0000-0000-0000-000000000001/drafts/notice/preview", strings.Repeat("o", 32), `{"actor":"owner"}`, "", 400},
 		{"viewer draft source", "GET", "/admin/v1/templates/00000000-0000-0000-0000-000000000001/drafts/notice/revisions/1", strings.Repeat("v", 32), "", "", 403},
 		{"operator publish", "POST", "/admin/v1/templates/00000000-0000-0000-0000-000000000001/drafts/notice/publish", strings.Repeat("o", 32), `{}`, "", 403},
 		{"operator retire", "POST", "/admin/v1/templates/00000000-0000-0000-0000-000000000001/versions/notice/v/retire", strings.Repeat("o", 32), `{}`, "", 403},

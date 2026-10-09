@@ -12,7 +12,7 @@ Your Apps → SMTP ingress → Durable queue + EML archive → Provider router
                             Event ledger         Your existing SMTP providers
 ```
 
-## 当前进度：Phase 8F.5b.3（模板管理工作台）
+## 当前进度：Phase 8F.5b.4（模板渲染预览）
 
 已实现 Go 服务入口、配置优先级、PostgreSQL 连接、内嵌 Goose 迁移、核心数据库表、存储可写检查、健康接口、JSON 日志、优雅退出和 Docker Compose。
 
@@ -281,3 +281,5 @@ Phase 5A 已实现 suppression 与人工解除、可信退信设计及身份验�
 `make ci` 检查全仓库 gofmt、go vet、构建及竞态测试，必须设置隔离的 `TEST_DATABASE_URL`，缺少数据库会失败。GitHub Actions 自动提供 PostgreSQL。可通过 `docker compose -p relaytale-safety-test --profile test run --build --rm test make ci` 在 Linux 容器中复现。多来源 SMTP 协议测试在 macOS 跳过，在 Linux CI 执行；持续负载测试仍需单独显式启用。
 
 已增加 [模板管理工作台](docs/phase-8f5b3-template-management.md)：按网站查看目录、编辑有界草稿、保留并发冲突输入、审阅精确修订后发布及确认退役。采用 Impeccable 指导优化桌面和手机布局。发布仍需身份显式启用并重启，源码审阅不渲染 HTML。
+
+已增加 [模板渲染预览](docs/phase-8f5b4-template-preview.md)：填写示例变量，检查精确修订的主题、纯文本和受限 HTML 结构。样例不保存、不发送，外部资源与活动内容被移除；预览不代表邮件客户端最终效果。

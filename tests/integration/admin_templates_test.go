@@ -31,6 +31,33 @@ func TestTemplateManagementRolesPublicationAndIsolation(t *testing.T) {
 	sourcePath := base + "/drafts/notice/revisions/1"
 	requireStatus(t, adminRequest(h, "GET", sourcePath, "v", nil), 403)
 	requireStatus(t, adminRequest(h, "GET", sourcePath, "o", nil), 200)
+	previewPath := base + "/drafts/notice/preview"
+	preview := map[string]any{"revision": 1, "version": v.Version, "language": v.Language, "variables": map[string]string{"name": "<script>sample</script>"}}
+	requireStatus(t, adminRequest(h, "POST", previewPath, "v", preview), 403)
+	result := adminRequest(h, "POST", previewPath, "o", preview)
+	requireStatus(t, result, 200)
+	var rendered map[string]any
+	if err := json.Unmarshal(result.Body.Bytes(), &rendered); err != nil || rendered["dry_run"] != true || rendered["revision"] != float64(1) || rendered["identity"] != key.ID {
+		t.Fatal(rendered, err)
+	}
+	var beforeMessages, beforeAudit int
+	f.db.QueryRow("SELECT count(*) FROM messages").Scan(&beforeMessages)
+	f.db.QueryRow("SELECT count(*) FROM maintenance_audit").Scan(&beforeAudit)
+	requireStatus(t, adminRequest(h, "POST", previewPath, "o", preview), 200)
+	var afterMessages, afterAudit int
+	f.db.QueryRow("SELECT count(*) FROM messages").Scan(&afterMessages)
+	f.db.QueryRow("SELECT count(*) FROM maintenance_audit").Scan(&afterAudit)
+	if beforeMessages != afterMessages || beforeAudit != afterAudit {
+		t.Fatal("preview wrote persistent state")
+	}
+	for _, bad := range []map[string]any{
+		{"revision": 1, "version": v.Version, "language": "en", "variables": map[string]string{"name": "a"}},
+		{"revision": 1, "version": "wrong", "variables": map[string]string{"name": "a"}},
+		{"revision": 1, "version": v.Version, "variables": map[string]string{}},
+		{"revision": 1, "version": v.Version, "variables": map[string]string{"name": strings.Repeat("x", 1025)}},
+	} {
+		requireStatus(t, adminRequest(h, "POST", previewPath, "o", bad), 400)
+	}
 	publish := map[string]any{"revision": 1, "version": v.Version, "reason": "reviewed"}
 	requireStatus(t, adminRequest(h, "POST", base+"/drafts/notice/publish", "o", publish), 403)
 	requireStatus(t, adminRequest(h, "POST", base+"/drafts/notice/publish", "a", publish), 200)
@@ -44,6 +71,7 @@ func TestTemplateManagementRolesPublicationAndIsolation(t *testing.T) {
 	payload["expected_revision"] = 1
 	requireStatus(t, adminRequest(h, "POST", base+"/drafts", "o", payload), 200)
 	requireStatus(t, adminRequest(h, "POST", base+"/drafts", "o", payload), 200)
+	requireStatus(t, adminRequest(h, "POST", previewPath, "o", preview), 409)
 	v.Text = "different {{name}}"
 	payload["template"] = v
 	requireStatus(t, adminRequest(h, "POST", base+"/drafts", "o", payload), 409)
