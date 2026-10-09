@@ -17,9 +17,14 @@ func runTemplates(ctx context.Context, db *sql.DB, command string, args []string
 	f := flag.NewFlagSet(command, flag.ContinueOnError)
 	id := f.String("api-key-id", "", "existing website credential UUID")
 	actor, reason := new(string), new(string)
-	if command == "publish-template" {
+	if command == "publish-template" || command == "retire-template" {
 		actor = f.String("actor", "", "required operator audit identity")
 		reason = f.String("reason", "", "required audit reason without secrets")
+	}
+	var name, version *string
+	if command == "retire-template" {
+		name = f.String("id", "", "template ID")
+		version = f.String("version", "", "exact immutable version")
 	}
 	if err := f.Parse(args); err != nil {
 		return err
@@ -35,6 +40,13 @@ func runTemplates(ctx context.Context, db *sql.DB, command string, args []string
 			return errors.New("template listing unavailable; verify identity and database")
 		}
 		return json.NewEncoder(os.Stdout).Encode(items)
+	}
+	if command == "retire-template" {
+		replayed, err := api.RetireTemplate(bounded, db, *id, *name, *version, *actor, *reason)
+		if err != nil {
+			return errors.New("template retirement not confirmed; verify identity, version, audit and database")
+		}
+		return json.NewEncoder(os.Stdout).Encode(map[string]any{"retired": true, "replayed": replayed, "activation": "restart_required"})
 	}
 	raw, err := io.ReadAll(io.LimitReader(os.Stdin, (32<<10)+1))
 	if err != nil {

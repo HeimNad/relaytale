@@ -127,6 +127,9 @@ func TestRecoveryRoundTripAndFailureGates(t *testing.T) {
 	if _, err := api.PublishTemplate(context.Background(), source, sandboxKey.ID, templateRaw, "backup_operator", "template backup test"); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := api.RetireTemplate(context.Background(), source, sandboxKey.ID, template.ID, template.Version, "backup_operator", "retirement backup test"); err != nil {
+		t.Fatal(err)
+	}
 	bundle := filepath.Join(t.TempDir(), "bundle")
 	ctx := context.Background()
 	opts := recovery.Options{DB: source, DatabaseURL: sourceURL, StorageRoot: f.root, Bundle: bundle, Offline: true}
@@ -217,7 +220,7 @@ func TestRecoveryRoundTripAndFailureGates(t *testing.T) {
 		t.Fatal("restored template catalog invalid", err)
 	}
 	items, err := api.ListPublishedTemplates(ctx, target, sandboxKey.ID)
-	if err != nil || len(items) != 1 || items[0].Version != template.Version {
+	if err != nil || len(items) != 1 || items[0].Version != template.Version || items[0].RetiredAt == nil {
 		t.Fatal("template publication lost", err)
 	}
 	var sandboxEnvironment, sandboxStatus string

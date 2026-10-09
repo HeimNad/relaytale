@@ -146,6 +146,12 @@ func TestRestrictedDatabaseRoleDeliveryAndBoundaries(t *testing.T) {
 	if _, err := restricted.ExecContext(ctx, "UPDATE api_template_versions SET language='en'"); err == nil {
 		t.Fatal("immutable template update permitted")
 	}
+	if _, err := api.RetireTemplate(ctx, restricted, templateKey.ID, template.ID, template.Version, "operator", "restricted retirement test"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := restricted.ExecContext(ctx, "DELETE FROM api_template_retirements"); err == nil {
+		t.Fatal("retirement history deletion permitted")
+	}
 	g, err := database.AcquireRuntime(ctx, restricted)
 	if err != nil {
 		t.Fatal(err)

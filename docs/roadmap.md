@@ -129,7 +129,7 @@ Generic SMTP（STARTTLS / implicit TLS）、Provider 凭证加密、priority 与
 
 **8E：业务网站接入保护（分段实现）。** [8E.1 业务关联与检索](phase-8e1-business-reference.md) 已完成本地验收：有界 ID/标签、稳定身份范围检索、指纹兼容与冲突、显式 v2 状态/通知，以及备份恢复。8E.2a 已完成网站提交预算本地验收；8E.2b 共享 Provider 账号额度已完成本地验收；8E.2c 消息流/公平调度已完成本地验收；8E.2d expires_at 已完成本地验收；8E.3a 已完成本地验收：独立不可变测试身份、零 SMTP 投递与明确标记的签名通知；[8E.3b](phase-8e3b-sandbox-tools.md) 已完成网站示例、契约、MIME 检查与受控模拟。复用现有身份、配额和 DATA 授权，过期不能抹去可能已发送事实。
 
-**8F：可选 JSON 构建与版本化模板（分段实现）。** 8F.1 [简单 JSON 发信](phase-8f1-json-submission.md) 增加有界纯文本/HTML、显示名/Reply-To 与确定性 MIME 构建，复用原提交入口、幂等和队列；8F.2 [JSON 附件](phase-8f2-json-attachments.md) 增加有界本地内容、严格元数据与 multipart/mixed，保留无附件 json-v1 字节兼容；8F.3 [固定版本模板](phase-8f3-versioned-templates.md) 增加逐网站配置目录、内容寻址版本、严格变量与上下文转义，复用稳定 EML；8F.4 [本地预览与语言版本](phase-8f4-template-preview.md) 增加无投递的 JSON 源码预览、明确语言选择和兼容构建；8F.5a [持久模板目录](phase-8f5a-persistent-templates.md) 提供不可改写版本、事务审计发布、逐网站显式启用与启动快照，以及备份恢复校验；浏览器预览、草稿与工作台发布后续推进。原始 EML 入口保持透明；生成 MIME 固化后复用现有队列，模板变更不能改变重试正文。
+**8F：可选 JSON 构建与版本化模板（分段实现）。** 8F.1 [简单 JSON 发信](phase-8f1-json-submission.md) 增加有界纯文本/HTML、显示名/Reply-To 与确定性 MIME 构建，复用原提交入口、幂等和队列；8F.2 [JSON 附件](phase-8f2-json-attachments.md) 增加有界本地内容、严格元数据与 multipart/mixed，保留无附件 json-v1 字节兼容；8F.3 [固定版本模板](phase-8f3-versioned-templates.md) 增加逐网站配置目录、内容寻址版本、严格变量与上下文转义，复用稳定 EML；8F.4 [本地预览与语言版本](phase-8f4-template-preview.md) 增加无投递的 JSON 源码预览、明确语言选择和兼容构建；8F.5a [持久模板目录](phase-8f5a-persistent-templates.md) 提供不可改写版本、事务审计发布、逐网站显式启用与启动快照，以及备份恢复校验；8F.5b.1 [版本退役](phase-8f5b1-template-retirement.md) 增加不可逆退役、活跃/历史分离限额与恢复校验，需等待业务请求重试窗口并重启生效；浏览器预览、草稿与工作台发布后续推进。原始 EML 入口保持透明；生成 MIME 固化后复用现有队列，模板变更不能改变重试正文。
 
 **8G：定时与受控取消（后续）。** 明确时间/容量限制及取消与 DATA 授权的竞争边界；不承诺撤回已发出或 UNKNOWN 的邮件。8E–8G 的场景与验收详见 [业务网站能力规划](business-website-capabilities.md)。
 

@@ -46,7 +46,7 @@ func runOperation(command string, args []string) (runErr error) {
 	}
 	defer finish(&runErr)
 	switch command {
-	case "publish-template", "list-templates":
+	case "publish-template", "list-templates", "retire-template":
 		return runTemplates(ctx, db, command, args)
 	case "capacity-report":
 		return runCapacity(ctx, db, args)

@@ -20,7 +20,7 @@ var ErrTemplateCatalog = errors.New("invalid template publication, identity or c
 func VerifyPublishedTemplates(ctx context.Context, q interface {
 	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
 }) error {
-	rows, err := q.QueryContext(ctx, `SELECT v.api_key_id,v.template_id,v.version,v.language,v.definition,v.definition_sha256,k.prefix,a.action,a.data->>'api_key_id',a.data->>'id',a.data->>'version',a.data->>'definition_sha256'
+	rows, err := q.QueryContext(ctx, `SELECT v.api_key_id,v.template_id,v.version,v.language,v.definition,v.definition_sha256,k.prefix,a.action,a.data->>'api_key_id',a.data->>'id',a.data->>'version',a.data->>'definition_sha256',EXISTS(SELECT 1 FROM api_template_retirements r WHERE r.api_key_id=v.api_key_id AND r.template_id=v.template_id AND r.version=v.version)
  FROM api_template_versions v JOIN api_keys k ON k.id=v.api_key_id JOIN maintenance_audit a ON a.id=v.audit_id ORDER BY v.api_key_id,v.template_id,v.version`)
 	if err != nil {
 		return err
@@ -28,20 +28,30 @@ func VerifyPublishedTemplates(ctx context.Context, q interface {
 	defer rows.Close()
 	last := ""
 	count, size := 0, 0
+	activeCount, activeSize := 0, 0
 	for rows.Next() {
 		var identity, id, version, language, definition, hash, prefix, action string
+		var retired bool
 		var auditIdentity, auditID, auditVersion, auditHash sql.NullString
-		if err = rows.Scan(&identity, &id, &version, &language, &definition, &hash, &prefix, &action, &auditIdentity, &auditID, &auditVersion, &auditHash); err != nil {
+		if err = rows.Scan(&identity, &id, &version, &language, &definition, &hash, &prefix, &action, &auditIdentity, &auditID, &auditVersion, &auditHash, &retired); err != nil {
 			return err
 		}
 		if identity != last {
 			last = identity
 			count = 0
 			size = 0
+			activeCount, activeSize = 0, 0
 		}
 		count++
+		if !retired {
+			activeCount++
+			activeSize += len(definition)
+		}
+		if activeCount > 8 || activeSize > 65536 {
+			return ErrTemplateCatalog
+		}
 		size += len(definition)
-		if count > 8 || size > 65536 || prefix != "rts_" || action != "TEMPLATE_PUBLISHED" || !auditIdentity.Valid || auditIdentity.String != identity || !auditID.Valid || auditID.String != id || !auditVersion.Valid || auditVersion.String != version || !auditHash.Valid || auditHash.String != hash {
+		if count > 64 || size > 524288 || prefix != "rts_" || action != "TEMPLATE_PUBLISHED" || !auditIdentity.Valid || auditIdentity.String != identity || !auditID.Valid || auditID.String != id || !auditVersion.Valid || auditVersion.String != version || !auditHash.Valid || auditHash.String != hash {
 			return ErrTemplateCatalog
 		}
 		digest := sha256.Sum256([]byte(definition))
@@ -50,16 +60,20 @@ func VerifyPublishedTemplates(ctx context.Context, q interface {
 			return ErrTemplateCatalog
 		}
 	}
-	return rows.Err()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	return verifyTemplateRetirements(ctx, q)
 }
 
 type PublishedTemplate struct {
-	ID          string    `json:"id"`
-	Version     string    `json:"version"`
-	Language    string    `json:"language"`
-	Bytes       int       `json:"bytes"`
-	PublishedAt time.Time `json:"published_at"`
-	AuditID     string    `json:"audit_id"`
+	ID          string     `json:"id"`
+	Version     string     `json:"version"`
+	Language    string     `json:"language"`
+	Bytes       int        `json:"bytes"`
+	PublishedAt time.Time  `json:"published_at"`
+	AuditID     string     `json:"audit_id"`
+	RetiredAt   *time.Time `json:"retired_at,omitempty"`
 }
 
 func canonicalTemplate(t SendTemplate) ([]byte, error) {
@@ -123,7 +137,21 @@ func PublishTemplate(ctx context.Context, db *sql.DB, identity string, raw []byt
 	if err = tx.QueryRowContext(ctx, "SELECT count(*),coalesce(sum(octet_length(definition)),0) FROM api_template_versions WHERE api_key_id=$1", identity).Scan(&count, &size); err != nil {
 		return false, err
 	}
-	if count >= 8 || size+len(definition) > 65536 {
+	if count >= 64 || size+len(definition) > 524288 {
+		return false, ErrTemplateCatalog
+	}
+	var invalidRetirement bool
+	if err = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM api_template_retirements r JOIN maintenance_audit a ON a.id=r.audit_id WHERE r.api_key_id=$1 AND NOT coalesce(a.action='TEMPLATE_RETIRED' AND a.data->>'api_key_id'=r.api_key_id::text AND a.data->>'id'=r.template_id AND a.data->>'version'=r.version,false))`, identity).Scan(&invalidRetirement); err != nil {
+		return false, err
+	}
+	if invalidRetirement {
+		return false, ErrTemplateCatalog
+	}
+	var activeCount, activeSize int
+	if err = tx.QueryRowContext(ctx, `SELECT count(*),coalesce(sum(octet_length(v.definition)),0) FROM api_template_versions v WHERE v.api_key_id=$1 AND NOT EXISTS(SELECT 1 FROM api_template_retirements r WHERE r.api_key_id=v.api_key_id AND r.template_id=v.template_id AND r.version=v.version)`, identity).Scan(&activeCount, &activeSize); err != nil {
+		return false, err
+	}
+	if activeCount >= 8 || activeSize+len(definition) > 65536 {
 		return false, ErrTemplateCatalog
 	}
 	digest := sha256.Sum256(definition)
@@ -145,7 +173,7 @@ func ListPublishedTemplates(ctx context.Context, db *sql.DB, identity string) ([
 	if err != nil || id == uuid.Nil || id.String() != identity {
 		return nil, ErrTemplateCatalog
 	}
-	rows, err := db.QueryContext(ctx, "SELECT template_id,version,language,octet_length(definition),published_at,audit_id FROM api_template_versions WHERE api_key_id=$1 ORDER BY template_id,version LIMIT 9", identity)
+	rows, err := db.QueryContext(ctx, "SELECT v.template_id,v.version,v.language,octet_length(v.definition),v.published_at,v.audit_id,r.retired_at FROM api_template_versions v LEFT JOIN api_template_retirements r USING(api_key_id,template_id,version) WHERE v.api_key_id=$1 ORDER BY v.template_id,v.version LIMIT 65", identity)
 	if err != nil {
 		return nil, err
 	}
@@ -153,12 +181,12 @@ func ListPublishedTemplates(ctx context.Context, db *sql.DB, identity string) ([
 	out := []PublishedTemplate{}
 	for rows.Next() {
 		var v PublishedTemplate
-		if err = rows.Scan(&v.ID, &v.Version, &v.Language, &v.Bytes, &v.PublishedAt, &v.AuditID); err != nil {
+		if err = rows.Scan(&v.ID, &v.Version, &v.Language, &v.Bytes, &v.PublishedAt, &v.AuditID, &v.RetiredAt); err != nil {
 			return nil, err
 		}
 		out = append(out, v)
 	}
-	if len(out) > 8 {
+	if len(out) > 64 {
 		return nil, ErrTemplateCatalog
 	}
 	return out, rows.Err()
@@ -167,29 +195,43 @@ func ListPublishedTemplates(ctx context.Context, db *sql.DB, identity string) ([
 // A transaction snapshots the explicit directory at startup. No request-time
 // compilation or mutable lookup can silently change an in-flight submission.
 func loadPublishedTemplates(ctx context.Context, tx *sql.Tx, key *SendKey) (int, error) {
-	rows, err := tx.QueryContext(ctx, `SELECT v.template_id,v.version,v.language,v.definition,v.definition_sha256,coalesce(a.action='TEMPLATE_PUBLISHED' AND a.data->>'api_key_id'=v.api_key_id::text AND a.data->>'id'=v.template_id AND a.data->>'version'=v.version AND a.data->>'definition_sha256'=v.definition_sha256,false) FROM api_template_versions v JOIN maintenance_audit a ON a.id=v.audit_id WHERE v.api_key_id=$1 ORDER BY v.template_id,v.version LIMIT 9`, key.ID)
+	rows, err := tx.QueryContext(ctx, `SELECT v.template_id,v.version,v.language,v.definition,v.definition_sha256,coalesce(a.action='TEMPLATE_PUBLISHED' AND a.data->>'api_key_id'=v.api_key_id::text AND a.data->>'id'=v.template_id AND a.data->>'version'=v.version AND a.data->>'definition_sha256'=v.definition_sha256,false),r.retired_at,coalesce(r.audit_id IS NULL OR (ra.action='TEMPLATE_RETIRED' AND ra.data->>'api_key_id'=v.api_key_id::text AND ra.data->>'id'=v.template_id AND ra.data->>'version'=v.version),false) FROM api_template_versions v JOIN maintenance_audit a ON a.id=v.audit_id LEFT JOIN api_template_retirements r USING(api_key_id,template_id,version) LEFT JOIN maintenance_audit ra ON ra.id=r.audit_id WHERE v.api_key_id=$1 ORDER BY v.template_id,v.version LIMIT 65`, key.ID)
 	if err != nil {
 		return 0, err
 	}
 	defer rows.Close()
 	count, size := 0, 0
+	totalSize := 0
 	for rows.Next() {
 		count++
-		if count > 8 {
+		if count > 64 {
 			return 0, ErrTemplateCatalog
 		}
 		var id, version, language, definition, hash string
-		var auditValid bool
-		if err = rows.Scan(&id, &version, &language, &definition, &hash, &auditValid); err != nil {
+		var auditValid, retirementValid bool
+		var retiredAt sql.NullTime
+		if err = rows.Scan(&id, &version, &language, &definition, &hash, &auditValid, &retiredAt, &retirementValid); err != nil {
 			return 0, err
 		}
 		digest := sha256.Sum256([]byte(definition))
-		if !auditValid || hex.EncodeToString(digest[:]) != hash {
+		if !auditValid || !retirementValid || hex.EncodeToString(digest[:]) != hash {
 			return 0, ErrTemplateCatalog
 		}
 		t, err := VersionTemplateJSON([]byte(definition))
 		if err != nil || t.ID != id || t.Version != version || t.Language != language {
 			return 0, ErrTemplateCatalog
+		}
+		totalSize += len(definition)
+		if totalSize > 524288 {
+			return 0, ErrTemplateCatalog
+		}
+		if retiredAt.Valid {
+			for _, static := range key.Templates {
+				if static.ID == id && static.Version == version {
+					return 0, ErrTemplateCatalog
+				}
+			}
+			continue
 		}
 		size += len(definition)
 		if size > 65536 {
