@@ -12,7 +12,7 @@ Your Apps → SMTP ingress → Durable queue + EML archive → Provider router
                             Event ledger         Your existing SMTP providers
 ```
 
-## 当前进度：Phase 8F.5b.4（模板渲染预览）
+## 当前进度：Phase 8G.1（定时准入与发送门闩）
 
 已实现 Go 服务入口、配置优先级、PostgreSQL 连接、内嵌 Goose 迁移、核心数据库表、存储可写检查、健康接口、JSON 日志、优雅退出和 Docker Compose。
 
@@ -283,3 +283,5 @@ Phase 5A 已实现 suppression 与人工解除、可信退信设计及身份验�
 已增加 [模板管理工作台](docs/phase-8f5b3-template-management.md)：按网站查看目录、编辑有界草稿、保留并发冲突输入、审阅精确修订后发布及确认退役。采用 Impeccable 指导优化桌面和手机布局。发布仍需身份显式启用并重启，源码审阅不渲染 HTML。
 
 已增加 [模板渲染预览](docs/phase-8f5b4-template-preview.md)：填写示例变量，检查精确修订的主题、纯文本和受限 HTML 结构。样例不保存、不发送，外部资源与活动内容被移除；预览不代表邮件客户端最终效果。
+
+已增加 [定时提交](docs/phase-8g1-scheduled-submission.md)：网站可指定不可改写的最早发送时间，未来排期受容量与幂等保护，到点前不领取或授权 DATA。不承诺准点入箱；取消将在 8G.2 实现。

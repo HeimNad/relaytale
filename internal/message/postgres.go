@@ -43,6 +43,10 @@ func enqueueTx(ctx context.Context, tx *sql.Tx, s Submission, source, apiKeyID, 
 	if expiryErr != nil || source != "api" && expiry != "" {
 		return ErrInvalidSubmission
 	}
+	schedule, scheduleErr := CanonicalExpiry(s.ScheduleAt)
+	if scheduleErr != nil || source != "api" && schedule != "" {
+		return ErrInvalidSubmission
+	}
 	stream, err := CanonicalStream(s.Stream)
 	if err != nil || source != "api" && stream != "normal" {
 		return ErrInvalidSubmission
@@ -58,8 +62,8 @@ func enqueueTx(ctx context.Context, tx *sql.Tx, s Submission, source, apiKeyID, 
 	}
 	queued := time.Now().UTC()
 	_, err = tx.ExecContext(ctx, `INSERT INTO messages
- (id,message_id,source_type,smtp_account_id,envelope_from,header_from,subject,created_at,queued_at,status,eml_path,eml_size,eml_sha256,next_attempt_at,api_key_id,idempotency_key,client_reference,business_tags,message_stream,expires_at,environment)
- VALUES($1,$2,$12,NULLIF($3,'')::uuid,$4,$5,$6,$7,$8,$19,$9,$10,$11,CASE WHEN $20='production' THEN $8::timestamptz ELSE NULL END,NULLIF($13,'')::uuid,NULLIF($14,''),$15,$16,$17,NULLIF($18,'')::timestamptz,$20)`, s.ID, s.MessageID, s.Envelope.Account.ID, s.Envelope.From, s.HeaderFrom, s.Subject, s.ReceivedAt, queued, s.Archive.Path, s.Archive.Size, s.Archive.SHA256, source, apiKeyID, keyHash, business.ClientReference, business.Tags, stream, expiry, status, environment)
+ (id,message_id,source_type,smtp_account_id,envelope_from,header_from,subject,created_at,queued_at,status,eml_path,eml_size,eml_sha256,next_attempt_at,api_key_id,idempotency_key,client_reference,business_tags,message_stream,expires_at,environment,schedule_at)
+ VALUES($1,$2,$12,NULLIF($3,'')::uuid,$4,$5,$6,$7,$8,$19,$9,$10,$11,CASE WHEN $20='production' THEN greatest($8::timestamptz,NULLIF($21,'')::timestamptz) ELSE NULL END,NULLIF($13,'')::uuid,NULLIF($14,''),$15,$16,$17,NULLIF($18,'')::timestamptz,$20,NULLIF($21,'')::timestamptz)`, s.ID, s.MessageID, s.Envelope.Account.ID, s.Envelope.From, s.HeaderFrom, s.Subject, s.ReceivedAt, queued, s.Archive.Path, s.Archive.Size, s.Archive.SHA256, source, apiKeyID, keyHash, business.ClientReference, business.Tags, stream, expiry, status, environment, schedule)
 	if err != nil {
 		return err
 	}
@@ -113,6 +117,9 @@ func enqueueTx(ctx context.Context, tx *sql.Tx, s Submission, source, apiKeyID, 
 		}
 		if event.kind == "MESSAGE_RECEIVED" {
 			eventData["message_stream"] = stream
+			if schedule != "" {
+				eventData["schedule_at"] = schedule
+			}
 			if expiry != "" {
 				eventData["expires_at"] = expiry
 			}

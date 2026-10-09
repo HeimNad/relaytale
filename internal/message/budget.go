@@ -30,7 +30,7 @@ var ErrSubmissionDisabled = errors.New("website submission disabled")
 // NO KEY UPDATE lock is compatible with FK KEY SHARE locks already taken by the
 // idempotency ledger, avoiding a concurrent lock-upgrade deadlock. Always read
 // usage in a separate statement after acquiring the lock (READ COMMITTED).
-func reserveSubmission(ctx context.Context, tx *sql.Tx, identity, id string, units int, stream string, expiresAt time.Time) error {
+func reserveSubmission(ctx context.Context, tx *sql.Tx, identity, id string, units int, stream string, expiresAt, scheduleAt time.Time, size int64) error {
 	stream, err := CanonicalStream(stream)
 	if err != nil {
 		return err
@@ -51,6 +51,9 @@ func reserveSubmission(ctx context.Context, tx *sql.Tx, identity, id string, uni
 		if tooFar {
 			return ErrInvalidExpiry
 		}
+	}
+	if err = admitSchedule(ctx, tx, identity, scheduleAt, expiresAt, size); err != nil {
+		return err
 	}
 	if !enabled {
 		return ErrSubmissionDisabled

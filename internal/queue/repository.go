@@ -114,7 +114,7 @@ func (r Repository) Claim(ctx context.Context) (Job, error) {
 		return Job{}, err
 	}
 	var attemptNumber int
-	err = tx.QueryRowContext(ctx, `UPDATE messages SET route_provider_id=$4,status='SENDING',locked_at=now(),locked_by=$2,lease_expires_at=now()+($3 * interval '1 second'),attempt_count=attempt_count+1 WHERE id=$1 AND (expires_at IS NULL OR expires_at>clock_timestamp()) RETURNING attempt_count`, j.ID, j.Token, seconds+30, j.Provider.ID).Scan(&attemptNumber)
+	err = tx.QueryRowContext(ctx, `UPDATE messages SET route_provider_id=$4,status='SENDING',locked_at=now(),locked_by=$2,lease_expires_at=now()+($3 * interval '1 second'),attempt_count=attempt_count+1 WHERE id=$1 AND (schedule_at IS NULL OR schedule_at<=clock_timestamp()) AND (expires_at IS NULL OR expires_at>clock_timestamp()) RETURNING attempt_count`, j.ID, j.Token, seconds+30, j.Provider.ID).Scan(&attemptNumber)
 	if err == sql.ErrNoRows {
 		return Job{}, ErrNoJob
 	}

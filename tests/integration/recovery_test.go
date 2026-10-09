@@ -68,6 +68,7 @@ func TestRecoveryRoundTripAndFailureGates(t *testing.T) {
 	identity := testAPIKey(t, f)
 	sub.Stream = "otp"
 	sub.ExpiresAt = time.Now().UTC().Truncate(time.Second).Add(time.Hour)
+	sub.ScheduleAt = time.Now().UTC().Truncate(time.Second).Add(time.Minute)
 	mustExec(t, f, `INSERT INTO api_message_streams(api_key_id,name,weight,day_limit) VALUES($1,'otp',3,5)`, identity)
 	mustExec(t, f, `UPDATE api_keys SET submission_day_limit=1 WHERE id=$1`, identity)
 	result, err := (message.Postgres{DB: f.db}).EnqueueIdempotent(context.Background(), sub, identity, "backup-key")
@@ -255,6 +256,10 @@ func TestRecoveryRoundTripAndFailureGates(t *testing.T) {
 	replay, err := (message.Postgres{DB: target}).EnqueueIdempotent(ctx, sub, identity, "backup-key")
 	if err != nil || !replay.Replayed || replay.MessageID != result.MessageID {
 		t.Fatal(replay, err)
+	}
+	var restoredSchedule time.Time
+	if err = target.QueryRow(`SELECT schedule_at FROM messages WHERE id=$1`, result.MessageID).Scan(&restoredSchedule); err != nil || !restoredSchedule.Equal(sub.ScheduleAt) {
+		t.Fatal("schedule did not survive restore", err)
 	}
 	var restoredExpiry time.Time
 	if err = target.QueryRow(`SELECT expires_at FROM messages WHERE id=$1`, result.MessageID).Scan(&restoredExpiry); err != nil || !restoredExpiry.Equal(sub.ExpiresAt) {

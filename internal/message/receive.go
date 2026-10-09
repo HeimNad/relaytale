@@ -26,6 +26,7 @@ type Envelope struct {
 	Recipients []string
 }
 type Submission struct {
+	ScheduleAt                     time.Time
 	ExpiresAt                      time.Time
 	Stream                         string
 	Business                       Business

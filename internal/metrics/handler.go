@@ -77,10 +77,10 @@ func (h *Handler) collect(ctx context.Context, b *bytes.Buffer) error {
 		return err
 	}
 	var age float64
-	if err = h.DB.QueryRowContext(ctx, `SELECT coalesce(greatest(0,extract(epoch FROM clock_timestamp()-min(created_at))),0) FROM messages WHERE status='QUEUED'`).Scan(&age); err != nil {
+	if err = h.DB.QueryRowContext(ctx, `SELECT coalesce(greatest(0,extract(epoch FROM clock_timestamp()-min(greatest(created_at,coalesce(schedule_at,created_at))))),0) FROM messages WHERE status='QUEUED' AND (schedule_at IS NULL OR schedule_at<=clock_timestamp())`).Scan(&age); err != nil {
 		return err
 	}
-	gauge(b, "relaytale_queue_oldest_seconds", "Age of oldest queued message including blocked routes.", age)
+	gauge(b, "relaytale_queue_oldest_seconds", "Age since eligibility of oldest due queued message including blocked routes.", age)
 	fmt.Fprintln(b, "# HELP relaytale_attempts_last_24h Attempts started in rolling 24 hours; this is a gauge.\n# TYPE relaytale_attempts_last_24h gauge")
 	rows, err = h.DB.QueryContext(ctx, `SELECT CASE WHEN result IN ('IN_PROGRESS','SMTP_ACCEPTED','PARTIAL_ACCEPTED','TEMP_FAILED','PERM_FAILED','DELIVERY_UNKNOWN') THEN result ELSE 'OTHER' END,count(*) FROM delivery_attempts WHERE started_at>clock_timestamp()-interval '24 hours' GROUP BY 1`)
 	if err != nil {

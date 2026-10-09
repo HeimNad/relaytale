@@ -121,9 +121,9 @@ func readMessageStatus(ctx context.Context, w http.ResponseWriter, r *http.Reque
 	defer tx.Rollback()
 	out := MessageStatus{SchemaVersion: 1, FeedbackAvailability: "NOT_EXPOSED", Recipients: []RecipientStatus{}, Events: []StatusEvent{}}
 	var reference, stream string
-	var expiresAt sql.NullTime
+	var expiresAt, scheduleAt sql.NullTime
 	var tags []byte
-	err := tx.QueryRowContext(ctx, `SELECT id::text,status,created_at,transaction_timestamp(),client_reference,to_jsonb(business_tags),message_stream,expires_at FROM messages WHERE id=$1 AND api_key_id=$2 AND source_type='api'`, id, who.key.ID).Scan(&out.MessageID, &out.Status, &out.CreatedAt, &out.SnapshotAt, &reference, &tags, &stream, &expiresAt)
+	err := tx.QueryRowContext(ctx, `SELECT id::text,status,created_at,transaction_timestamp(),client_reference,to_jsonb(business_tags),message_stream,expires_at,schedule_at FROM messages WHERE id=$1 AND api_key_id=$2 AND source_type='api'`, id, who.key.ID).Scan(&out.MessageID, &out.Status, &out.CreatedAt, &out.SnapshotAt, &reference, &tags, &stream, &expiresAt, &scheduleAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		respond(w, 404, "not_found")
 		return
@@ -200,6 +200,9 @@ func readMessageStatus(ctx context.Context, w http.ResponseWriter, r *http.Reque
 		return
 	}
 	w.Header().Set("X-RelayTale-Stream", stream)
+	if scheduleAt.Valid {
+		w.Header().Set("X-RelayTale-Schedule-At", scheduleAt.Time.UTC().Format(time.RFC3339))
+	}
 	if expiresAt.Valid {
 		w.Header().Set("X-RelayTale-Expires-At", expiresAt.Time.UTC().Format(time.RFC3339))
 	}

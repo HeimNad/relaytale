@@ -22,7 +22,7 @@ type EnqueueResult struct {
 
 // RequestFingerprint covers the exact MIME digest/size and ordered SMTP envelope.
 // Nonempty business fields opt into v2; absent fields retain the exact v1 hash.
-// An explicit stream opts into v3, an explicit deadline into v4.
+// An explicit stream opts into v3, a deadline into v4, a schedule into v5.
 // Paths, server timestamps, generated IDs and parsed MIME metadata are not request identity.
 // Callers must derive Archive from durable server-side storage, never client claims.
 func RequestFingerprint(s Submission) (string, error) {
@@ -64,6 +64,16 @@ func RequestFingerprint(s Submission) (string, error) {
 	if expiry != "" {
 		version = 4
 	}
+	schedule, err := CanonicalExpiry(s.ScheduleAt)
+	if err != nil {
+		return "", err
+	}
+	if schedule != "" {
+		version = 5
+		if !s.ExpiresAt.IsZero() && !s.ExpiresAt.After(s.ScheduleAt) {
+			return "", ErrInvalidSchedule
+		}
+	}
 	encoded, e := json.Marshal(struct {
 		Version    int       `json:"version"`
 		From       string    `json:"from"`
@@ -73,7 +83,8 @@ func RequestFingerprint(s Submission) (string, error) {
 		Business   *Business `json:"business,omitempty"`
 		Stream     string    `json:"stream,omitempty"`
 		ExpiresAt  string    `json:"expires_at,omitempty"`
-	}{version, s.Envelope.From, s.Envelope.Recipients, s.Archive.SHA256, s.Archive.Size, association, stream, expiry})
+		ScheduleAt string    `json:"schedule_at,omitempty"`
+	}{version, s.Envelope.From, s.Envelope.Recipients, s.Archive.SHA256, s.Archive.Size, association, stream, expiry, schedule})
 	if e != nil {
 		return "", e
 	}
@@ -140,7 +151,7 @@ func (p Postgres) enqueueIdempotent(ctx context.Context, s Submission, apiKeyID,
 		// No writes occurred; return only an already committed ledger entry.
 		return EnqueueResult{MessageID: original, Replayed: true}, nil
 	}
-	if e = reserveSubmission(ctx, tx, apiKeyID, s.ID, len(s.Envelope.Recipients), s.Stream, s.ExpiresAt); e != nil {
+	if e = reserveSubmission(ctx, tx, apiKeyID, s.ID, len(s.Envelope.Recipients), s.Stream, s.ExpiresAt, s.ScheduleAt, s.Archive.Size); e != nil {
 		return EnqueueResult{}, e
 	}
 	if publish != nil {

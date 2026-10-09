@@ -9,7 +9,7 @@ import (
 const FairRecipientQuantum = 16
 
 func (r Repository) selectFair(ctx context.Context, tx *sql.Tx, j *Job) (string, int, error) {
-	eligible := `(m.expires_at IS NULL OR m.expires_at>clock_timestamp()) AND m.status='QUEUED' AND m.archive_state='AVAILABLE' AND m.next_attempt_at<=now()
+	eligible := `(m.schedule_at IS NULL OR m.schedule_at<=clock_timestamp()) AND (m.expires_at IS NULL OR m.expires_at>clock_timestamp()) AND m.status='QUEUED' AND m.archive_state='AVAILABLE' AND m.next_attempt_at<=now()
  AND EXISTS(SELECT 1 FROM recipients rc WHERE rc.message_id=m.id AND ` + r.claimRecipient("rc") + `)
  AND EXISTS(SELECT 1 FROM providers p WHERE ` + r.eligibleProvider() + `)`
 	var owner string

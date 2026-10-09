@@ -332,6 +332,24 @@ func NewSendHandler(ctx context.Context, raw string, receiver message.APIReceive
 			respond(w, 403, "stream_not_allowed")
 			return
 		}
+		var scheduleAt time.Time
+		scheduleHeaders := r.Header.Values("X-RelayTale-Schedule-At")
+		if len(scheduleHeaders) > 1 {
+			respond(w, 400, "invalid_schedule")
+			return
+		}
+		if len(scheduleHeaders) == 1 {
+			var scheduleErr error
+			scheduleAt, scheduleErr = time.Parse(time.RFC3339, scheduleHeaders[0])
+			if scheduleErr != nil {
+				respond(w, 400, "invalid_schedule")
+				return
+			}
+			if _, scheduleErr = message.CanonicalExpiry(scheduleAt); scheduleErr != nil || scheduleAt.IsZero() {
+				respond(w, 400, "invalid_schedule")
+				return
+			}
+		}
 		var expiresAt time.Time
 		expiryHeaders := r.Header.Values("X-RelayTale-Expires-At")
 		if len(expiryHeaders) > 1 {
@@ -394,9 +412,14 @@ func NewSendHandler(ctx context.Context, raw string, receiver message.APIReceive
 			}
 			payload = &jsonMessageReader{body: r.Body, from: sender, recipients: recipients, identity: who.key.ID, key: idem[0], templates: who.key.Templates}
 		}
-		result, e := receiver.ReceiveExpiring(ctx, message.Envelope{Account: account, From: sender, Recipients: recipients}, payload, who.key.ID, idem[0], stream, expiresAt, business)
+		result, e := receiver.ReceiveScheduled(ctx, message.Envelope{Account: account, From: sender, Recipients: recipients}, payload, who.key.ID, idem[0], stream, expiresAt, scheduleAt, business)
 		if e != nil {
 			switch {
+			case errors.Is(e, message.ErrInvalidSchedule):
+				respond(w, 422, "schedule_out_of_range")
+			case errors.Is(e, message.ErrScheduleCapacity):
+				w.Header().Set("Retry-After", "60")
+				respond(w, 429, "schedule_capacity_exhausted")
 			case errors.Is(e, errJSONMessage):
 				respond(w, 400, "invalid_json_message")
 			case errors.Is(e, message.ErrExpiredSubmission):

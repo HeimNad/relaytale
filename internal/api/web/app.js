@@ -1049,6 +1049,7 @@ async function messageDetail(id, generation) {
             "原 Message-ID": m.message_id || "未提供",
             接收时间: date(m.created_at),
             投递期限: m.expires_at ? date(m.expires_at) : "未设置",
+            最早发送时间: m.schedule_at ? date(m.schedule_at) : "立即可投递",
             大小: (m.eml_size / 1024).toFixed(1) + " KiB",
             存档:
               m.archive_state === "AVAILABLE" ? "原文可用" : m.archive_state,

@@ -38,6 +38,16 @@ func (s APIReceiver) ReceiveStream(ctx context.Context, e Envelope, r io.Reader,
 }
 
 func (s APIReceiver) ReceiveExpiring(ctx context.Context, e Envelope, r io.Reader, identity, key, stream string, expiresAt time.Time, business ...Business) (EnqueueResult, error) {
+	return s.ReceiveScheduled(ctx, e, r, identity, key, stream, expiresAt, time.Time{}, business...)
+}
+
+func (s APIReceiver) ReceiveScheduled(ctx context.Context, e Envelope, r io.Reader, identity, key, stream string, expiresAt, scheduleAt time.Time, business ...Business) (EnqueueResult, error) {
+	if _, err := CanonicalExpiry(scheduleAt); err != nil {
+		return EnqueueResult{}, err
+	}
+	if !scheduleAt.IsZero() && !expiresAt.IsZero() && !expiresAt.After(scheduleAt) {
+		return EnqueueResult{}, ErrInvalidSchedule
+	}
 	if _, err := CanonicalExpiry(expiresAt); err != nil {
 		return EnqueueResult{}, err
 	}
@@ -137,7 +147,7 @@ func (s APIReceiver) ReceiveExpiring(ctx context.Context, e Envelope, r io.Reade
 	if err != nil {
 		return EnqueueResult{}, err
 	}
-	sub := Submission{ExpiresAt: expiresAt, Stream: stream, Business: correlation, Envelope: e, MessageID: mid, HeaderFrom: from, Subject: subject, Archive: storage.Archive{SHA256: hex.EncodeToString(h.Sum(nil)), Size: size}}
+	sub := Submission{ScheduleAt: scheduleAt, ExpiresAt: expiresAt, Stream: stream, Business: correlation, Envelope: e, MessageID: mid, HeaderFrom: from, Subject: subject, Archive: storage.Archive{SHA256: hex.EncodeToString(h.Sum(nil)), Size: size}}
 	fingerprint, err := RequestFingerprint(sub)
 	if err != nil {
 		return EnqueueResult{}, err

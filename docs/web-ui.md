@@ -68,3 +68,5 @@ TEST_DATABASE_URL='<隔离测试数据库 URL>' sh scripts/test-browser.sh
 [8F.5b.3](phase-8f5b3-template-management.md) 增加“邮件模板”：选择网站身份，查看草稿及发布目录；operator/admin 在完整页面编辑，冲突保留输入；admin 审阅精确修订后确认发布，退役需确认业务重试窗口。viewer 只能读元数据。HTML 仅显示源码，不渲染、不加载外部资源。手机提供独立退出入口，操作按钮和编辑器适配窄屏。
 
 [8F.5b.4](phase-8f5b4-template-preview.md) 新增“预览内容”：样例变量只用于本次渲染，主题/文本按文字显示，HTML 以封闭标签重建后进入无脚本无同源权限的隔离框架。图片、链接、样式及活动内容移除。此功能只预览模板，不开放原始邮件正文预览。
+
+消息详情展示最早发送时间；未设置时显示“立即可投递”。排期邮件仍可能因 Provider、预算或停机延迟；本阶段没有取消按钮。见 [8G.1](phase-8g1-scheduled-submission.md)。
