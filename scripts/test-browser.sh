@@ -1,6 +1,14 @@
 #!/bin/sh
 set -eu
 : "${TEST_DATABASE_URL:?An isolated TEST_DATABASE_URL is required}"
+# Each specification gets a fresh server so aggregate logins do not exhaust the
+# real per-peer authentication budget. Explicit files may be batched by callers.
+if [ "$#" -eq 0 ]; then
+ for spec in tests/browser/*.spec.js; do
+  sh "$0" "$spec"
+ done
+ exit 0
+fi
 mkdir -p test-results
 fixture_dir=$(mktemp -d)
 fixture_pid=
@@ -27,4 +35,4 @@ for attempt in $(seq 1 60); do
  sleep 1
 done
 if [ "$ready" != true ]; then cat "$fixture_dir/server.log"; exit 1; fi
-npm run test:browser
+npm run test:browser -- "$@"

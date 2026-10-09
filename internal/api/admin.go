@@ -129,6 +129,14 @@ type principalKey struct{}
 
 func (a Management) operations() http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /admin/v1/template-identities", a.templateIdentities)
+	mux.HandleFunc("GET /admin/v1/templates/{id}/drafts", a.templateDraftList)
+	mux.HandleFunc("POST /admin/v1/templates/{id}/drafts", a.templateDraftSave)
+	mux.HandleFunc("GET /admin/v1/templates/{id}/drafts/{name}/revisions/{revision}", a.templateDraftSource)
+	mux.HandleFunc("POST /admin/v1/templates/{id}/drafts/{name}/publish", a.templateDraftPublish)
+	mux.HandleFunc("GET /admin/v1/templates/{id}/versions", a.templateVersionList)
+	mux.HandleFunc("POST /admin/v1/templates/{id}/versions/{name}/{version}/retire", a.templateVersionRetire)
+
 	mux.HandleFunc("GET /admin/v1/statistics", a.capacityStatistics)
 	mux.HandleFunc("GET /admin/v1/provider-quota-groups", a.quotaGroups)
 	mux.HandleFunc("GET /admin/v1/provider-quota-groups/{id}", a.quotaGroup)
@@ -158,7 +166,7 @@ func (a Management) operations() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		who := r.Context().Value(principalKey{}).(credential)
 		if r.Method != "GET" && r.Method != "HEAD" {
-			if who.role == "viewer" || ((strings.HasPrefix(r.URL.Path, "/admin/v1/providers") || strings.HasPrefix(r.URL.Path, "/admin/v1/provider-quota-groups")) && who.role != "admin") {
+			if who.role == "viewer" || ((strings.HasPrefix(r.URL.Path, "/admin/v1/providers") || strings.HasPrefix(r.URL.Path, "/admin/v1/provider-quota-groups") || (strings.HasPrefix(r.URL.Path, "/admin/v1/templates/") && (strings.HasSuffix(r.URL.Path, "/publish") || strings.HasSuffix(r.URL.Path, "/retire")))) && who.role != "admin") {
 				respond(w, 403, "forbidden")
 				return
 			}
@@ -182,12 +190,15 @@ func output(w http.ResponseWriter, code int, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 func body(w http.ResponseWriter, r *http.Request, v any) bool {
+	return limitedBody(w, r, v, 16384)
+}
+func limitedBody(w http.ResponseWriter, r *http.Request, v any, limit int64) bool {
 	media, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
 	if err != nil || media != "application/json" {
 		respond(w, 415, "json_required")
 		return false
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, 16384)
+	r.Body = http.MaxBytesReader(w, r.Body, limit)
 	raw, err := io.ReadAll(r.Body)
 	if err == nil && !utf8.Valid(raw) {
 		err = errors.New("invalid UTF-8")

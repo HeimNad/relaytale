@@ -16,6 +16,7 @@ const titles = {
   suppressions: "地址抑制",
   feedback: "反馈待查",
   access: "访问与说明",
+  templates: "邮件模板",
 };
 const roles = { admin: "管理员", operator: "操作员", viewer: "只读观察员" };
 const states = {
@@ -101,12 +102,16 @@ const date = (s) =>
   s ? new Date(s).toLocaleString("zh-CN", { hour12: false }) : "—";
 const canWrite = () => S.user?.role !== "viewer";
 const canAdmin = () => S.user?.role === "admin";
-function problem(message) {
+function problem(message, tone = "") {
   $("#notice").hidden = !message;
-  $("#notice").className = "notice";
+  $("#notice").className = "notice" + (tone ? " " + tone : "");
   $("#notice").textContent = message || "";
 }
 function errorText(e) {
+  if (S.view === "templates" && e.code === "draft_revision_conflict")
+    return "草稿已被修改。你的输入仍保留，请取消后重新读取当前修订并核对，再保存或发布。";
+  if (S.view === "templates" && e.code === "invalid_template_or_limits")
+    return "模板内容或容量不符合要求。核对变量名称、正文和字节限制，再保存。";
   if (S.view === "statistics" && e.status === 400)
     return "统计时间范围无效，请核对本机时间。";
   if (S.view === "statistics" && e.status === 422)
@@ -145,6 +150,9 @@ async function request(path, options = {}) {
   if (!r.ok) {
     const e = new Error("request failed");
     e.status = r.status;
+    try {
+      e.code = (await r.json()).status;
+    } catch {}
     if (r.status === 401 && path !== "login" && path !== "session") {
       signedOut();
     }
@@ -231,6 +239,7 @@ async function logout() {
   }
 }
 $("#logout").addEventListener("click", logout);
+$("#logout-mobile").addEventListener("click", logout);
 function heading(title, description, ...actions) {
   return el(
     "div",
@@ -326,11 +335,12 @@ function dialog(title, content, label, save, description = "") {
         cancel.disabled = true;
         error.textContent = "";
         try {
-          await save(new FormData(form));
+          const result = await save(new FormData(form));
           d.close();
           d.replaceChildren();
           problem("");
           route();
+          if (result?.notice) problem(result.notice, "success");
         } catch (err) {
           error.textContent = errorText(err);
         } finally {
@@ -1144,6 +1154,7 @@ function route(reset = true) {
       ? feedbackDetail(parts[1], generation)
       : feedbackList(generation);
   else if (view === "statistics") work = statisticsView(generation);
+  else if (view === "templates") work = templatesView(generation);
   else work = listPage(view, generation);
   work.catch((e) => {
     if (S.generation !== generation) return;
@@ -1575,5 +1586,386 @@ async function statisticsView(generation) {
           rows,
         )
       : empty("此范围没有邮件", "可扩大统计范围，或在网站提交邮件后刷新。"),
+  );
+}
+
+async function templatesView(generation) {
+  const identities = await api(
+    "template-identities?limit=100&after=" + (S.templateAfter || ""),
+  );
+  if (generation !== S.generation) return;
+  const chosen =
+    identities.items.find((k) => k.id === S.templateIdentity) ||
+    identities.items[0];
+  S.templateIdentity = chosen?.id || "";
+  const selector = el(
+    "select",
+    {
+      "aria-label": "网站身份",
+      onChange: (e) => {
+        S.templateIdentity = e.target.value;
+        route(false);
+      },
+    },
+    identities.items.map((k) =>
+      el(
+        "option",
+        { value: k.id, selected: k.id === chosen?.id ? "" : null },
+        k.name +
+          " / " +
+          (k.environment === "sandbox" ? "测试" : "生产") +
+          (k.enabled ? "" : " / 已停用"),
+      ),
+    ),
+  );
+  const identityNavigation = el(
+    "div",
+    { class: "actions" },
+    S.templateAfter
+      ? button("返回首批身份", () => {
+          S.templateAfter = "";
+          S.templateIdentity = "";
+          route(false);
+        })
+      : null,
+    identities.has_more
+      ? button("下一批身份", () => {
+          S.templateAfter = identities.next_after;
+          S.templateIdentity = "";
+          route(false);
+        })
+      : null,
+  );
+  if (!chosen) {
+    $("#view").replaceChildren(
+      heading("邮件模板", "草稿经审阅后发布，网站明确选择固定版本。"),
+      identityNavigation,
+      empty("还没有网站身份", "先通过部署配置添加网站发信身份，再创建模板。"),
+    );
+    return;
+  }
+  const base = "templates/" + encodeURIComponent(chosen.id);
+  const [drafts, versions] = await Promise.all([
+    api(base + "/drafts"),
+    api(base + "/versions"),
+  ]);
+  if (generation !== S.generation) return;
+  const edit = (draft) =>
+    templateEditor(chosen, draft).catch((e) => problem(errorText(e)));
+  const review = (draft) =>
+    templatePublish(chosen, draft).catch((e) => problem(errorText(e)));
+  $("#view").replaceChildren(
+    ...[
+      heading(
+        "邮件模板",
+        "编辑草稿，核对修订，再发布固定版本。",
+        canWrite() && chosen.enabled
+          ? button("新建草稿", () => edit(null), "primary")
+          : null,
+        button("刷新", () => route(false)),
+      ),
+      el(
+        "div",
+        { class: "panel template-identity" },
+        el("label", {}, "网站身份", selector),
+        el("code", {}, chosen.id),
+        identityNavigation,
+      ),
+      el(
+        "p",
+        { class: "template-activation" },
+        "发布和退役需在服务重新加载后生效。这里展示保存记录，不表示运行中的服务已加载该版本。",
+      ),
+      el(
+        "section",
+        { class: "panel template-catalog" },
+        el("h2", {}, "当前草稿"),
+        el(
+          "p",
+          {},
+          "草稿不会发送邮件。编辑保留历史修订，冲突时重新读取并核对。",
+        ),
+        drafts.items.length
+          ? table(
+              ["模板", "修订", "内容版本", "保存时间", "操作"],
+              drafts.items.map((d) =>
+                el(
+                  "tr",
+                  {},
+                  el("td", {}, d.id),
+
+                  el("td", {}, d.revision),
+                  el(
+                    "td",
+                    {},
+                    el("code", { title: d.version }, d.version.slice(0, 12)),
+                  ),
+                  el("td", {}, date(d.saved_at)),
+                  el(
+                    "td",
+                    {},
+                    el(
+                      "div",
+                      { class: "actions" },
+                      canWrite() && chosen.enabled
+                        ? button("编辑草稿", () => edit(d))
+                        : null,
+                      canAdmin() && chosen.enabled
+                        ? button("审阅并发布", () => review(d))
+                        : null,
+                    ),
+                  ),
+                ),
+              ),
+            )
+          : empty("暂无草稿", "创建第一个草稿，填写主题、正文和变量。"),
+      ),
+      el(
+        "section",
+        { class: "panel template-catalog" },
+        el("h2", {}, "已发布版本"),
+        el("p", {}, "定义与历史不可改写；退役不会改变已入队邮件。"),
+        versions.items.length
+          ? table(
+              ["模板", "语言", "内容版本", "发布记录", "状态", "操作"],
+              versions.items.map((v) =>
+                el(
+                  "tr",
+                  {},
+                  el("td", {}, v.id),
+                  el("td", {}, v.language || "未指定"),
+                  el(
+                    "td",
+                    {},
+                    el("code", { title: v.version }, v.version.slice(0, 12)),
+                  ),
+                  el("td", {}, date(v.published_at)),
+                  el("td", {}, v.retired_at ? "已记录退役" : "未退役"),
+                  el(
+                    "td",
+                    {},
+                    canAdmin() && !v.retired_at
+                      ? button(
+                          "退役版本",
+                          () => templateRetire(chosen, v),
+                          "danger",
+                        )
+                      : null,
+                  ),
+                ),
+              ),
+            )
+          : empty("暂无发布版本", "管理员审阅草稿后，可发布一个固定内容版本。"),
+      ),
+      !canWrite()
+        ? el(
+            "p",
+            { class: "callout" },
+            "只读账户只能查看目录元数据，不能读取模板源码或修改内容。",
+          )
+        : null,
+    ].filter(Boolean),
+  );
+}
+
+async function templateEditor(identity, draft) {
+  const generation = S.generation;
+  const source = draft
+    ? await api(
+        `templates/${identity.id}/drafts/${draft.id}/revisions/${draft.revision}`,
+      )
+    : { id: "", subject: "", text: "", html: "", language: "", variables: [] };
+  if (generation !== S.generation) return;
+  const error = el("p", { class: "form-error", role: "alert" });
+  const save = el("button", { type: "submit", class: "primary" }, "保存草稿");
+  const cancel = button("返回模板目录", () => route(false));
+  const form = el(
+    "form",
+    {
+      class: "template-editor",
+      onSubmit: async (e) => {
+        e.preventDefault();
+        if (!form.reportValidity()) return;
+        const data = new FormData(form);
+        save.disabled = true;
+        cancel.disabled = true;
+        error.textContent = "";
+        try {
+          const result = await api(`templates/${identity.id}/drafts`, {
+            expected_revision: draft?.revision || 0,
+            template: {
+              id: data.get("id"),
+              language: data.get("language"),
+              subject: data.get("subject"),
+              text: data.get("text"),
+              html: data.get("html"),
+              variables: data
+                .get("variables")
+                .split(",")
+                .map((x) => x.trim())
+                .filter(Boolean),
+            },
+            reason: data.get("reason"),
+          });
+          if (generation !== S.generation) return;
+          route(false);
+          problem(`草稿修订 ${result.revision} 已保存，尚未发布。`, "success");
+        } catch (e) {
+          if (generation === S.generation) error.textContent = errorText(e);
+        } finally {
+          save.disabled = false;
+          cancel.disabled = false;
+        }
+      },
+    },
+    el(
+      "div",
+      { class: "template-editor-grid" },
+      el(
+        "section",
+        { class: "template-content" },
+        field("邮件主题（可选）", "subject", source.subject, "text", {
+          maxlength: 256,
+          optional: true,
+        }),
+        field("纯文本正文", "text", source.text, "textarea", {
+          maxlength: 16384,
+          optional: true,
+          rows: 10,
+        }),
+        field("HTML 正文源码", "html", source.html, "textarea", {
+          maxlength: 16384,
+          optional: true,
+          rows: 10,
+        }),
+      ),
+      el(
+        "aside",
+        { class: "template-settings" },
+        el("h2", {}, "这份草稿"),
+        el("p", {}, identity.name),
+        field("模板名称", "id", source.id, "text", {
+          maxlength: 32,
+          pattern: "[a-z][a-z0-9_]{0,31}",
+          readonly: draft ? "" : null,
+        }),
+        field("语言（可选）", "language", source.language || "", "text", {
+          maxlength: 35,
+          optional: true,
+        }),
+        field(
+          "变量名称（逗号分隔）",
+          "variables",
+          source.variables.join(","),
+          "text",
+          { optional: true },
+        ),
+        el(
+          "p",
+          { class: "muted" },
+          "在正文中用 {{变量名}} 插入变量。每个声明的变量都需要使用；至少填写一种正文。",
+        ),
+        field("处理理由", "reason", "", "textarea", { maxlength: 256 }),
+        el(
+          "p",
+          { class: "muted" },
+          draft
+            ? `基于修订 ${draft.revision} 编辑。保存会生成新的历史修订。`
+            : "保存后由管理员审阅发布，草稿本身不会发信。",
+        ),
+      ),
+    ),
+    error,
+    el("div", { class: "template-editor-actions" }, cancel, save),
+  );
+  $("#view").replaceChildren(
+    heading(
+      draft ? "编辑模板草稿" : "新建模板草稿",
+      "保存内容，发布前再核对固定修订。",
+    ),
+    form,
+  );
+  form.querySelector('[name="subject"]').focus();
+}
+
+async function templatePublish(identity, draft) {
+  const generation = S.generation;
+  const source = await api(
+    `templates/${identity.id}/drafts/${draft.id}/revisions/${draft.revision}`,
+  );
+  if (generation !== S.generation) return;
+  dialog(
+    "审阅并发布模板",
+    el(
+      "div",
+      {},
+      summary(source.id, source.version),
+      facts({
+        网站身份: identity.name,
+        修订: draft.revision,
+        语言: source.language || "未指定",
+      }),
+      el("h3", {}, "邮件主题"),
+      el("pre", { class: "template-source" }, source.subject),
+      el("h3", {}, "纯文本正文"),
+      el("pre", { class: "template-source" }, source.text),
+      el("h3", {}, "HTML 正文源码"),
+      el("pre", { class: "template-source" }, source.html),
+      el("p", {}, "变量：" + source.variables.join(", ")),
+      el(
+        "label",
+        { class: "check-label" },
+        el("input", { type: "checkbox", name: "reviewed", required: "" }),
+        "我已核对这个修订的内容与变量。",
+      ),
+      field("处理理由", "reason", "", "textarea", { maxlength: 256 }),
+    ),
+    "发布此修订",
+    (data) =>
+      api(`templates/${identity.id}/drafts/${draft.id}/publish`, {
+        revision: draft.revision,
+        version: source.version,
+        reason: data.get("reason"),
+      }).then((result) => ({
+        ...result,
+        notice: "模板版本已发布，仍需明确启用并重新加载服务。",
+      })),
+    "内容按源码展示，不加载外部资源。若草稿已变化，发布会拒绝；成功发布后仍需明确启用并重新加载。",
+  );
+}
+
+function templateRetire(identity, version) {
+  dialog(
+    "退役模板版本",
+    el(
+      "div",
+      {},
+      summary(version.id, version.version),
+      el(
+        "p",
+        { class: "callout warn" },
+        "退役不可撤销。重新加载后，旧请求即使带原幂等键也不能再使用这个版本。已入队邮件不受影响。",
+      ),
+      el(
+        "label",
+        { class: "check-label" },
+        el("input", { type: "checkbox", name: "retry_window", required: "" }),
+        "我已确认业务网站的请求重试窗口结束。",
+      ),
+      field("处理理由", "reason", "", "textarea", { maxlength: 256 }),
+    ),
+    "记录退役",
+    (data) =>
+      api(
+        `templates/${identity.id}/versions/${version.id}/${version.version}/retire`,
+        {
+          reason: data.get("reason"),
+          acknowledge_retry_window: data.has("retry_window"),
+        },
+      ).then((result) => ({
+        ...result,
+        notice: "已记录版本退役，重新加载服务后生效。",
+      })),
+    "此操作记录退役，需要重新加载服务后生效。",
   );
 }

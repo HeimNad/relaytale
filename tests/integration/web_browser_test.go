@@ -67,6 +67,12 @@ func TestBrowserWorkspaceFixture(t *testing.T) {
 		}
 	}
 	sendHandler, sendKey, _ := sendFixture(t, f)
+	mustExec(t, f, "UPDATE api_keys SET name='模板验收网站' WHERE id=$1", sendKey.ID)
+	templateRaw, _ := json.Marshal(api.SendTemplate{ID: "welcome", Subject: "欢迎 {{name}}", Text: "你好 {{name}}", Variables: []string{"name"}, HTML: `<img src="https://untrusted.invalid/template-pixel" onerror="window.injected=true">`})
+	if _, _, err := api.SaveTemplateDraft(context.Background(), f.db, sendKey.ID, 0, templateRaw, "browser-test", "synthetic template fixture"); err != nil {
+		t.Fatal(err)
+	}
+
 	submitStatusFixture(t, sendHandler, sendKey, f.raw(), nil)
 	sandboxHandler, sandboxKey, _ := sandboxFixture(t, f)
 	submitStatusFixture(t, sandboxHandler, sandboxKey, f.raw(), nil)
@@ -75,7 +81,7 @@ func TestBrowserWorkspaceFixture(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	users, _ := json.Marshal([]api.WebUser{{ID: "owner", Role: "admin", PasswordHash: hash}, {ID: "reader", Role: "viewer", PasswordHash: hash}})
+	users, _ := json.Marshal([]api.WebUser{{ID: "owner", Role: "admin", PasswordHash: hash}, {ID: "reader", Role: "viewer", PasswordHash: hash}, {ID: "editor", Role: "operator", PasswordHash: hash}})
 	origin := os.Getenv("WEB_UI_TEST_ORIGIN")
 	if origin == "" {
 		origin = "http://127.0.0.1:18080"

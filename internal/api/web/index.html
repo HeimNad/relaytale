@@ -83,6 +83,19 @@
             ><span aria-hidden="true">⊘</span>地址抑制</a
           ><a href="#feedback" data-view="feedback"
             ><span aria-hidden="true">↩</span>反馈待查</a
+          ><a href="#templates" data-view="templates"
+            ><span aria-hidden="true"
+              ><svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.6"
+              >
+                <path d="M6 3h9l3 3v15H6z" />
+                <path d="M14 3v5h4M9 12h6M9 16h6" /></svg></span
+            >邮件模板</a
           ><a href="#access" data-view="access"
             ><span aria-hidden="true">◈</span>访问与说明</a
           >
@@ -101,7 +114,14 @@
           <span
             >RelayTale <span class="slash">/</span>
             <span id="breadcrumb">邮件记录</span></span
-          ><span class="session-label"><i></i> 已登录</span>
+          ><span class="session-label"><i></i> 已登录</span
+          ><button
+            id="logout-mobile"
+            class="mobile-logout text-button"
+            type="button"
+          >
+            退出登录
+          </button>
         </header>
         <main id="main" tabindex="-1">
           <div id="notice" role="alert" hidden></div>

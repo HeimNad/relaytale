@@ -21,6 +21,14 @@ func TestManagementGuardsBeforeDatabase(t *testing.T) {
 		name, method, path, token, body, origin string
 		want                                    int
 	}{
+		{"viewer draft source", "GET", "/admin/v1/templates/00000000-0000-0000-0000-000000000001/drafts/notice/revisions/1", strings.Repeat("v", 32), "", "", 403},
+		{"operator publish", "POST", "/admin/v1/templates/00000000-0000-0000-0000-000000000001/drafts/notice/publish", strings.Repeat("o", 32), `{}`, "", 403},
+		{"operator retire", "POST", "/admin/v1/templates/00000000-0000-0000-0000-000000000001/versions/notice/v/retire", strings.Repeat("o", 32), `{}`, "", 403},
+		{"draft actor spoof", "POST", "/admin/v1/templates/00000000-0000-0000-0000-000000000001/drafts", strings.Repeat("o", 32), `{"actor":"owner"}`, "", 400},
+		{"draft expected required", "POST", "/admin/v1/templates/00000000-0000-0000-0000-000000000001/drafts", strings.Repeat("o", 32), `{"template":{}}`, "", 400},
+		{"draft revision syntax", "GET", "/admin/v1/templates/00000000-0000-0000-0000-000000000001/drafts/notice/revisions/01", strings.Repeat("a", 32), "", "", 400},
+		{"retire acknowledgement", "POST", "/admin/v1/templates/00000000-0000-0000-0000-000000000001/versions/notice/v/retire", strings.Repeat("a", 32), `{"reason":"end"}`, "", 400},
+		{"draft duplicate JSON", "POST", "/admin/v1/templates/00000000-0000-0000-0000-000000000001/drafts", strings.Repeat("o", 32), `{"expected_revision":0,"expected_revision":1}`, "", 400},
 		{"missing", "GET", "/admin/v1/messages", "", "", "", 401},
 		{"wrong", "GET", "/admin/v1/messages", "wrong", "", "", 401},
 		{"viewer write", "POST", "/admin/v1/suppressions", strings.Repeat("v", 32), `{}`, "", 403},

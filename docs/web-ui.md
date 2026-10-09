@@ -62,3 +62,7 @@ TEST_DATABASE_URL='<隔离测试数据库 URL>' sh scripts/test-browser.sh
 测试脚本启动本机 18080 端口、独立临时 schema 和 Fake SMTP，完成后停止测试进程；不要传生产数据库。浏览器测试覆盖真实查询到人工操作，并额外模拟空结果、503 和前端时间推进检查失败/过期界面。截图和 trace 放在被 Git 忽略的 test-results。
 
 本地若下载浏览器受网络限制，可通过 `PLAYWRIGHT_CHROME_PATH` 指向已安装 Chrome；CI 使用 Playwright 固定版本的 Chromium。测试账户和合成邮件只存在于隔离 fixture 中，不随产品创建默认账户。
+
+## 模板工作台
+
+[8F.5b.3](phase-8f5b3-template-management.md) 增加“邮件模板”：选择网站身份，查看草稿及发布目录；operator/admin 在完整页面编辑，冲突保留输入；admin 审阅精确修订后确认发布，退役需确认业务重试窗口。viewer 只能读元数据。HTML 仅显示源码，不渲染、不加载外部资源。手机提供独立退出入口，操作按钮和编辑器适配窄屏。

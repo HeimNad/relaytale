@@ -49,3 +49,5 @@ relaytale publish-template-draft --api-key-id WEBSITE_CREDENTIAL_UUID \
 ## 下一段
 
 管理 API 与工作台可复用这些有界操作、修订冲突及来源校验；随后做浏览器预览与显式发布界面。8F.5b 尚未完整完成，不宣称已有可视化编辑器或热发布。
+
+后续更新：管理 API 与工作台编辑、发布、退役已在 [8F.5b.3](phase-8f5b3-template-management.md) 完成；上文“下一段”描述本阶段完成时的范围。
