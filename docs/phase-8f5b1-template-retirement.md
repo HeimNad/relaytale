@@ -39,4 +39,4 @@ relaytale list-templates --api-key-id WEBSITE_CREDENTIAL_UUID
 
 ## 后续
 
-8F.5b 尚未全部完成：草稿编辑、管理 API、工作台发布和浏览器视觉预览继续推进。下一段先做有界草稿和明确审阅/发布操作，复用本阶段的不可逆生命周期，不改变已发布版本内容。
+后续 [8F.5b.2](phase-8f5b2-template-drafts.md) 已增加有界草稿与精确修订发布命令。8F.5b 尚未全部完成：管理 API、工作台发布和浏览器视觉预览继续推进，复用本阶段的不可逆生命周期，不改变已发布版本内容。

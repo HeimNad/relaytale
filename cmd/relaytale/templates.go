@@ -8,12 +8,16 @@ import (
 	"flag"
 	"io"
 	"os"
+	"strings"
 	"time"
 
 	"relaytale/internal/api"
 )
 
 func runTemplates(ctx context.Context, db *sql.DB, command string, args []string) error {
+	if strings.HasSuffix(command, "-draft") || command == "list-template-drafts" {
+		return runTemplateDrafts(ctx, db, command, args)
+	}
 	f := flag.NewFlagSet(command, flag.ContinueOnError)
 	id := f.String("api-key-id", "", "existing website credential UUID")
 	actor, reason := new(string), new(string)

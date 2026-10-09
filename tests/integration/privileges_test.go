@@ -140,7 +140,10 @@ func TestRestrictedDatabaseRoleDeliveryAndBoundaries(t *testing.T) {
 	template := api.SendTemplate{ID: "notice", Text: "Hello"}
 	template.Version = api.TemplateVersion(template)
 	templateRaw, _ := json.Marshal(template)
-	if _, err := api.PublishTemplate(ctx, restricted, templateKey.ID, templateRaw, "operator", "restricted publication test"); err != nil {
+	if _, _, err := api.SaveTemplateDraft(ctx, restricted, templateKey.ID, 0, templateRaw, "operator", "restricted draft test"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := api.PublishTemplateDraft(ctx, restricted, templateKey.ID, template.ID, 1, template.Version, "operator", "restricted publication test"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := restricted.ExecContext(ctx, "UPDATE api_template_versions SET language='en'"); err == nil {

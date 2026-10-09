@@ -124,7 +124,10 @@ func TestRecoveryRoundTripAndFailureGates(t *testing.T) {
 	template := api.SendTemplate{ID: "notice", Text: "Hello"}
 	template.Version = api.TemplateVersion(template)
 	templateRaw, _ := json.Marshal(template)
-	if _, err := api.PublishTemplate(context.Background(), source, sandboxKey.ID, templateRaw, "backup_operator", "template backup test"); err != nil {
+	if _, _, err := api.SaveTemplateDraft(context.Background(), source, sandboxKey.ID, 0, templateRaw, "backup_operator", "draft backup test"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := api.PublishTemplateDraft(context.Background(), source, sandboxKey.ID, template.ID, 1, template.Version, "backup_operator", "template backup test"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := api.RetireTemplate(context.Background(), source, sandboxKey.ID, template.ID, template.Version, "backup_operator", "retirement backup test"); err != nil {
@@ -222,6 +225,10 @@ func TestRecoveryRoundTripAndFailureGates(t *testing.T) {
 	items, err := api.ListPublishedTemplates(ctx, target, sandboxKey.ID)
 	if err != nil || len(items) != 1 || items[0].Version != template.Version || items[0].RetiredAt == nil {
 		t.Fatal("template publication lost", err)
+	}
+	restoredDraft, err := api.GetTemplateDraft(ctx, target, sandboxKey.ID, template.ID, 1)
+	if err != nil || restoredDraft.Version != template.Version || restoredDraft.Text != template.Text {
+		t.Fatal("draft source lost", err)
 	}
 	var sandboxEnvironment, sandboxStatus string
 	if err = target.QueryRow(`SELECT environment,status FROM messages WHERE id=$1`, sandboxID).Scan(&sandboxEnvironment, &sandboxStatus); err != nil || sandboxEnvironment != "sandbox" || sandboxStatus != "SANDBOX_STORED" {

@@ -20,7 +20,7 @@ var ErrTemplateCatalog = errors.New("invalid template publication, identity or c
 func VerifyPublishedTemplates(ctx context.Context, q interface {
 	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
 }) error {
-	rows, err := q.QueryContext(ctx, `SELECT v.api_key_id,v.template_id,v.version,v.language,v.definition,v.definition_sha256,k.prefix,a.action,a.data->>'api_key_id',a.data->>'id',a.data->>'version',a.data->>'definition_sha256',EXISTS(SELECT 1 FROM api_template_retirements r WHERE r.api_key_id=v.api_key_id AND r.template_id=v.template_id AND r.version=v.version)
+	rows, err := q.QueryContext(ctx, `SELECT v.api_key_id,v.template_id,v.version,v.language,v.definition,v.definition_sha256,k.prefix,a.action,a.data->>'api_key_id',a.data->>'id',a.data->>'version',a.data->>'definition_sha256',(NOT (a.data ? 'draft_revision') OR EXISTS(SELECT 1 FROM api_template_drafts d JOIN maintenance_audit da ON da.id=d.audit_id WHERE da.action='TEMPLATE_DRAFT_SAVED' AND da.data->>'api_key_id'=d.api_key_id::text AND da.data->>'id'=d.template_id AND da.data->>'revision'=d.revision::text AND da.data->>'version'=d.version AND da.data->>'definition_sha256'=d.definition_sha256 AND d.api_key_id=v.api_key_id AND d.template_id=v.template_id AND d.revision::text=a.data->>'draft_revision' AND d.version=v.version AND d.definition_sha256=v.definition_sha256)),EXISTS(SELECT 1 FROM api_template_retirements r WHERE r.api_key_id=v.api_key_id AND r.template_id=v.template_id AND r.version=v.version)
  FROM api_template_versions v JOIN api_keys k ON k.id=v.api_key_id JOIN maintenance_audit a ON a.id=v.audit_id ORDER BY v.api_key_id,v.template_id,v.version`)
 	if err != nil {
 		return err
@@ -31,9 +31,9 @@ func VerifyPublishedTemplates(ctx context.Context, q interface {
 	activeCount, activeSize := 0, 0
 	for rows.Next() {
 		var identity, id, version, language, definition, hash, prefix, action string
-		var retired bool
+		var provenanceValid, retired bool
 		var auditIdentity, auditID, auditVersion, auditHash sql.NullString
-		if err = rows.Scan(&identity, &id, &version, &language, &definition, &hash, &prefix, &action, &auditIdentity, &auditID, &auditVersion, &auditHash, &retired); err != nil {
+		if err = rows.Scan(&identity, &id, &version, &language, &definition, &hash, &prefix, &action, &auditIdentity, &auditID, &auditVersion, &auditHash, &provenanceValid, &retired); err != nil {
 			return err
 		}
 		if identity != last {
@@ -51,7 +51,7 @@ func VerifyPublishedTemplates(ctx context.Context, q interface {
 			return ErrTemplateCatalog
 		}
 		size += len(definition)
-		if count > 64 || size > 524288 || prefix != "rts_" || action != "TEMPLATE_PUBLISHED" || !auditIdentity.Valid || auditIdentity.String != identity || !auditID.Valid || auditID.String != id || !auditVersion.Valid || auditVersion.String != version || !auditHash.Valid || auditHash.String != hash {
+		if !provenanceValid || count > 64 || size > 524288 || prefix != "rts_" || action != "TEMPLATE_PUBLISHED" || !auditIdentity.Valid || auditIdentity.String != identity || !auditID.Valid || auditID.String != id || !auditVersion.Valid || auditVersion.String != version || !auditHash.Valid || auditHash.String != hash {
 			return ErrTemplateCatalog
 		}
 		digest := sha256.Sum256([]byte(definition))
@@ -63,7 +63,10 @@ func VerifyPublishedTemplates(ctx context.Context, q interface {
 	if err := rows.Err(); err != nil {
 		return err
 	}
-	return verifyTemplateRetirements(ctx, q)
+	if err := verifyTemplateRetirements(ctx, q); err != nil {
+		return err
+	}
+	return VerifyTemplateDrafts(ctx, q)
 }
 
 type PublishedTemplate struct {
@@ -114,6 +117,16 @@ func PublishTemplate(ctx context.Context, db *sql.DB, identity string, raw []byt
 	if _, err = tx.ExecContext(ctx, "SET LOCAL synchronous_commit=on"); err != nil {
 		return false, err
 	}
+	replayed, err := publishTemplateTx(ctx, tx, identity, t, definition, actor, reason, nil)
+	if err != nil {
+		return false, err
+	}
+	return replayed, tx.Commit()
+}
+
+// Caller holds a transaction; publication and optional draft provenance commit together.
+func publishTemplateTx(ctx context.Context, tx *sql.Tx, identity string, t SendTemplate, definition []byte, actor, reason string, provenance map[string]any) (bool, error) {
+	var err error
 	var enabled bool
 	if err = tx.QueryRowContext(ctx, "SELECT enabled FROM api_keys WHERE id=$1 AND prefix='rts_' FOR UPDATE", identity).Scan(&enabled); err != nil || !enabled {
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
@@ -123,12 +136,12 @@ func PublishTemplate(ctx context.Context, db *sql.DB, identity string, raw []byt
 	}
 	var stored string
 	var auditValid bool
-	err = tx.QueryRowContext(ctx, `SELECT v.definition,coalesce(a.action='TEMPLATE_PUBLISHED' AND a.data->>'api_key_id'=v.api_key_id::text AND a.data->>'id'=v.template_id AND a.data->>'version'=v.version AND a.data->>'definition_sha256'=v.definition_sha256,false) FROM api_template_versions v JOIN maintenance_audit a ON a.id=v.audit_id WHERE v.api_key_id=$1 AND v.template_id=$2 AND v.version=$3`, identity, t.ID, t.Version).Scan(&stored, &auditValid)
+	err = tx.QueryRowContext(ctx, `SELECT v.definition,coalesce(a.action='TEMPLATE_PUBLISHED' AND a.data->>'api_key_id'=v.api_key_id::text AND a.data->>'id'=v.template_id AND a.data->>'version'=v.version AND a.data->>'definition_sha256'=v.definition_sha256 AND (NOT (a.data ? 'draft_revision') OR EXISTS(SELECT 1 FROM api_template_drafts d JOIN maintenance_audit da ON da.id=d.audit_id WHERE da.action='TEMPLATE_DRAFT_SAVED' AND da.data->>'api_key_id'=d.api_key_id::text AND da.data->>'id'=d.template_id AND da.data->>'revision'=d.revision::text AND da.data->>'version'=d.version AND da.data->>'definition_sha256'=d.definition_sha256 AND d.api_key_id=v.api_key_id AND d.template_id=v.template_id AND d.revision::text=a.data->>'draft_revision' AND d.version=v.version AND d.definition_sha256=v.definition_sha256)),false) FROM api_template_versions v JOIN maintenance_audit a ON a.id=v.audit_id WHERE v.api_key_id=$1 AND v.template_id=$2 AND v.version=$3`, identity, t.ID, t.Version).Scan(&stored, &auditValid)
 	if err == nil {
 		if !auditValid || stored != string(definition) {
 			return false, ErrTemplateCatalog
 		}
-		return true, tx.Commit()
+		return true, nil
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
 		return false, err
@@ -157,14 +170,18 @@ func PublishTemplate(ctx context.Context, db *sql.DB, identity string, raw []byt
 	digest := sha256.Sum256(definition)
 	hash := hex.EncodeToString(digest[:])
 	auditID := uuid.NewString()
-	data, _ := json.Marshal(map[string]string{"api_key_id": identity, "id": t.ID, "version": t.Version, "language": t.Language, "definition_sha256": hash, "reason": reason})
+	metadata := map[string]any{"api_key_id": identity, "id": t.ID, "version": t.Version, "language": t.Language, "definition_sha256": hash, "reason": reason}
+	for k, v := range provenance {
+		metadata[k] = v
+	}
+	data, _ := json.Marshal(metadata)
 	if _, err = tx.ExecContext(ctx, "INSERT INTO maintenance_audit(id,action,actor,data) VALUES($1,'TEMPLATE_PUBLISHED',$2,$3)", auditID, actor, string(data)); err != nil {
 		return false, err
 	}
 	if _, err = tx.ExecContext(ctx, "INSERT INTO api_template_versions(api_key_id,template_id,version,language,definition,definition_sha256,audit_id) VALUES($1,$2,$3,$4,$5,$6,$7)", identity, t.ID, t.Version, t.Language, string(definition), hash, auditID); err != nil {
 		return false, err
 	}
-	return false, tx.Commit()
+	return false, nil
 }
 
 // Metadata only: never export template source or request variables in listings.
@@ -195,7 +212,7 @@ func ListPublishedTemplates(ctx context.Context, db *sql.DB, identity string) ([
 // A transaction snapshots the explicit directory at startup. No request-time
 // compilation or mutable lookup can silently change an in-flight submission.
 func loadPublishedTemplates(ctx context.Context, tx *sql.Tx, key *SendKey) (int, error) {
-	rows, err := tx.QueryContext(ctx, `SELECT v.template_id,v.version,v.language,v.definition,v.definition_sha256,coalesce(a.action='TEMPLATE_PUBLISHED' AND a.data->>'api_key_id'=v.api_key_id::text AND a.data->>'id'=v.template_id AND a.data->>'version'=v.version AND a.data->>'definition_sha256'=v.definition_sha256,false),r.retired_at,coalesce(r.audit_id IS NULL OR (ra.action='TEMPLATE_RETIRED' AND ra.data->>'api_key_id'=v.api_key_id::text AND ra.data->>'id'=v.template_id AND ra.data->>'version'=v.version),false) FROM api_template_versions v JOIN maintenance_audit a ON a.id=v.audit_id LEFT JOIN api_template_retirements r USING(api_key_id,template_id,version) LEFT JOIN maintenance_audit ra ON ra.id=r.audit_id WHERE v.api_key_id=$1 ORDER BY v.template_id,v.version LIMIT 65`, key.ID)
+	rows, err := tx.QueryContext(ctx, `SELECT v.template_id,v.version,v.language,v.definition,v.definition_sha256,coalesce(a.action='TEMPLATE_PUBLISHED' AND a.data->>'api_key_id'=v.api_key_id::text AND a.data->>'id'=v.template_id AND a.data->>'version'=v.version AND a.data->>'definition_sha256'=v.definition_sha256 AND (NOT (a.data ? 'draft_revision') OR EXISTS(SELECT 1 FROM api_template_drafts d JOIN maintenance_audit da ON da.id=d.audit_id WHERE da.action='TEMPLATE_DRAFT_SAVED' AND da.data->>'api_key_id'=d.api_key_id::text AND da.data->>'id'=d.template_id AND da.data->>'revision'=d.revision::text AND da.data->>'version'=d.version AND da.data->>'definition_sha256'=d.definition_sha256 AND d.api_key_id=v.api_key_id AND d.template_id=v.template_id AND d.revision::text=a.data->>'draft_revision' AND d.version=v.version AND d.definition_sha256=v.definition_sha256)),false),r.retired_at,coalesce(r.audit_id IS NULL OR (ra.action='TEMPLATE_RETIRED' AND ra.data->>'api_key_id'=v.api_key_id::text AND ra.data->>'id'=v.template_id AND ra.data->>'version'=v.version),false) FROM api_template_versions v JOIN maintenance_audit a ON a.id=v.audit_id LEFT JOIN api_template_retirements r USING(api_key_id,template_id,version) LEFT JOIN maintenance_audit ra ON ra.id=r.audit_id WHERE v.api_key_id=$1 ORDER BY v.template_id,v.version LIMIT 65`, key.ID)
 	if err != nil {
 		return 0, err
 	}
