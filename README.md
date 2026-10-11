@@ -1,293 +1,182 @@
 # RelayTale
 
-RelayTale is a self-hosted SMTP control plane and flight recorder for the email providers you already use.
+RelayTale 是一个自托管的 SMTP 中转与投递观测系统。它接收应用邮件，持久化原始邮件和投递记录，再通过你已有的 SMTP Provider 发送，让队列、重试、通道切换和退信处理有据可查。
 
-品牌名称统一为 **RelayTale**；模块、命令和容器服务使用 `relaytale`。已有部署升级前请阅读 [改名与兼容说明](docs/rename-relaytale.md)。
+使用 Go 和 PostgreSQL，提供 SMTP、HTTP 发信接口与浏览器管理工作台。
 
-Change your SMTP host. Keep your email code.
+**项目仍在开发中。** 已完成本地集成、故障注入和浏览器验收；生产部署与 Provider 认证边界见 [路线图](docs/roadmap.md) 和 [真实链路验收](docs/real-world-validation.md)。
+
+## 功能
+
+- **可靠接收**：SMTP STARTTLS、AUTH PLAIN / LOGIN、发件地址白名单；原始 EML 文件与数据库元数据分层存储，持久化完成后才确认接收。
+- **投递控制**：逐收件人状态、Provider 路由、有限重试、安全切换、熔断和共享账号额度；结果不确定时保留 `DELIVERY_UNKNOWN`，禁止自动重发。
+- **业务网站接入**：幂等 HTTP 发信、原始 MIME 或 JSON/附件、版本化模板、业务关联 ID、消息流、有效期、定时发送及受控取消、替换和改期。
+- **结果反馈**：网站身份范围内的状态查询、签名 Webhook、持久化通知队列；支持收件箱退信收集和管理员人工关联、确认与撤回。
+- **管理与观测**：角色权限、邮件与事件查询、模板管理、地址抑制、UNKNOWN 人工处置、Prometheus 指标、日志轮转和导出。
+- **运维**：显式数据库迁移、受限运行账号、单实例保护、密钥轮换、备份恢复、可预览的存档清理和容量盘点。
 
 ```text
-Your Apps → SMTP ingress → Durable queue + EML archive → Provider router
-                                 ↓                         ↓
-                            Event ledger         Your existing SMTP providers
+应用 ── SMTP / HTTP ──→ RelayTale ──→ SMTP Provider ──→ 收件服务
+                          │
+                    PostgreSQL + EML
+                          │
+                    工作台 / 状态查询 / Webhook
 ```
 
-## 当前进度：Phase 8G（定时、取消、替换与改期）
+SMTP Provider 返回最终成功响应只表示 **SMTP 接受**，不代表最终送达或进入收件箱。人工确认的退信作为独立反馈展示，来源仍为 `UNVERIFIED`，不会改写 SMTP 接受事实或自动封禁收件人。Gateway 的回调签名也不等于 Provider 的退信来源认证。
 
-已实现 Go 服务入口、配置优先级、PostgreSQL 连接、内嵌 Goose 迁移、核心数据库表、存储可写检查、健康接口、JSON 日志、优雅退出和 Docker Compose。
+## 安装与启动
 
-已支持 SMTP STARTTLS、AUTH PLAIN / LOGIN、逐账号发件地址限制、原始 EML 持久化、收件人记录和事务入队。只在文件同步与数据库提交完成后回复 SMTP 250。
-
-已实现 Generic SMTP Provider 投递、加密凭证、PostgreSQL 队列 worker、逐收件人投递结果和租约恢复。支持 STARTTLS 与隐式 TLS，严格验证 Provider 证书。
-
-**默认 `WORKER_COUNT=0`，只接收不投递。** 配置主密钥、Provider 并显式启用 worker 后才开始发送。管理工作台需单独配置账户启用；自动重试和安全跨 Provider 切换需分别显式启用，默认失败与不确定邮件暂停。真实 Provider 首轮 SMTP 接受层已通过，Gmail / QQ / iCloud 共 12 份收到的原始邮件已核对，Message-ID 与 MIME 内容保持；认证差异见验收报告。
-
-已增加停写备份、空目标恢复、原文/凭证/幂等与退役一致性校验，以及恢复启动阻断。详见 [9A 运维手册](docs/phase-9a-backup-recovery.md)。恢复后不会自动开始投递，需先人工核对备份之后的外部发送事实。已提供 [网站身份范围内的状态查询](docs/phase-8d1-message-status.md)，支持逐收件人结果与事件分页。已实现 [8D.2 签名 Webhook](docs/phase-8d2-webhooks.md)：事务通知队列、双密钥签名、失败重试、暂停及人工重放，网络发送默认关闭。可信异步退信关联仍未完成。
-
-已支持 [业务关联 ID 与标签检索](docs/phase-8e1-business-reference.md)：在网站身份范围内按业务标识找邮件，新增字段参与幂等校验，不改 MIME；单封状态及 Webhook 通过显式选择 schema version 2 返回关联。
-
-已增加 [网站提交预算](docs/phase-8e2a-website-budgets.md)：按身份限制滚动分钟/小时/24 小时内新接收的收件人数，额度跨进程共享，重放不重复扣费，超额不入队。已增加 [共享 Provider 账号额度](docs/phase-8e2b-provider-budgets.md)：管理员把同一账号的多个连接配置加入一组，组内共用小时/24 小时投递额度，历史用量保留。已增加 [消息流预算与公平调度](docs/phase-8e2c-message-streams.md)：网站只能选择管理员授权的流，账号之间轮转、账号内部按权重轮转，每次最多领取 16 个收件人。已增加 [邮件有效期](docs/phase-8e2d-message-expiry.md)：不可延长的绝对期限、领取及 DATA 授权检查、逐收件人过期状态和事务通知；已授权/接受及 UNKNOWN 事实保留。
-
-已增加 [测试沙箱安全基础](docs/phase-8e3a-sandbox.md)：独立不可变测试身份、SANDBOX_STORED 状态、零 SMTP 投递、明确标记的签名通知，以及备份恢复保护；[8E.3b](docs/phase-8e3b-sandbox-tools.md) 已补齐 MIME 检查、受控模拟、签名通知对账示例和 OpenAPI 契约。
-
-面向业务网站的后续能力及官方资料依据见 [业务网站能力规划](docs/business-website-capabilities.md)：沙箱示例与模拟结果已完成；[8F.1 简单 JSON 发信](docs/phase-8f1-json-submission.md) 已增加有界、确定性 MIME 构建并复用原队列；[8F.2 JSON 附件](docs/phase-8f2-json-attachments.md) 支持有界二进制内容与稳定 MIME；[8F.3 固定版本模板](docs/phase-8f3-versioned-templates.md) 已提供网站范围内配置目录、内容版本与有界变量渲染；[8F.4 本地预览与语言版本](docs/phase-8f4-template-preview.md) 支持 JSON 源码预览和精确语言选择；[8F.5a 持久模板目录](docs/phase-8f5a-persistent-templates.md) 增加审计发布命令和显式启动加载；[8F.5b.1 版本退役](docs/phase-8f5b1-template-retirement.md) 补齐不可逆审计退役与有界历史，需等待请求重试窗口后再重启生效；[8F.5b.2 草稿与精确发布](docs/phase-8f5b2-template-drafts.md) 提供修订冲突保护、指定修订源码导出和事务发布；工作台发布、浏览器预览、定时与入站回复继续推进。
-
-已完成 [显式迁移与 schema 门槛](docs/phase-9b1-migrations.md)：迁移使用数据库会话锁串行执行，运行启动不再修改 schema；[9B.2a](docs/phase-9b2a-runtime-ownership.md) 已增加持久单实例占用、异常停机禁止自动接管，以及核心离线命令互斥；[9B.2b](docs/phase-9b2b-auxiliary-ownership.md) 将独立采集、维护、诊断和配置 CLI 纳入持久占用，允许在线共存并阻止离线操作；[9B.3](docs/phase-9b3-database-privileges.md) 分离运行、迁移和恢复账号，并拒绝高权限账号运行服务；[9B.4](docs/phase-9b4-key-rotation.md) 增加带版本密钥环、离线检查和事务式凭证轮换，保留旧格式兼容；[9B.5a](docs/phase-9b5a-operations-alerts.md) 补齐共享额度指标、UNKNOWN 收件人数及可选告警规则与处置手册；[9B.5b.1](docs/phase-9b5b1-provider-evidence.md) 提供绑定配置版本的能力声明与限制来源台账，[9B.5b.2](docs/phase-9b5b2-diagnostics.md) 增加 TLS 后 EHLO 能力观察及精确域名 DNS 诊断，认证对齐和跨 Provider 身份仍需验收。[9B.6](docs/phase-9b6-upgrade-drills.md) 增加真实迁移失败、取消与连接丢失演练，并明确显式恢复流程。
-
-[9C.1 保留预检](docs/phase-9c1-retention-preflight.md) 提供有界分页、逐消息保留原因和原文复核候选；默认不提出候选，不授权删除。元数据、审计及配额账本继续保留，[9C.2 协调原文清理](docs/phase-9c2-coordinated-cleanup.md) 已将依赖保护接入清理与维护调度，增加数据库栅栏和锁后复查；[9C.3 网站统计](docs/phase-9c3-website-statistics.md) 提供身份隔离的提交窗口状态汇总与逻辑原文容量；[9C.4 工作台统计](docs/phase-9c4-console-statistics.md) 已增加管理读取范围的跨网站/来源/环境汇总；[9C.5 容量盘点](docs/phase-9c5-capacity-inventory.md) 提供分页文件长度检查、异常分类和主要表/索引大小采样；卷分配空间、全库合计与自动增长趋势尚未实现。
-
-## 启动
-
-需要 Docker Compose 和运行中的 Docker / OrbStack。
+需要 Docker Compose 和运行中的 Docker。默认 Compose 配置用于本地部署，提供 PostgreSQL、RelayTale 和 Caddy。
 
 ```sh
+git clone https://github.com/HeimNad/relaytale.git
+cd relaytale
 cp .env.example .env
-# 按 docs/phase-9b3-database-privileges.md 配置独立角色、密码、三份 URI 和权限。
-# 必须先完成该流程的显式迁移与授权，日常服务不再使用管理员账号。
-# 首次启动：显式生成仅用于 localhost 开发的自签证书（已有证书时不要重复执行）。
+```
+
+编辑 `.env`，设置独立的数据库密码和运行、迁移、恢复连接。启动数据库：
+
+```sh
+docker compose up -d postgres
+```
+
+按 [数据库权限部署指南](docs/phase-9b3-database-privileges.md#首次部署) 创建角色、转移所有权、执行迁移并应用授权。该步骤是首次启动的必要条件：日常服务使用受限账号，启动时不会自动迁移数据库。
+
+完成数据库准备后，首次本地部署生成开发证书并启动：
+
+```sh
 docker compose run --build --rm relaytale init-dev-tls
 docker compose run --build --rm relaytale check-db-permissions
 docker compose up --build -d
+
 curl http://localhost:8080/health/live
 curl http://localhost:8080/health/ready
 ```
 
-首次启动和升级都必须按 [权限部署流程](docs/phase-9b3-database-privileges.md) 显式迁移并重新应用授权；正常启动只做只读 schema 检查，缺失、较旧、有空洞或含未知版本的数据库会阻止启动。迁移命令的 `--offline` 是操作者停写确认，不会自动停止运行实例。见 [9B.1 升级流程](docs/phase-9b1-migrations.md)。成功响应分别为 `{"status":"alive"}` 和 `{"status":"ready"}`。依赖不可用时 ready 返回 HTTP 503。根路径暂时返回 404。
+已有证书不要重复生成。开发证书仅用于 localhost；公网部署需有效证书和 HTTPS。默认 HTTP 入口为 `localhost:8080`，SMTP STARTTLS 入口为 `localhost:1587`，PostgreSQL 不公开主机端口。
 
-默认仅绑定本机，Caddy HTTP 入口为 8080。PostgreSQL 不向主机公开端口。当前 Compose 是本地开发配置；SMTP STARTTLS 入口为本机 1587，容器内部监听 587。生产需要替换为有效域名证书，并配置正式端口和 HTTPS。
+### 默认配置
 
-```sh
-docker compose logs -f relaytale
-docker compose down
-```
+| 功能                                 | 默认行为                             |
+| ------------------------------------ | ------------------------------------ |
+| 出站投递                             | `WORKER_COUNT=0`，接收后排队，不发送 |
+| 自动重试、跨 Provider 切换、健康熔断 | 分别显式启用，默认关闭               |
+| HTTP 发信、管理 API、浏览器工作台    | 配置各自独立身份后启用               |
+| Webhook 网络发送                     | `WEBHOOK_ENABLED=false`              |
+| 定时清理                             | `MAINTENANCE_INTERVAL=0s`，默认关闭  |
 
-`down` 保留数据卷；不要使用 `down -v`，除非确实要删除数据库和存档。
+配置优先级为 CLI > 环境变量 > YAML > 默认值。`.env` 由 Compose 读取，Go 程序不会自动加载它。完整配置示例见 [.env.example](.env.example) 和 [config.example.yaml](config.example.yaml)。
 
-异常停机可能留下占用记录并阻止重启。先用 `list-runtime-owner` 和 `list-auxiliary-owners` 检查；确认原进程和发送已停止、完成对账后，按 [人工释放流程](docs/phase-9b2a-runtime-ownership.md) 操作。不要自动清除或仅凭时间超时接管。
+## 接入应用
 
-## 本地开发
+### SMTP
 
-Go 1.27.1+。需可访问的 PostgreSQL，并设置 `DATABASE_URL`。
-
-```sh
-export GO111MODULE=on
-export SMTP_TLS_CERT='/path/to/smtp.crt'
-export SMTP_TLS_KEY='/path/to/smtp.key'
-# 先按权限部署文档准备本地角色；本机 URI 主机改为 localhost。
-export DATABASE_URL="$RUNTIME_DATABASE_URL"
-make test
-make vet
-make build
-DATABASE_URL="$MIGRATION_DATABASE_URL" go run ./cmd/relaytale migrate --offline
-# 迁移后重新应用 runtime-grants.sql，再检查运行账号。
-go run ./cmd/relaytale check-db-permissions
-go run ./cmd/relaytale --config config.example.yaml
-```
-
-配置顺序：CLI > 环境变量 > YAML > 默认值。`.env` 由 Compose 读取，Go 程序不会自动读取它。SMTP 默认监听 `:587` 且必须有 TLS 证书；仅测试 HTTP 时可以显式设置 `SMTP_LISTEN_ADDR=` 关闭 SMTP。
-
-| CLI | 环境变量 | 默认值 |
-| --- | --- | --- |
-| `--http-addr` | `HTTP_LISTEN_ADDR` | `:8080` |
-| `--database-url` | `DATABASE_URL` | 必填 |
-| `--storage-dir` | `EML_STORAGE_DIR` | `data/eml` |
-| `--smtp-addr` | `SMTP_LISTEN_ADDR` | `:587` |
-| `--smtp-domain` | `SMTP_DOMAIN` | `localhost` |
-| `--smtp-cert` | `SMTP_TLS_CERT` | 启用 SMTP 时必填 |
-| `--smtp-key` | `SMTP_TLS_KEY` | 启用 SMTP 时必填 |
-| `--max-message-bytes` | `MAX_MESSAGE_BYTES` | `26214400` |
-| `--memory-budget-bytes` | `MEMORY_BUDGET_BYTES` | `67108864`（在途工作预算，非 RSS 上限） |
-| `--spool-budget-bytes` | `SPOOL_BUDGET_BYTES` | `268435456`（出站快照预算） |
-| `--snapshot-dir` | `SNAPSHOT_DIR` | 系统临时目录；Compose 为 `/data/snapshots` |
-| `--workers` | `WORKER_COUNT` | `0`（关闭投递） |
-| `--shutdown-timeout` | `SHUTDOWN_TIMEOUT` | `30s` |
-
-敏感配置优先使用环境变量，避免在命令行历史中保存密码。
-
-## 目录
-
-```text
-cmd/relaytale/       进程装配、启动和退出
-internal/config/   配置加载与校验
-internal/database/ PostgreSQL 连接与迁移
-internal/api/      HTTP 路由与健康检查
-internal/storage/  EML 原子发布、文件与目录同步、SHA-256
-internal/smtpserver/ STARTTLS、认证、SMTP 会话和错误映射
-internal/auth/     Argon2id 凭证与发件地址授权
-internal/message/  接收用例和原子数据库入队
-internal/devtls/   显式生成 localhost 开发证书
-internal/provider/ SMTP Provider 配置与加密凭证创建
-internal/encryption/ AES-256-GCM，绑定 Provider ID
-internal/smtpclient/ SMTP 阶段、原文传输与结果分类
-internal/queue/    并发领取、租约、投递和事务完成
-internal/testsmtp/ 本地 Fake Provider，用于失败注入
-tests/integration/ 真实 SMTP 与 PostgreSQL 故障注入测试
-migrations/        内嵌、版本化数据库迁移
-docker/            Caddy 配置
-docs/              架构决策与分阶段计划
-```
-
-详细边界见 [架构说明](docs/architecture.md)，开发顺序见 [路线图](docs/roadmap.md)。原始规格书保留为产品需求来源。
-
-## 数据与备份
-
-PostgreSQL 和 `/data/eml` 必须成对备份。邮件接收后，原始 EML 存储在 `/data/eml/YYYY/MM/DD/<uuid>.eml`，数据库保存路径、大小与 SHA-256。事件表禁止普通 UPDATE/DELETE；后续保留期清理必须通过专门维护流程实现。生产环境还需分离迁移账号和运行账号，当前开发环境使用同一账号。
-
-采用 **AGPL-3.0-only**，完整文本见 [LICENSE](LICENSE)。项目原创代码按此许可证发布；第三方依赖保留各自许可证。可通过 `relaytale license` 或 `GET /license` 查看正文。发布或部署修改版时，请按许可证提供对应源代码；仅展示许可证正文不能代替源代码提供安排。
-
-## 创建 SMTP 账号
-
-服务启动并完成迁移后执行：
+创建账号并限定允许的发件地址：
 
 ```sh
 docker compose exec relaytale relaytale create-smtp-account \
-  --username local-app \
+  --username my-app \
   --allowed-from noreply@example.com
 ```
 
-输出密码仅此一次，数据库只保存 Argon2id 哈希。不预置默认账号。多个允许地址用逗号分隔，必须是完整地址；空列表不授权。SMTP 信封 From、邮件头 From，以及可选 Sender 均需匹配。当前不接受空信封发件人或 SMTPUTF8 地址。
+生成的密码仅输出一次。配置应用使用 `localhost:1587`、STARTTLS 和该账号；本地测试客户端还需信任开发证书。SMTP 信封和邮件头发件人都需满足白名单。接入细节见 [架构说明](docs/architecture.md)。
 
-导出开发证书供客户端信任：
+### 配置出站 Provider
 
-```sh
-docker compose cp relaytale:/data/tls/smtp.crt /tmp/relaytale-smtp.crt
-```
-
-客户端配置：`localhost:1587`、STARTTLS、上面创建的账号密码，并信任该证书。可使用 swaks（交互输入密码，不将密码写入 shell 历史）：
+先保持 `WORKER_COUNT=0`，生成并保存主密钥：
 
 ```sh
-swaks --server localhost --port 1587 --tls --tls-verify \
-  --tls-ca-file /tmp/relaytale-smtp.crt \
-  --auth PLAIN --auth-user local-app --auth-password \
-  --from noreply@example.com --to recipient@example.test
+openssl rand -hex 32
 ```
 
-可以查看 QUEUED 状态：
+将结果写入私有 `.env` 的 `RELAYTALE_MASTER_KEY`，运行 `docker compose up -d --build relaytale` 加载配置。主密钥须独立备份；后续变更使用 [密钥轮换流程](docs/phase-9b4-key-rotation.md)。
 
-```sh
-docker compose exec postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"' sh \
-  -c 'SELECT id, subject, status, eml_size FROM messages ORDER BY created_at DESC LIMIT 10;'
-```
-
-## 验证可靠接收
-
-```sh
-make test
-make vet
-# 完整测试：独立的 PostgreSQL 容器，不操作开发数据库。
-docker compose --profile test run --build --rm test
-docker compose --profile test stop postgres-test
-```
-
-集成测试覆盖 TLS 与两种 AUTH、匿名/错误密码/禁用账号、发件人越权、原文与哈希保留、多收件人、超限、中断上传、存储失败、真实数据库事务回滚，以及提交前不确认和优雅退出。未设置 `TEST_DATABASE_URL` 时，本地 `make test` 跳过数据库集成部分；Compose 测试会实际运行它们。
-
-尚未完成 kill -9 与主机断电恢复演练、孤儿文件清理和生产限流。数据库提交结果不明确时保留 EML，避免误删可能已经提交的邮件。不要手动清空存档目录。
-
-## Git 阶段检查点
-
-每个阶段验证完成后提交代码并创建里程碑标签。阶段基线以 `phase-1`、`phase-2` 等标签保存；具体约定见 [Git 工作流程](docs/git-workflow.md)。Git 不包含数据库、EML、密码或证书，这些数据需要单独备份。
-
-
-## 启用 Provider 投递（Phase 2）
-
-1. 生成主密钥：`openssl rand -hex 32`。将结果保存到 `.env` 的 `RELAYTALE_MASTER_KEY`。该值用于加密 Provider 密码，需要独立备份；直接替换或丢失会导致已有凭证无法解密；安全更换请使用 [离线密钥轮换](docs/phase-9b4-key-rotation.md)。
-2. 保持 `WORKER_COUNT=0`，运行 `docker compose up -d --build`，让容器载入主密钥并应用迁移。
-3. 使用仅本地可读的密码文件创建 Provider，例如：
+用仓库外的私有密码文件创建 Provider：
 
 ```sh
 docker compose exec -T relaytale relaytale create-provider \
   --name primary \
-  --host smtp.your-provider.example --port 587 --security starttls \
+  --host smtp.provider.example --port 587 --security starttls \
   --username your-smtp-username --from-domains example.com \
   --priority 10 --max-connections 1 --timeout 30s \
   --password-stdin < /path/to/provider-password.txt
 ```
 
-隐式 TLS 使用 `--security implicit_tls --port 465`。上面的 hostname 是占位符，须替换为真实 Provider。密码文件不要放入仓库。创建命令不连接 Provider、不发送测试邮件。
+替换示例主机、账号和域名；465 端口使用 `--security implicit_tls`。创建命令不会发送测试邮件。确认配置后，在 `.env` 设置 `WORKER_COUNT=4`，运行 `docker compose up -d` 启用投递；符合路由条件的已有排队邮件也会开始发送。
 
-4. 在 `.env` 设置 `WORKER_COUNT=4`，再运行 `docker compose up -d`。符合 Provider 发件域规则的已有 QUEUED 邮件也会开始投递。
+### HTTP 与网站结果反馈
 
-Provider 优先选择较小的 priority；并发容量或滚动收件人配额耗尽时跳过该 Provider。未匹配到 Provider 的邮件保持 QUEUED。低优先级 Provider 可承接领取时的可用容量，默认尝试失败后不换 Provider；显式开启 4B 后按安全证据切换。
+通过 `SEND_API_KEYS` 配置独立网站身份，可提交原始 MIME、JSON 邮件或模板请求。同一幂等键与相同参数可以安全重试提交，`202` 表示 Gateway 已接受请求。
 
-### 结果语义
+网站使用返回的 `message_id` 查询状态，并在收到签名 Webhook 后重新查询最新结果。示例后端展示持久化提交、通知验签与去重、状态对账和人工退信反馈，默认运行在不发送 SMTP 的沙箱中。
 
-| 状态 | 含义与本阶段行为 |
-| --- | --- |
-| SMTP_ACCEPTED | Provider 返回最终 2xx；不代表最终送达 |
-| PARTIAL_ACCEPTED | 部分收件人被接受，其他收件人失败；逐人保留结果 |
-| TEMP_FAILED | 默认暂停；Phase 4A 显式启用后按逐收件人决策重试 |
-| PERM_FAILED | 明确永久失败，本阶段暂停 |
-| DELIVERY_UNKNOWN | DATA 后缺少确定结果，或持久化的 DATA 许可后 worker 租约过期；不自动重发 |
+- [HTTP 发信配置](docs/phase-8b-http-submission.md)
+- [JSON 邮件与附件](docs/phase-8f2-json-attachments.md)
+- [状态查询与 Webhook](docs/website-delivery-results.md)
+- [OpenAPI 契约](docs/api/website.openapi.json)
+- [可运行的网站示例](examples/website/README.md)
 
-查看投递记录：
+### 管理工作台
+
+按 [工作台配置指南](docs/web-ui.md) 设置 `WEB_UI_ORIGIN` 和 `WEB_UI_USERS`，重启后访问 `/console/`。工作台支持 viewer、operator、admin 角色，使用独立密码与会话；生产运行不需要 Node.js 或外部 CDN。
+
+## 运维与文档
+
+| 主题                     | 文档                                                                                 |
+| ------------------------ | ------------------------------------------------------------------------------------ |
+| 系统架构与投递边界       | [架构说明](docs/architecture.md)                                                     |
+| 当前进度、计划与验收记录 | [开发路线图](docs/roadmap.md)                                                        |
+| 日志、导出与存档维护     | [运维说明](docs/operations.md)                                                       |
+| 数据库升级与权限         | [迁移](docs/phase-9b1-migrations.md) · [权限](docs/phase-9b3-database-privileges.md) |
+| 备份与恢复               | [恢复手册](docs/phase-9a-backup-recovery.md)                                         |
+| 异常停机后的实例占用     | [人工恢复流程](docs/phase-9b2a-runtime-ownership.md)                                 |
+| Provider 与发件域认证    | [身份与反馈责任](docs/feedback-and-sender-identity.md)                               |
+| 人工退信处理             | [核验手册](docs/phase-7b7-manual-feedback.md)                                        |
+| 既有部署改名兼容         | [升级说明](docs/rename-relaytale.md)                                                 |
+
+数据库、EML 存档和凭证密钥需要按恢复手册成套备份，Git 不能替代数据备份。`docker compose down` 保留卷；`down -v` 会删除卷。升级前停止相关进程、备份并显式迁移，不自动释放异常停机遗留的实例占用。
+
+当前 Gateway 透传原始 MIME，不自行签署 DKIM。收件箱中的退信不会仅凭 From、主题或 Message-ID 获得可信来源身份；自动可信 DSN 处理仍待完成。当前不支持 SMTPUTF8 信封地址。其他范围与限制以对应文档为准。
+
+## 开发与测试
+
+本地构建需要 Go 1.27.1 或更高版本；数据库集成测试使用 PostgreSQL。浏览器测试另需 Node.js 和 Playwright。
 
 ```sh
-docker compose exec postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"' sh \
-  -c 'SELECT message_id, attempt_number, result, smtp_code, error_class FROM delivery_attempts ORDER BY started_at DESC LIMIT 20;'
+go build -o bin/relaytale ./cmd/relaytale
 ```
 
-消息结果、收件人结果、attempt 和事件在同一事务完成。发送前校验存档大小和 SHA-256；不重新生成 MIME，不改 Message-ID。当前仅传输 CRLF 格式且以 CRLF 结束的 EML，非规范原文会保留并暂停，避免静默改写。
+完整检查可在独立测试容器中运行，不使用应用数据库：
 
-Phase 2 集成测试另外覆盖：SMTP ingress → 存档 → PostgreSQL 队列 → Fake Provider 全链路、并发领取与容量限制、过期领取标识拒绝、崩溃恢复、错误主密钥、存档损坏、最终结果提交失败以及 worker 退出。测试只使用本地 Fake Provider，尚未连接真实外部邮箱服务。
+```sh
+POSTGRES_PASSWORD=isolated-test-only docker compose --env-file /dev/null \
+  -p relaytale-test --profile test run --build --rm test make ci
 
+POSTGRES_PASSWORD=isolated-test-only docker compose --env-file /dev/null \
+  -p relaytale-test --profile test down
+```
 
-## Flight Recorder 与运维（Phase 3）
+`make ci` 执行 Go 格式、静态检查、构建和竞态测试，并要求隔离的 `TEST_DATABASE_URL`；GitHub Actions 使用同样的检查。单独运行 `make test` 时，未配置测试数据库会跳过数据库集成测试。
 
-新增 DNS / SMTP 阶段持续记录、阶段耗时、错误分类、Provider 列表与不发信的连接诊断。运行日志按大小轮转；支持压缩 JSONL 记录导出、运行日志导出、EML 与已有 debug 内容保留期清理，以及追加式维护审计。
+浏览器验收：
 
-**自动清理默认关闭。** 手动 `cleanup` 默认只预览；邮件元数据和事件长期保留，待处理和结果不确定的邮件不会被 EML 保留策略删除。完整命令、保留边界与备份恢复流程见 [运维说明](docs/operations.md)。
+```sh
+npm ci
+npx playwright install chromium
+# TEST_DATABASE_URL 必须指向独立测试数据库。
+TEST_DATABASE_URL='postgres://user:password@localhost/test_db?sslmode=disable' \
+  sh scripts/test-browser.sh
+```
 
-Phase 3 测试覆盖导出原子发布/不覆盖、过滤与敏感字段排除、清理预览、安全状态筛选、受限路径、删除中断恢复、审计不可修改，以及发送完成前事件已落库。规格遵循情况、设计取舍和剩余工作见 [前三阶段规格对照](docs/phase-1-3-spec-review.md)。
+测试覆盖 SMTP 协议、持久化故障、并发领取、租约恢复、未知投递结果、重试与安全切换、API 身份隔离、签名通知及工作台操作。最近完整的网站闭环验收见 [验收记录](docs/phase-7b8-website-acceptance.md)。
 
+## 参与贡献
 
-## Delivery Decision Engine（Phase 4A）
+欢迎通过 [Issues](https://github.com/HeimNad/relaytale/issues) 报告问题或讨论改进，通过 Pull Request 提交变更。问题报告请附复现步骤、版本和脱敏日志；不要上传密码、密钥或私人邮件。
 
-将 SMTP 事实与后续决策分离：每个收件人保存版本化决策及事件，临时失败可持久化安排同 Provider 重试，成功/永久失败的收件人不重发。退避含 jitter，默认预算为首次领取后 24 小时、最多 7 次。达到上限转人工处理，绝不把预算耗尽冒充远端永久拒绝。
+提交前运行相关检查，涉及投递行为的修改应覆盖失败场景并保持保守投递语义。开发约定见 [Git 工作流程](docs/git-workflow.md)，规划见 [路线图](docs/roadmap.md)。
 
-`RETRY_ENABLED=false` 默认关闭自动重试；只有真实 Provider 验收后才应考虑启用。历史暂停邮件不在迁移时自动恢复。配置错误/本地故障需要人工检查，UNKNOWN 不能自动重发。`resolve-unknown` 提供带预期 attempt、操作者、理由与重复风险确认的人工处理，旧尝试证据不改写。
+## 许可证
 
-见 [实施计划](docs/phase-4-plan.md)、[真实链路矩阵](docs/real-world-validation.md) 和 [重试与人工处置说明](docs/operations.md#重试与-unknown-人工处置phase-4a)。4B 的安全跨 Provider 切换已实现；4C 的滚动健康、熔断与收件人尝试配额已实现，熔断执行默认关闭。
-
-
-真实链路首轮：SpaceMail/PurelyMail 的 465 与 587 各一次投递，四封邮件、16 个收件人均获最终 250。临时 worker 已停止，测试配置已禁用。Gmail / QQ / iCloud 的 12 份原始邮件已确认 Message-ID、主题与解码 MIME 内容保持（QQ 的 PurelyMail 587 在垃圾箱）；QQ 认证差异、SpaceMail DMARC、大消息边界和 Outlook 仍待核验，详见 [真实验收报告](docs/real-world-validation.md)。
-
-
-## 安全跨 Provider 切换（Phase 4B）
-
-`FAILOVER_ENABLED=false` 默认关闭，启用要求同时开启 RETRY_ENABLED。到期领取时，只在全部未完成收件人的最新决策明确允许切换时选择备用；混合 RCPT 错误保留原路由，已接受的收件人不重发。每条消息最多使用三个不同 Provider，不返回离开的 Provider，且仍受逐人 7 次 / 24 小时预算限制。
-
-候选同时匹配 Envelope From / Header From 发件域，检查启用状态、TLS、容量、剩余配额与已启用的熔断。切换审计和新尝试一起提交。DATA 后结果不明或最终数据库提交失败仍进入 UNKNOWN。见 [运维说明](docs/operations.md#安全-provider-切换phase-4b) 与 [实施计划](docs/phase-4-plan.md)。
-
-
-## Provider 健康与配额（Phase 4C）
-
-`HEALTH_ENABLED=false` 默认仅记录健康样本，不执行熔断。启用后按最近 10 分钟有效尝试统计，至少 5 个样本、失败率达到 50% 时冷却 60 秒，再放行一个半开尝试。收件人拒绝和本地/配置问题不计入 Provider 可用性失败。邮件 UNKNOWN 不因熔断恢复而重发。
-
-创建 Provider 可设置 `--hourly-limit` / `--daily-limit`（0 不限），按滚动 1h / 24h 的收件人尝试预留计数；额度不够会分批投递。已提交的预留在失败或崩溃时不返还，防止不确定结果重复使用额度。配额独立于熔断开关，明确配置后始终执行。`list-providers` 展示剩余用量依据与熔断状态。详见 [4C 方案与验收](docs/phase-4c-plan.md)。
-
-
-## 抑制名单（Phase 5A）
-
-提供 `add-suppression`、`list-suppressions`、`release-suppression`。名单按全网关邮箱地址忽略大小写匹配，在入队、领取和 DATA 授权前强制检查；多收件人邮件保留其他收件人的投递。添加和解除必须包含操作者与理由，已抑制的历史邮件不会在解除或到期后自动重发，UNKNOWN 保持独立处理。
-
-已获 DATA 授权的尝试不能撤回。SMTP 5xx 与收到的退信样式邮件不会自动封禁地址；完整可信 DSN 消费者尚未实现。操作、并发边界与验收见 [Phase 5A](docs/phase-5a-suppression.md)，退信与 DKIM 责任见 [反馈与认证说明](docs/feedback-and-sender-identity.md)。
-
-## 后续开发顺序
-
-Phase 5A 已实现 suppression 与人工解除、可信退信设计及身份验收边界说明；5B 已实现流式出站、在途资源背压与基础指标；持续负载中发现的收尾死锁已修复并通过回归，执行记录及容量限制见 [资源加固报告](docs/phase-5b-resources.md)。5B.1 增加 CI、SMTP 来源与认证准入、可选指标令牌和只读 EML 升级预检，见 [安全门禁报告](docs/phase-5b1-safety-gates.md)。5C 已接入独立角色令牌、分页查询和受控管理写入，见 [管理 API](docs/management-api.md)。Phase 6 提供浏览器工作台，默认关闭，启用与会话边界见 [Web UI 手册](docs/web-ui.md)。Phase 7A 增加离线 DSN 导入、原始证据、幂等/冲突与人工待查，见 [反馈手册](docs/phase-7a-feedback.md)。7B.1 已提供只读关联与决策预检，见 [安全基础说明](docs/phase-7b-feedback-safety.md)。7B.2 已加入显式启用的只读 IMAP 收集、事务游标和容量保护，见 [收集手册](docs/phase-7b2-imap-collection.md)。两家真实 IMAP 的限定范围取件已通过，见 [验收记录](docs/real-imap-validation.md)。已补充真实样本结构的合成回归测试；Purelymail 当前样本确认为欢迎信。随后已通过单封受控实验取得 [Purelymail 真实退信](docs/purelymail-dsn-validation.md)，发现非标准格式；现已提供 [只读兼容说明](docs/phase-7b3-feedback-explanation.md)，保留原字段且不提升信任；现已提供 [只读关联候选查询](docs/phase-7b4-feedback-candidates.md)，明确标记歧义和阻断原因。已将只读反馈查询接入 [管理工作台](docs/phase-7b5-feedback-workspace.md)，可在界面核对格式与候选。已增加 [数据库级证据总容量保护](docs/phase-7b6-feedback-capacity.md)，统一限制手工导入与 IMAP 收集。接下来仍需完成 **7B 可信反馈通道与自动处理**；未验证的退信不会自动关联或封禁地址。已实现 [Phase 8A 幂等入队基础](docs/phase-8a-idempotent-enqueue.md)，现已接入默认关闭的 [受控 HTTP 发信入口](docs/phase-8b-http-submission.md)，须配置独立令牌后启用；已补充 [Phase 8C.1 提交故障验收](docs/phase-8c-http-faults.md)；已补充 [数据库提交确认丢失验收](docs/phase-8c2-commit-response-loss.md)；新增 [只读存档目录核对](docs/phase-8c3-archive-inventory.md)，用于人工排查未匹配原文，并支持 [有界分页](docs/phase-8c4-inventory-pagination.md)；[Phase 8C 完整闭环](docs/phase-8c-complete.md) 已加入跨日期续扫、不可变候选记录、默认预览和显式安全回收；没有后台自动删除任务。完整 DSN 自动化、HTTP 发信 API 与生产运维分别验收。已完成本地故障测试不代表生产就绪；当前功能、阶段验收条件与剩余缺口以 [开发路线图](docs/roadmap.md) 为准。
-
-### 持续检查
-
-`make ci` 检查全仓库 gofmt、go vet、构建及竞态测试，必须设置隔离的 `TEST_DATABASE_URL`，缺少数据库会失败。GitHub Actions 自动提供 PostgreSQL。可通过 `docker compose -p relaytale-safety-test --profile test run --build --rm test make ci` 在 Linux 容器中复现。多来源 SMTP 协议测试在 macOS 跳过，在 Linux CI 执行；持续负载测试仍需单独显式启用。
-
-已增加 [模板管理工作台](docs/phase-8f5b3-template-management.md)：按网站查看目录、编辑有界草稿、保留并发冲突输入、审阅精确修订后发布及确认退役。采用 Impeccable 指导优化桌面和手机布局。发布仍需身份显式启用并重启，源码审阅不渲染 HTML。
-
-已增加 [模板渲染预览](docs/phase-8f5b4-template-preview.md)：填写示例变量，检查精确修订的主题、纯文本和受限 HTML 结构。样例不保存、不发送，外部资源与活动内容被移除；预览不代表邮件客户端最终效果。
-
-已增加 [定时提交](docs/phase-8g1-scheduled-submission.md)：网站可指定不可改写的最早发送时间，未来排期受容量与幂等保护，到点前不领取或授权 DATA。不承诺准点入箱。[8G 完整类别](docs/phase-8g-complete.md) 已补齐同网站受控取消、原子替换和改期、查询/签名通知与恢复校验；活动尝试或历史 DATA/UNKNOWN 均拒绝取消，改期不会改写原排期。
-
-## 人工退信核验与网站反馈
-
-管理员可以把收件箱证据明确关联到业务邮件，确认失败或撤回，并通过独立状态查询与签名 Webhook 通知网站。来源仍标记 UNVERIFIED，不覆盖 SMTP 接受事实，不自动封禁地址。完整使用方式及升级边界见 [7B.7 手册](docs/phase-7b7-manual-feedback.md)。
-
-网站参考后端已支持显式生产接入与独立人工反馈快照；完整容器竞态测试及真实浏览器核验到网站的签名回调闭环通过。实现、验收及生产边界见 [7B.8 验收记录](docs/phase-7b8-website-acceptance.md)。
+[AGPL-3.0-only](LICENSE)。第三方依赖保留各自许可证。
