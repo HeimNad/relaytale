@@ -144,6 +144,9 @@ func (a Management) operations() http.Handler {
 	mux.HandleFunc("POST /admin/v1/provider-quota-groups", a.writeQuotaGroup)
 	mux.HandleFunc("PUT /admin/v1/provider-quota-groups/{id}", a.writeQuotaGroup)
 	mux.HandleFunc("POST /admin/v1/providers/{id}/quota-group", a.attachQuotaGroup)
+	mux.HandleFunc("POST /admin/v1/feedback/{id}/links", a.feedbackLink)
+	mux.HandleFunc("GET /admin/v1/feedback/{id}/links", a.feedbackLinks)
+	mux.HandleFunc("POST /admin/v1/feedback-links/{id}/reviews", a.feedbackReview)
 	mux.HandleFunc("GET /admin/v1/feedback", a.feedbackList)
 	mux.HandleFunc("GET /admin/v1/feedback-capacity", a.feedbackCapacity)
 	mux.HandleFunc("GET /admin/v1/feedback/{id}", a.feedbackDetail)
@@ -167,7 +170,7 @@ func (a Management) operations() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		who := r.Context().Value(principalKey{}).(credential)
 		if r.Method != "GET" && r.Method != "HEAD" {
-			if who.role == "viewer" || ((strings.HasPrefix(r.URL.Path, "/admin/v1/providers") || strings.HasPrefix(r.URL.Path, "/admin/v1/provider-quota-groups") || (strings.HasPrefix(r.URL.Path, "/admin/v1/templates/") && (strings.HasSuffix(r.URL.Path, "/publish") || strings.HasSuffix(r.URL.Path, "/retire")))) && who.role != "admin") {
+			if who.role == "viewer" || ((strings.HasPrefix(r.URL.Path, "/admin/v1/feedback") || strings.HasPrefix(r.URL.Path, "/admin/v1/providers") || strings.HasPrefix(r.URL.Path, "/admin/v1/provider-quota-groups") || (strings.HasPrefix(r.URL.Path, "/admin/v1/templates/") && (strings.HasSuffix(r.URL.Path, "/publish") || strings.HasSuffix(r.URL.Path, "/retire")))) && who.role != "admin") {
 				respond(w, 403, "forbidden")
 				return
 			}

@@ -1259,6 +1259,12 @@ async function feedbackList(generation) {
 async function feedbackDetail(id, generation) {
   const base = "feedback/" + encodeURIComponent(id);
   const entry = await api(base);
+  const publications = await api(base + "/links");
+  const publicationPanel = feedbackPublicationPanel(
+    entry,
+    publications.items,
+    generation,
+  );
   if (S.generation !== generation) return;
   const explanation = el("div", { "aria-live": "polite" });
   const results = el("div", { "aria-live": "polite" });
@@ -1373,6 +1379,14 @@ async function feedbackDetail(id, generation) {
                     },
                     "查看本地邮件记录",
                   ),
+                  canAdmin() && !data.multiple_messages && !data.truncated
+                    ? button("选择此候选", () => {
+                        publicationPanel.select(c.request);
+                        publicationPanel.node.scrollIntoView({
+                          block: "start",
+                        });
+                      })
+                    : null,
                   facts({
                     当前投递状态:
                       states[c.current_status]?.[0] || c.current_status,
@@ -1420,8 +1434,9 @@ async function feedbackDetail(id, generation) {
     el(
       "div",
       { class: "feedback-warning", role: "note" },
-      "来源未经验证 · 自动处置关闭。查看、解释和查询均不会修改投递状态或地址抑制。",
+      "来源未经验证 · 自动处置关闭。人工核验结果单独通知网站，不修改 SMTP 投递事实或地址抑制。",
     ),
+    publicationPanel.node,
     el(
       "section",
       { class: "panel feedback-panel" },
@@ -2133,4 +2148,179 @@ async function templatePreview(identity, draft) {
     results,
     ...(canAdmin() && identity.enabled ? [publish] : []),
   );
+}
+
+function feedbackPublicationPanel(entry, items, generation) {
+  const labels = {
+    PENDING_REVIEW: "待人工核验",
+    FAILURE_CONFIRMED_BY_OPERATOR: "人工确认失败 · 来源未验证",
+    WITHDRAWN: "已撤回",
+    EVIDENCE_CONFLICT: "证据冲突 · 结论失效",
+  };
+  const node = el(
+    "section",
+    { class: "panel feedback-panel" },
+    el("h2", {}, "通知业务网站"),
+    el(
+      "p",
+      {},
+      "先关联到已被 SMTP 接受的业务邮件，再人工确认失败。网站收到独立反馈记录；这不是 Provider 来源认证，也不证明地址无效。",
+    ),
+  );
+  const fields = {};
+  const status = el("p", { "aria-live": "polite" });
+  for (const item of items) {
+    const section = el(
+      "section",
+      { class: "feedback-candidate" },
+      facts({
+        核验状态: labels[item.state],
+        收件人记录: item.recipient_id,
+        投递尝试: item.attempt_id,
+        版本: item.revision,
+      }),
+    );
+    if (canAdmin() && item.revision < 2 && item.state !== "WITHDRAWN") {
+      const reason = el("textarea", {
+        required: "",
+        maxlength: "2048",
+        "aria-label": "核验理由",
+      });
+      const ack = el("input", { type: "checkbox", required: "" });
+      const action = el(
+        "select",
+        { "aria-label": "核验操作" },
+        ...(item.state === "PENDING_REVIEW"
+          ? [el("option", { value: "CONFIRM_FAILURE" }, "人工确认失败")]
+          : []),
+        el("option", { value: "WITHDRAW" }, "撤回关联或结论"),
+      );
+      const submit = el("button", { type: "submit" }, "保存核验结果");
+      section.append(
+        el(
+          "form",
+          {
+            class: "feedback-form",
+            onsubmit: async (e) => {
+              e.preventDefault();
+              if (submit.disabled) return;
+              submit.disabled = true;
+              try {
+                await api("feedback-links/" + item.id + "/reviews", {
+                  expected_revision: item.revision,
+                  action: action.value,
+                  reason: reason.value,
+                  acknowledge_unverified: ack.checked,
+                });
+                if (S.generation === generation)
+                  await feedbackDetail(entry.id, generation);
+              } catch (error) {
+                status.textContent =
+                  errorText(error) + " 请刷新核对，勿重复确认。";
+              } finally {
+                submit.disabled = false;
+              }
+            },
+          },
+          action,
+          el("label", {}, "核验理由", reason),
+          el(
+            "label",
+            { class: "feedback-ack" },
+            ack,
+            " 我知道来源仍未验证，且此操作会通知网站",
+          ),
+          submit,
+        ),
+      );
+    }
+    node.append(section);
+  }
+  if (canAdmin()) {
+    const form = el("form", { class: "feedback-form" });
+    for (const [key, label] of Object.entries({
+      message_id: "邮件 Gateway ID",
+      provider_id: "Provider ID",
+      attempt_id: "投递尝试 ID",
+      recipient_id: "收件人记录 ID",
+      report_index: "收件人区块编号",
+    })) {
+      fields[key] = el("input", {
+        required: "",
+        maxlength: "36",
+        "aria-label": label,
+        ...(key === "report_index"
+          ? { type: "number", min: "0", max: "99", value: "0" }
+          : {}),
+      });
+      form.append(el("label", {}, label, fields[key]));
+    }
+    const manual = el("input", { type: "checkbox" });
+    const ack = el("input", { type: "checkbox", required: "" });
+    const reason = el("textarea", {
+      required: "",
+      maxlength: "2048",
+      "aria-label": "关联理由",
+    });
+    const submit = el(
+      "button",
+      { type: "submit", class: "primary" },
+      "关联并通知网站待核验",
+    );
+    form.append(
+      el("label", {}, "关联理由", reason),
+      ...(entry.parse_state === "UNSUPPORTED"
+        ? [
+            el(
+              "label",
+              { class: "feedback-ack" },
+              manual,
+              " 格式不标准，我已手工核对收件人和原始邮件（仅使用区块 0）",
+            ),
+          ]
+        : []),
+      el(
+        "label",
+        { class: "feedback-ack" },
+        ack,
+        " 我知道关联由人工提供，来源未经验证",
+      ),
+      submit,
+    );
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      if (submit.disabled) return;
+      submit.disabled = true;
+      const body = {
+        feedback_id: entry.id,
+        expected_sha256: entry.sha256,
+        reason: reason.value,
+        acknowledge_unverified: ack.checked,
+        manual_association: manual.checked,
+      };
+      for (const [key, input] of Object.entries(fields))
+        body[key] = key === "report_index" ? Number(input.value) : input.value;
+      try {
+        await api("feedback/" + entry.id + "/links", body);
+        if (S.generation === generation)
+          await feedbackDetail(entry.id, generation);
+      } catch (error) {
+        status.textContent =
+          errorText(error) + " 请刷新核对关联条件，勿盲目重试。";
+      } finally {
+        submit.disabled = false;
+      }
+    });
+    node.append(el("details", {}, el("summary", {}, "新建人工关联"), form));
+  }
+  node.append(status);
+  return {
+    node,
+    select(request) {
+      for (const [key, input] of Object.entries(fields))
+        input.value = request[key];
+      const detail = node.querySelector("details");
+      if (detail) detail.open = true;
+    },
+  };
 }

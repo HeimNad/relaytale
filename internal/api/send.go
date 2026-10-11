@@ -196,12 +196,19 @@ func NewSendHandler(ctx context.Context, raw string, receiver message.APIReceive
 				cancelID = ""
 			}
 		}
+		feedbackID := ""
+		if strings.HasPrefix(r.URL.Path, "/v1/messages/") && strings.HasSuffix(r.URL.Path, "/feedback") {
+			feedbackID = strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/v1/messages/"), "/feedback")
+			if strings.Contains(feedbackID, "/") {
+				feedbackID = ""
+			}
+		}
 		readID := strings.TrimPrefix(r.URL.Path, "/v1/messages/")
 		list := r.URL.Path == "/v1/messages" && r.Method == "GET"
 		statistics := r.URL.Path == "/v1/statistics"
 		sandboxID, sandboxOperation, auxiliary := sandboxRoute(r.URL.Path)
 		read := strings.HasPrefix(r.URL.Path, "/v1/messages/") && readID != "" && !strings.Contains(readID, "/")
-		read = read || list || statistics
+		read = read || list || statistics || feedbackID != ""
 		if r.URL.Path != "/v1/messages" && !read && !auxiliary && cancelID == "" {
 			http.NotFound(w, r)
 			return
@@ -278,6 +285,10 @@ func NewSendHandler(ctx context.Context, raw string, receiver message.APIReceive
 		}
 		if list {
 			readMessageList(ctx, w, r, receiver.Repo.DB, who)
+			return
+		}
+		if feedbackID != "" {
+			readWebsiteFeedback(ctx, w, r, receiver.Repo.DB, who, feedbackID)
 			return
 		}
 		if read {

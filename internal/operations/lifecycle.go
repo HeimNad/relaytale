@@ -74,6 +74,7 @@ func LifecyclePreflight(ctx context.Context, db *sql.DB, p LifecycleOptions) (Li
  EXISTS(SELECT 1 FROM delivery_attempts a WHERE a.message_id=m.id AND a.result='IN_PROGRESS'),
  EXISTS(SELECT 1 FROM recipients r WHERE r.message_id=m.id AND (r.status IN ('QUEUED','SENDING','TEMP_FAILED','DELIVERY_UNKNOWN') OR (r.status='EXPIRED' AND r.decision->>'may_have_delivered'='true'))),
  EXISTS(SELECT 1 FROM api_submission_ledger l WHERE l.message_id=m.id) OR m.idempotency_key IS NOT NULL,
+ EXISTS(SELECT 1 FROM feedback_links l WHERE l.message_id=m.id),
  EXISTS(SELECT 1 FROM webhook_outbox w WHERE w.message_id=m.id AND w.state IN ('PENDING','IN_FLIGHT','DEAD'))
  FROM messages m WHERE m.id>$1 ORDER BY m.id LIMIT $2`, p.After, p.Limit+1)
 	if err != nil {
@@ -87,8 +88,8 @@ func LifecyclePreflight(ctx context.Context, db *sql.DB, p LifecycleOptions) (Li
 		}
 		item := LifecycleItem{Reasons: []string{}, EMLDisposition: "RETAIN"}
 		var completed sql.NullTime
-		var locked, attempt, recipients, idempotency, webhook bool
-		if err = rows.Scan(&item.MessageID, &item.Status, &item.ArchiveState, &completed, &locked, &attempt, &recipients, &idempotency, &webhook); err != nil {
+		var locked, attempt, recipients, idempotency, publication, webhook bool
+		if err = rows.Scan(&item.MessageID, &item.Status, &item.ArchiveState, &completed, &locked, &attempt, &recipients, &idempotency, &publication, &webhook); err != nil {
 			return empty, err
 		}
 		hold := func(yes bool, reason string) {
@@ -110,6 +111,7 @@ func LifecyclePreflight(ctx context.Context, db *sql.DB, p LifecycleOptions) (Li
 		hold(completed.Valid && !completed.Time.Before(p.AsOf.AddDate(0, 0, -p.EMLDays)), "RETENTION_WINDOW")
 		hold(idempotency, "IDEMPOTENCY_REFERENCE")
 		hold(webhook, "WEBHOOK_REQUIRES_REVIEW")
+		hold(publication, "MANUAL_FEEDBACK_HISTORY")
 		// Quarantined reports have no authoritative Gateway UUID association yet.
 		// Until scoped holds exist, unreviewed feedback conservatively holds all EML.
 		hold(report.UnreviewedFeedback, "UNSCOPED_FEEDBACK_REVIEW")

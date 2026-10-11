@@ -40,6 +40,7 @@ const terminal = `m.status IN ('SMTP_ACCEPTED','PERM_FAILED','DELIVERED','BOUNCE
 // New intents require all coordinated dependencies to be clear. A committed
 // PURGE_PENDING intent is irreversible and uses the established recovery path.
 const retentionDependencies = `m.idempotency_key IS NULL
+ AND NOT EXISTS(SELECT 1 FROM feedback_links l WHERE l.message_id=m.id)
  AND NOT EXISTS(SELECT 1 FROM api_submission_ledger l WHERE l.message_id=m.id)
  AND NOT EXISTS(SELECT 1 FROM webhook_outbox w WHERE w.message_id=m.id AND w.state IN ('PENDING','IN_FLIGHT','DEAD'))
  AND NOT EXISTS(SELECT 1 FROM feedback_reports f WHERE NOT EXISTS(SELECT 1 FROM feedback_reviews r WHERE r.feedback_id=f.id))`

@@ -495,6 +495,14 @@ func verify(ctx context.Context, q queryer, original, actual string, box *encryp
 	if err = q.QueryRowContext(ctx, `SELECT count(*) FROM webhook_outbox WHERE state IN ('PENDING','IN_FLIGHT')`).Scan(&r.WebhookPending); err != nil {
 		return r, err
 	}
+
+	if err = q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM feedback_links l JOIN messages m ON m.id=l.message_id JOIN recipients r ON r.id=l.recipient_id JOIN delivery_attempts a ON a.id=l.attempt_id LEFT JOIN attempt_recipients ar ON ar.attempt_id=a.id AND ar.recipient_id=r.id WHERE m.source_type<>'api' OR m.environment<>'production' OR m.archive_state<>'AVAILABLE' OR r.message_id<>m.id OR a.message_id<>m.id OR ar.status IS DISTINCT FROM 'SMTP_ACCEPTED' OR a.final_response_at IS NULL OR a.finished_at IS NULL OR NOT coalesce(a.smtp_code BETWEEN 200 AND 299,false))
+ OR EXISTS(SELECT 1 FROM feedback_link_reviews rev WHERE rev.revision=2 AND NOT EXISTS(SELECT 1 FROM feedback_link_reviews earlier WHERE earlier.link_id=rev.link_id AND earlier.revision=1 AND earlier.action='CONFIRM_FAILURE'))`).Scan(&bad); err != nil {
+		return r, err
+	}
+	if bad {
+		return r, errors.New("manual feedback association or history inconsistency")
+	}
 	if !keys {
 		return r, nil
 	}

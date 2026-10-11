@@ -285,3 +285,7 @@ Phase 5A 已实现 suppression 与人工解除、可信退信设计及身份验�
 已增加 [模板渲染预览](docs/phase-8f5b4-template-preview.md)：填写示例变量，检查精确修订的主题、纯文本和受限 HTML 结构。样例不保存、不发送，外部资源与活动内容被移除；预览不代表邮件客户端最终效果。
 
 已增加 [定时提交](docs/phase-8g1-scheduled-submission.md)：网站可指定不可改写的最早发送时间，未来排期受容量与幂等保护，到点前不领取或授权 DATA。不承诺准点入箱。[8G 完整类别](docs/phase-8g-complete.md) 已补齐同网站受控取消、原子替换和改期、查询/签名通知与恢复校验；活动尝试或历史 DATA/UNKNOWN 均拒绝取消，改期不会改写原排期。
+
+## 人工退信核验与网站反馈
+
+管理员可以把收件箱证据明确关联到业务邮件，确认失败或撤回，并通过独立状态查询与签名 Webhook 通知网站。来源仍标记 UNVERIFIED，不覆盖 SMTP 接受事实，不自动封禁地址。完整使用方式及升级边界见 [7B.7 手册](docs/phase-7b7-manual-feedback.md)。

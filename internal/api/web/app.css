@@ -1177,3 +1177,14 @@ label {
   display: block;
   margin-bottom: 16px;
 }
+
+.feedback-form .feedback-ack {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+}
+.feedback-form .feedback-ack input[type="checkbox"] {
+  width: auto;
+  flex: 0 0 auto;
+  margin: 0.3rem 0 0;
+}
