@@ -48,3 +48,5 @@ Provider 原生可验证事件接口若可用，优先对接；否则对收件�
 ## 已实现的人工退信反馈（7B.7）
 
 通过管理员显式关联和核验，将待核验、人工确认失败、撤回和冲突结果公开给原业务网站。网站使用 `/v1/messages/{id}/feedback` 查询，监听 `FEEDBACK_LINKED`、`FEEDBACK_REVIEWED`、`FEEDBACK_INVALIDATED` 后重读最新状态。来源始终 UNVERIFIED；现有 v1/v2 SMTP 状态响应保持兼容。详情与升级、容量及保留边界见 [7B.7 手册](phase-7b7-manual-feedback.md)。
+
+网站参考后端现已支持显式生产接入，分别持久化 SMTP 快照与人工反馈快照；默认仍是沙箱。反馈响应的 `snapshot_at` 可用于并发旧查询保护。真实浏览器管理员操作到签名通知、网站查询的本地闭环已验证，见 [7B.8 验收记录](phase-7b8-website-acceptance.md) 与 [网站示例](../examples/website/README.md)。

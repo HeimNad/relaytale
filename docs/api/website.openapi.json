@@ -59,12 +59,7 @@
             "in": "header",
             "required": false,
             "schema": {
-              "enum": [
-                "normal",
-                "otp",
-                "security",
-                "receipt"
-              ],
+              "enum": ["normal", "otp", "security", "receipt"],
               "default": "normal"
             },
             "description": ""
@@ -272,20 +267,12 @@
               "X-RelayTale-Environment": {
                 "description": "Identity environment; sandbox or production. Body environment/simulation flags are present only for sandbox responses.",
                 "schema": {
-                  "enum": [
-                    "production",
-                    "sandbox"
-                  ]
+                  "enum": ["production", "sandbox"]
                 }
               },
               "X-RelayTale-Stream": {
                 "schema": {
-                  "enum": [
-                    "normal",
-                    "otp",
-                    "security",
-                    "receipt"
-                  ]
+                  "enum": ["normal", "otp", "security", "receipt"]
                 }
               },
               "X-RelayTale-Expires-At": {
@@ -483,20 +470,12 @@
               "X-RelayTale-Environment": {
                 "description": "Identity environment; sandbox or production. Body environment/simulation flags are present only for sandbox responses.",
                 "schema": {
-                  "enum": [
-                    "production",
-                    "sandbox"
-                  ]
+                  "enum": ["production", "sandbox"]
                 }
               },
               "X-RelayTale-Stream": {
                 "schema": {
-                  "enum": [
-                    "normal",
-                    "otp",
-                    "security",
-                    "receipt"
-                  ]
+                  "enum": ["normal", "otp", "security", "receipt"]
                 }
               },
               "X-RelayTale-Expires-At": {
@@ -533,10 +512,7 @@
             "required": false,
             "schema": {
               "type": "integer",
-              "enum": [
-                1,
-                2
-              ],
+              "enum": [1, 2],
               "default": 1
             },
             "description": "Version 2 includes business correlation."
@@ -698,20 +674,12 @@
               "X-RelayTale-Environment": {
                 "description": "Identity environment; sandbox or production. Body environment/simulation flags are present only for sandbox responses.",
                 "schema": {
-                  "enum": [
-                    "production",
-                    "sandbox"
-                  ]
+                  "enum": ["production", "sandbox"]
                 }
               },
               "X-RelayTale-Stream": {
                 "schema": {
-                  "enum": [
-                    "normal",
-                    "otp",
-                    "security",
-                    "receipt"
-                  ]
+                  "enum": ["normal", "otp", "security", "receipt"]
                 }
               },
               "X-RelayTale-Expires-At": {
@@ -891,20 +859,12 @@
               "X-RelayTale-Environment": {
                 "description": "Identity environment; sandbox or production. Body environment/simulation flags are present only for sandbox responses.",
                 "schema": {
-                  "enum": [
-                    "production",
-                    "sandbox"
-                  ]
+                  "enum": ["production", "sandbox"]
                 }
               },
               "X-RelayTale-Stream": {
                 "schema": {
-                  "enum": [
-                    "normal",
-                    "otp",
-                    "security",
-                    "receipt"
-                  ]
+                  "enum": ["normal", "otp", "security", "receipt"]
                 }
               },
               "X-RelayTale-Expires-At": {
@@ -1092,20 +1052,12 @@
               "X-RelayTale-Environment": {
                 "description": "Identity environment; sandbox or production. Body environment/simulation flags are present only for sandbox responses.",
                 "schema": {
-                  "enum": [
-                    "production",
-                    "sandbox"
-                  ]
+                  "enum": ["production", "sandbox"]
                 }
               },
               "X-RelayTale-Stream": {
                 "schema": {
-                  "enum": [
-                    "normal",
-                    "otp",
-                    "security",
-                    "receipt"
-                  ]
+                  "enum": ["normal", "otp", "security", "receipt"]
                 }
               },
               "X-RelayTale-Expires-At": {
@@ -1232,10 +1184,7 @@
                 "description": "Environment and simulation are always explicit in this response body.",
                 "schema": {
                   "type": "string",
-                  "enum": [
-                    "production",
-                    "sandbox"
-                  ]
+                  "enum": ["production", "sandbox"]
                 }
               }
             }
@@ -1266,11 +1215,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
-                  "required": [
-                    "message_id",
-                    "status",
-                    "replayed"
-                  ],
+                  "required": ["message_id", "status", "replayed"],
                   "properties": {
                     "message_id": {
                       "type": "string",
@@ -1304,6 +1249,176 @@
           },
           "503": {
             "description": "Outcome unavailable; retry the same cancellation and query status."
+          }
+        }
+      }
+    },
+    "/v1/messages/{id}/feedback": {
+      "get": {
+        "operationId": "getMessageFeedback",
+        "summary": "Query independent operator-reviewed feedback for a production message.",
+        "description": "Ownership-scoped, bounded manual feedback projection. Source remains UNVERIFIED; automatic suppression is false. SMTP facts are unchanged. snapshot_at fences concurrent reads. Follow next_after when has_more is true; a callback only triggers a fresh query.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Canonical lowercase UUID returned as message_id."
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            }
+          }
+        ],
+        "responses": {
+          "400": {
+            "description": "Malformed query, headers, envelope, JSON, or MIME.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unknown, revoked or rotated credential.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sender/stream denied, browser request forbidden, or sandbox identity required.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown object in this identity.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "Method not allowed; see Allow header.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency conflict or per-message simulation cap reached.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "New submission deadline elapsed, or inspection archive unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Submission size limit or 2 MiB inspection limit exceeded.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Unsupported content type/encoding.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Deadline beyond 720 hours or malformed/too complex MIME inspection.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Admission/concurrency/recipient/stream budget exhausted; respect Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Operation unavailable or not confirmed. Retry writes with the identical bytes, envelope and idempotency key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Independent feedback snapshot, without raw evidence, provider IDs, actors or review reasons.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManualFeedbackSnapshot"
+                }
+              }
+            }
           }
         }
       }
@@ -1375,9 +1490,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "status"
-        ]
+        "required": ["status"]
       },
       "Business": {
         "type": "object",
@@ -1395,10 +1508,7 @@
             }
           }
         },
-        "required": [
-          "client_reference",
-          "tags"
-        ]
+        "required": ["client_reference", "tags"]
       },
       "SubmissionResult": {
         "type": "object",
@@ -1412,10 +1522,7 @@
           },
           "status": {
             "type": "string",
-            "enum": [
-              "GATEWAY_ACCEPTED",
-              "SANDBOX_STORED"
-            ]
+            "enum": ["GATEWAY_ACCEPTED", "SANDBOX_STORED"]
           },
           "environment": {
             "const": "sandbox"
@@ -1424,11 +1531,7 @@
             "const": true
           }
         },
-        "required": [
-          "message_id",
-          "replayed",
-          "status"
-        ],
+        "required": ["message_id", "replayed", "status"],
         "allOf": [
           {
             "if": {
@@ -1439,10 +1542,7 @@
               }
             },
             "then": {
-              "required": [
-                "environment",
-                "simulation"
-              ]
+              "required": ["environment", "simulation"]
             }
           }
         ]
@@ -1473,12 +1573,7 @@
             "format": "uuid"
           }
         },
-        "required": [
-          "event_id",
-          "type",
-          "at",
-          "source"
-        ]
+        "required": ["event_id", "type", "at", "source"]
       },
       "Attempt": {
         "type": "object",
@@ -1578,10 +1673,7 @@
         "properties": {
           "schema_version": {
             "type": "integer",
-            "enum": [
-              1,
-              2
-            ]
+            "enum": [1, 2]
           },
           "message_id": {
             "type": "string",
@@ -1740,12 +1832,7 @@
             "const": true
           }
         },
-        "required": [
-          "schema_version",
-          "snapshot_at",
-          "messages",
-          "has_more"
-        ]
+        "required": ["schema_version", "snapshot_at", "messages", "has_more"]
       },
       "MIMEPart": {
         "type": "object",
@@ -1778,12 +1865,7 @@
             "type": "boolean"
           }
         },
-        "required": [
-          "path",
-          "media_type",
-          "transfer_encoding",
-          "encoded_bytes"
-        ]
+        "required": ["path", "media_type", "transfer_encoding", "encoded_bytes"]
       },
       "Inspection": {
         "type": "object",
@@ -1845,10 +1927,7 @@
             ]
           }
         },
-        "required": [
-          "recipient_id",
-          "outcome"
-        ],
+        "required": ["recipient_id", "outcome"],
         "additionalProperties": false
       },
       "SimulationResult": {
@@ -1868,22 +1947,14 @@
             "const": true
           }
         },
-        "required": [
-          "event_id",
-          "replayed",
-          "environment",
-          "simulation"
-        ]
+        "required": ["event_id", "replayed", "environment", "simulation"]
       },
       "WebhookEvent": {
         "type": "object",
         "properties": {
           "schema_version": {
             "type": "integer",
-            "enum": [
-              1,
-              2
-            ]
+            "enum": [1, 2]
           },
           "event_id": {
             "type": "string",
@@ -1897,17 +1968,11 @@
             "format": "uuid"
           },
           "recipient_id": {
-            "type": [
-              "string",
-              "null"
-            ],
+            "type": ["string", "null"],
             "format": "uuid"
           },
           "attempt_id": {
-            "type": [
-              "string",
-              "null"
-            ],
+            "type": ["string", "null"],
             "format": "uuid"
           },
           "occurred_at": {
@@ -1920,7 +1985,7 @@
             "description": "Global int64 outbox ordering; not a per-message state version. Preserve as an integer without rounding."
           },
           "feedback_availability": {
-            "const": "NOT_EXPOSED"
+            "enum": ["NOT_EXPOSED", "MANUAL_REVIEW"]
           },
           "business": {
             "$ref": "#/components/schemas/Business"
@@ -1930,6 +1995,11 @@
           },
           "simulation": {
             "const": true
+          },
+          "feedback_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Public feedback link ID for FEEDBACK_LINKED, FEEDBACK_REVIEWED or FEEDBACK_INVALIDATED; never the private mailbox evidence ID."
           }
         },
         "required": [
@@ -1953,9 +2023,7 @@
               }
             },
             "then": {
-              "required": [
-                "business"
-              ]
+              "required": ["business"]
             }
           },
           {
@@ -1974,10 +2042,28 @@
               }
             },
             "then": {
-              "required": [
-                "environment",
-                "simulation"
-              ]
+              "required": ["environment", "simulation"]
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "type": {
+                  "enum": [
+                    "FEEDBACK_LINKED",
+                    "FEEDBACK_REVIEWED",
+                    "FEEDBACK_INVALIDATED"
+                  ]
+                }
+              }
+            },
+            "then": {
+              "required": ["feedback_id"],
+              "properties": {
+                "feedback_availability": {
+                  "const": "MANUAL_REVIEW"
+                }
+              }
             }
           }
         ]
@@ -2004,10 +2090,7 @@
           },
           "environment": {
             "type": "string",
-            "enum": [
-              "production",
-              "sandbox"
-            ]
+            "enum": ["production", "sandbox"]
           },
           "simulation": {
             "type": "boolean"
@@ -2064,9 +2147,7 @@
       "JsonMessage": {
         "type": "object",
         "additionalProperties": false,
-        "required": [
-          "date"
-        ],
+        "required": ["date"],
         "properties": {
           "date": {
             "type": "string",
@@ -2107,40 +2188,28 @@
         },
         "oneOf": [
           {
-            "required": [
-              "template"
-            ],
+            "required": ["template"],
             "not": {
               "anyOf": [
                 {
-                  "required": [
-                    "subject"
-                  ]
+                  "required": ["subject"]
                 },
                 {
-                  "required": [
-                    "text"
-                  ]
+                  "required": ["text"]
                 },
                 {
-                  "required": [
-                    "html"
-                  ]
+                  "required": ["html"]
                 }
               ]
             }
           },
           {
             "not": {
-              "required": [
-                "template"
-              ]
+              "required": ["template"]
             },
             "anyOf": [
               {
-                "required": [
-                  "text"
-                ],
+                "required": ["text"],
                 "properties": {
                   "text": {
                     "minLength": 1
@@ -2148,9 +2217,7 @@
                 }
               },
               {
-                "required": [
-                  "html"
-                ],
+                "required": ["html"],
                 "properties": {
                   "html": {
                     "minLength": 1
@@ -2164,11 +2231,7 @@
       "JsonAttachment": {
         "type": "object",
         "additionalProperties": false,
-        "required": [
-          "filename",
-          "content_type",
-          "content_base64"
-        ],
+        "required": ["filename", "content_type", "content_base64"],
         "properties": {
           "filename": {
             "type": "string",
@@ -2187,11 +2250,7 @@
       "TemplateReference": {
         "type": "object",
         "additionalProperties": false,
-        "required": [
-          "id",
-          "version",
-          "variables"
-        ],
+        "required": ["id", "version", "variables"],
         "properties": {
           "id": {
             "type": "string",
@@ -2218,6 +2277,103 @@
             "maxLength": 35,
             "pattern": "^$|^[a-z]{1,8}(-[a-z0-9]{1,8})*$",
             "description": "Explicit lowercase constrained language tag; exact catalog match, no fallback. Omitted/empty selects only legacy unlabelled templates."
+          }
+        }
+      },
+      "ManualFeedback": {
+        "type": "object",
+        "required": [
+          "id",
+          "recipient_id",
+          "attempt_id",
+          "state",
+          "source_trust",
+          "revision",
+          "created_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "recipient_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "attempt_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "PENDING_REVIEW",
+              "FAILURE_CONFIRMED_BY_OPERATOR",
+              "WITHDRAWN",
+              "EVIDENCE_CONFLICT"
+            ]
+          },
+          "source_trust": {
+            "const": "UNVERIFIED"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "reviewed_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ManualFeedbackSnapshot": {
+        "type": "object",
+        "required": [
+          "snapshot_at",
+          "schema_version",
+          "message_id",
+          "source_trust",
+          "automatic_suppression",
+          "items",
+          "has_more",
+          "next_after"
+        ],
+        "properties": {
+          "snapshot_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "schema_version": {
+            "const": 1
+          },
+          "message_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "source_trust": {
+            "const": "UNVERIFIED"
+          },
+          "automatic_suppression": {
+            "const": false
+          },
+          "items": {
+            "type": "array",
+            "maxItems": 100,
+            "items": {
+              "$ref": "#/components/schemas/ManualFeedback"
+            }
+          },
+          "has_more": {
+            "type": "boolean"
+          },
+          "next_after": {
+            "type": "string",
+            "description": "Canonical UUID cursor when has_more, empty otherwise."
           }
         }
       }

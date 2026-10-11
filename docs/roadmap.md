@@ -4,7 +4,9 @@
 
 项目统一命名为 **RelayTale**，改名不改变投递语义或历史阶段标签。升级边界见 [改名说明](rename-relaytale.md)。
 
-当前检查点：**[7B.7 人工退信核验与网站反馈](phase-7b7-manual-feedback.md)（已完成本地验收）**；上一完整检查点为 [8G 定时发送与排队控制](phase-8g-complete.md)。人工核验与 Provider 来源认证分开，完整 Phase 7 自动处理仍待验证可信来源。
+当前检查点：**[7B.8 网站接入验收](phase-7b8-website-acceptance.md)（已完成本地验收）**；人工反馈基础见 [7B.7](phase-7b7-manual-feedback.md)，定时发送基础见 [8G](phase-8g-complete.md)。人工核验与 Provider 来源认证分开，完整 Phase 7 自动处理仍待验证可信来源。
+
+**7B.8 已完成**显式生产模式、独立反馈快照与签名回调全链路测试；完整容器竞态测试及 8 个浏览器测试通过。本轮按用户授权整合 main 并清理已合并本地阶段分支，记录见 [分支整合记录](git-consolidation.md)。
 
 Phase 7 的可信反馈自动化仍受来源认证证据约束；9B 已补齐当前受支持进程的单实例/迁移互斥，Provider 能力来源与后续生产验收仍是生产门槛，不因便利功能后置。历史验收记录见各阶段链接。
 

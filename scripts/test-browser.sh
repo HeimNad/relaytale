@@ -13,16 +13,25 @@ mkdir -p test-results
 fixture_dir=$(mktemp -d)
 fixture_pid=
 cleanup() {
+ result=$?
  if [ -n "$fixture_pid" ]; then
   kill "$fixture_pid" 2>/dev/null || true
-  wait "$fixture_pid" 2>/dev/null || true
+  if wait "$fixture_pid"; then :; else
+   if [ "$result" -eq 0 ]; then result=1; fi
+  fi
  fi
  if [ -f "$fixture_dir/server.log" ]; then cp "$fixture_dir/server.log" test-results/browser-fixture.log; fi
  rm -rf "$fixture_dir"
+ trap - EXIT
+ exit "$result"
 }
 trap cleanup EXIT
 trap 'exit 130' INT TERM
 export WEB_UI_E2E=1
+export WEB_UI_FEEDBACK_E2E=0
+for spec in "$@"; do
+ case "$spec" in *website-feedback.spec.js) export WEB_UI_FEEDBACK_E2E=1;; esac
+done
 export WEB_UI_TEST_ORIGIN=http://127.0.0.1:18080
 export WEB_UI_TEST_ADDR=127.0.0.1:18080
 go test -c -o "$fixture_dir/server.test" ./tests/integration

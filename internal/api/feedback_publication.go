@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"net/http"
+	"time"
 
 	"relaytale/internal/feedback"
 )
@@ -102,7 +103,8 @@ func readWebsiteFeedback(ctx context.Context, w http.ResponseWriter, r *http.Req
 	}
 	defer tx.Rollback()
 	var found string
-	if err := tx.QueryRowContext(ctx, `SELECT id FROM messages WHERE id=$1 AND api_key_id=$2 AND source_type='api' AND environment='production'`, id, who.key.ID).Scan(&found); err != nil {
+	var snapshotAt time.Time
+	if err := tx.QueryRowContext(ctx, `SELECT id,transaction_timestamp() FROM messages WHERE id=$1 AND api_key_id=$2 AND source_type='api' AND environment='production'`, id, who.key.ID).Scan(&found, &snapshotAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			respond(w, 404, "not_found")
 		} else {
@@ -143,5 +145,5 @@ func readWebsiteFeedback(ctx context.Context, w http.ResponseWriter, r *http.Req
 		failure(w, err)
 		return
 	}
-	output(w, 200, map[string]any{"schema_version": 1, "message_id": id, "source_trust": "UNVERIFIED", "automatic_suppression": false, "items": out, "has_more": more, "next_after": next})
+	output(w, 200, map[string]any{"snapshot_at": snapshotAt, "schema_version": 1, "message_id": id, "source_trust": "UNVERIFIED", "automatic_suppression": false, "items": out, "has_more": more, "next_after": next})
 }

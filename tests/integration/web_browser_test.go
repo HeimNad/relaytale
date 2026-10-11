@@ -98,7 +98,11 @@ func TestBrowserWorkspaceFixture(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	server := &http.Server{Handler: api.Handler(f.db, func() error { return nil }, nil, manager), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 15 * time.Second}
+	handler := api.Handler(f.db, func() error { return nil }, nil, manager)
+	if os.Getenv("WEB_UI_FEEDBACK_E2E") == "1" {
+		handler = browserWebsiteFeedback(t, handler)
+	}
+	server := &http.Server{Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 15 * time.Second}
 	defer server.Close()
 	stopCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

@@ -1,4 +1,4 @@
-// Package site is a small sandbox-only reference backend, not a production SDK.
+// Package site is a reference backend with sandbox defaults and explicit production opt-in.
 package site
 
 import (
@@ -31,6 +31,8 @@ type Config struct {
 	DB                                  *sql.DB
 	GatewayURL, GatewayToken, DemoToken string
 	Keys                                []webhook.Key
+	Environment                         string
+	AcknowledgeProduction               bool
 }
 type Site struct {
 	config Config
@@ -46,6 +48,7 @@ type Record struct {
 	MessageID    *string         `json:"message_id"`
 	NeedsRefresh bool            `json:"needs_refresh"`
 	Snapshot     json.RawMessage `json:"snapshot"`
+	Feedback     json.RawMessage `json:"feedback"`
 }
 
 const schema = `CREATE TABLE IF NOT EXISTS relaytale_demo_submissions (
@@ -55,9 +58,18 @@ const schema = `CREATE TABLE IF NOT EXISTS relaytale_demo_submissions (
  CREATE TABLE IF NOT EXISTS relaytale_demo_inbox (
  event_id UUID PRIMARY KEY,submission_id UUID NOT NULL REFERENCES relaytale_demo_submissions(id),
  message_id UUID NOT NULL,payload_sha256 TEXT NOT NULL,sequence BIGINT NOT NULL,
- received_at TIMESTAMPTZ NOT NULL DEFAULT now());`
+ received_at TIMESTAMPTZ NOT NULL DEFAULT now());
+ ALTER TABLE relaytale_demo_submissions ADD COLUMN IF NOT EXISTS environment TEXT NOT NULL DEFAULT 'sandbox' CHECK(environment IN ('sandbox','production'));
+ ALTER TABLE relaytale_demo_submissions ADD COLUMN IF NOT EXISTS feedback JSONB NOT NULL DEFAULT '{}'::jsonb;
+ ALTER TABLE relaytale_demo_submissions ADD COLUMN IF NOT EXISTS feedback_at TIMESTAMPTZ;`
 
 func New(ctx context.Context, c Config) (*Site, error) {
+	if c.Environment == "" {
+		c.Environment = "sandbox"
+	}
+	if c.Environment != "sandbox" && (c.Environment != "production" || !c.AcknowledgeProduction) {
+		return nil, errors.New("production mode requires explicit acknowledgement")
+	}
 	u, err := url.Parse(c.GatewayURL)
 	if err != nil || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.Hostname() == "" || u.Path != "" && u.Path != "/" {
 		return nil, errors.New("invalid gateway URL")
@@ -65,7 +77,7 @@ func New(ctx context.Context, c Config) (*Site, error) {
 	ip := net.ParseIP(u.Hostname())
 	local := u.Hostname() == "localhost" || ip != nil && ip.IsLoopback()
 	if u.Scheme != "https" && !(u.Scheme == "http" && local) || c.DB == nil || !strings.HasPrefix(c.GatewayToken, "rts_") || len(c.GatewayToken) != 68 || len(c.DemoToken) < 32 || len(c.Keys) < 1 || len(c.Keys) > 2 {
-		return nil, errors.New("explicit sandbox credentials and verification keys required")
+		return nil, errors.New("explicit credentials and verification keys required")
 	}
 	endpoint := webhook.Endpoint{ID: uuid.NewString(), APIKeyID: uuid.NewString(), URL: "https://example.com/hook", Keys: c.Keys, SchemaVersion: 2}
 	raw, _ := json.Marshal([]webhook.Endpoint{endpoint})
@@ -106,7 +118,7 @@ func (s *Site) gateway(ctx context.Context, method, path string, raw []byte, hea
 	if err != nil || len(body) > 1<<20 {
 		return nil, resp.StatusCode, ErrUnavailable
 	}
-	if resp.Header.Get("X-RelayTale-Environment") != "sandbox" {
+	if resp.Header.Get("X-RelayTale-Environment") != s.config.Environment {
 		return nil, resp.StatusCode, ErrUnavailable
 	}
 	return body, resp.StatusCode, nil
@@ -123,19 +135,19 @@ func (s *Site) Submit(ctx context.Context, key string, v Submission) (Record, er
 		return Record{}, err
 	}
 	proposed := uuid.NewString()
-	_, err = s.config.DB.ExecContext(ctx, `INSERT INTO relaytale_demo_submissions(id,key_sha256,request_sha256,request) VALUES($1,$2,$3,$4) ON CONFLICT(key_sha256) DO NOTHING`, proposed, digest([]byte(key)), digest(raw), string(raw))
+	_, err = s.config.DB.ExecContext(ctx, `INSERT INTO relaytale_demo_submissions(id,key_sha256,request_sha256,request,environment) VALUES($1,$2,$3,$4,$5) ON CONFLICT(key_sha256) DO NOTHING`, proposed, digest([]byte(key)), digest(raw), string(raw), s.config.Environment)
 	if err != nil {
 		return Record{}, err
 	}
-	var id, storedHash string
-	if err = s.config.DB.QueryRowContext(ctx, `SELECT id,request_sha256 FROM relaytale_demo_submissions WHERE key_sha256=$1`, digest([]byte(key))).Scan(&id, &storedHash); err != nil {
+	var id, storedHash, environment string
+	if err = s.config.DB.QueryRowContext(ctx, `SELECT id,request_sha256,environment FROM relaytale_demo_submissions WHERE key_sha256=$1`, digest([]byte(key))).Scan(&id, &storedHash, &environment); err != nil {
 		return Record{}, err
 	}
-	if storedHash != digest(raw) {
+	if environment != s.config.Environment || storedHash != digest(raw) {
 		return Record{}, ErrConflict
 	}
 	// An immutable credential's environment is checked BEFORE posting mail. A
-	// production credential is refused; checking only the POST response is too late.
+	// mismatched credential is refused; checking only the POST response is too late.
 	_, code, err := s.gateway(ctx, "GET", "/v1/messages?client_reference=relaytale-demo-preflight", nil, http.Header{})
 	if err != nil || code != 200 {
 		return Record{}, ErrUnavailable
@@ -150,7 +162,8 @@ func (s *Site) Submit(ctx context.Context, key string, v Submission) (Record, er
 		Simulation bool   `json:"simulation"`
 		Status     string `json:"status"`
 	}
-	if json.Unmarshal(body, &result) != nil || !canonical(result.MessageID) || !result.Simulation || result.Status != "SANDBOX_STORED" {
+	sandbox := s.config.Environment == "sandbox"
+	if json.Unmarshal(body, &result) != nil || !canonical(result.MessageID) || result.Simulation != sandbox || sandbox && result.Status != "SANDBOX_STORED" || !sandbox && result.Status != "GATEWAY_ACCEPTED" {
 		return Record{}, ErrUnavailable
 	}
 	res, err := s.config.DB.ExecContext(ctx, `UPDATE relaytale_demo_submissions SET message_id=$2 WHERE id=$1 AND (message_id IS NULL OR message_id=$2)`, id, result.MessageID)
@@ -172,7 +185,7 @@ func (s *Site) Get(ctx context.Context, id string) (Record, error) {
 	if !canonical(id) {
 		return out, ErrInvalid
 	}
-	err := s.config.DB.QueryRowContext(ctx, `SELECT id,message_id,needs_refresh,snapshot FROM relaytale_demo_submissions WHERE id=$1`, id).Scan(&out.ID, &out.MessageID, &out.NeedsRefresh, &out.Snapshot)
+	err := s.config.DB.QueryRowContext(ctx, `SELECT id,message_id,needs_refresh,snapshot,feedback FROM relaytale_demo_submissions WHERE id=$1 AND environment=$2`, id, s.config.Environment).Scan(&out.ID, &out.MessageID, &out.NeedsRefresh, &out.Snapshot, &out.Feedback)
 	return out, err
 }
 
@@ -182,7 +195,7 @@ func (s *Site) Get(ctx context.Context, id string) (Record, error) {
 func (s *Site) Reconcile(ctx context.Context, id string) error {
 	var mid sql.NullString
 	var revision int64
-	if err := s.config.DB.QueryRowContext(ctx, `SELECT message_id,revision FROM relaytale_demo_submissions WHERE id=$1`, id).Scan(&mid, &revision); err != nil {
+	if err := s.config.DB.QueryRowContext(ctx, `SELECT message_id,revision FROM relaytale_demo_submissions WHERE id=$1 AND environment=$2`, id, s.config.Environment).Scan(&mid, &revision); err != nil {
 		return err
 	}
 	if !mid.Valid {
@@ -193,14 +206,31 @@ func (s *Site) Reconcile(ctx context.Context, id string) error {
 		return ErrUnavailable
 	}
 	var status api.MessageStatus
-	if json.Unmarshal(body, &status) != nil || status.MessageID != mid.String || !status.Simulation || status.Environment != "sandbox" || status.SchemaVersion != 2 || status.Business == nil || status.Business.ClientReference != id || status.SnapshotAt.IsZero() {
+	if json.Unmarshal(body, &status) != nil || status.MessageID != mid.String || status.Simulation != (s.config.Environment == "sandbox") || (s.config.Environment == "sandbox" && status.Environment != "sandbox") || (s.config.Environment == "production" && status.Environment != "") || status.SchemaVersion != 2 || status.Business == nil || status.Business.ClientReference != id || status.SnapshotAt.IsZero() {
 		return ErrUnavailable
 	}
-	_, err = s.config.DB.ExecContext(ctx, `UPDATE relaytale_demo_submissions SET snapshot=$2,snapshot_at=$3,needs_refresh=false WHERE id=$1 AND revision=$4 AND (snapshot_at IS NULL OR snapshot_at<=$3)`, id, string(body), status.SnapshotAt, revision)
+	feedbackRaw := []byte(`{}`)
+	var feedbackAt *time.Time
+	if s.config.Environment == "production" {
+		feedbackRaw, code, err = s.gateway(ctx, "GET", "/v1/messages/"+mid.String+"/feedback?limit=100", nil, http.Header{})
+		var projection struct {
+			SchemaVersion        int       `json:"schema_version"`
+			MessageID            string    `json:"message_id"`
+			SourceTrust          string    `json:"source_trust"`
+			AutomaticSuppression bool      `json:"automatic_suppression"`
+			HasMore              bool      `json:"has_more"`
+			SnapshotAt           time.Time `json:"snapshot_at"`
+		}
+		if err != nil || code != 200 || json.Unmarshal(feedbackRaw, &projection) != nil || projection.SchemaVersion != 1 || projection.MessageID != mid.String || projection.SourceTrust != "UNVERIFIED" || projection.AutomaticSuppression || projection.HasMore || projection.SnapshotAt.IsZero() {
+			return ErrUnavailable
+		}
+		feedbackAt = &projection.SnapshotAt
+	}
+	_, err = s.config.DB.ExecContext(ctx, `UPDATE relaytale_demo_submissions SET snapshot=$2,snapshot_at=$3,needs_refresh=false,feedback=$5,feedback_at=$6 WHERE id=$1 AND revision=$4 AND (snapshot_at IS NULL OR snapshot_at<=$3) AND (feedback_at IS NULL OR feedback_at<=$6)`, id, string(body), status.SnapshotAt, revision, string(feedbackRaw), feedbackAt)
 	return err
 }
 func (s *Site) ReconcilePending(ctx context.Context) error {
-	rows, err := s.config.DB.QueryContext(ctx, `SELECT id FROM relaytale_demo_submissions WHERE needs_refresh AND message_id IS NOT NULL ORDER BY created_at LIMIT 100`)
+	rows, err := s.config.DB.QueryContext(ctx, `SELECT id FROM relaytale_demo_submissions WHERE needs_refresh AND message_id IS NOT NULL AND environment=$1 ORDER BY created_at LIMIT 100`, s.config.Environment)
 	if err != nil {
 		return err
 	}
@@ -240,6 +270,7 @@ type notification struct {
 	OccurredAt           time.Time `json:"occurred_at"`
 	Sequence             int64     `json:"sequence"`
 	FeedbackAvailability string    `json:"feedback_availability"`
+	FeedbackID           *string   `json:"feedback_id"`
 	Environment          string    `json:"environment"`
 	Simulation           bool      `json:"simulation"`
 	Business             struct {
@@ -251,6 +282,13 @@ type notification struct {
 func knownNotice(kind string) bool {
 	switch kind {
 	case "SANDBOX_STORED", "SANDBOX_SIMULATED_ACCEPTED", "SANDBOX_SIMULATED_TEMP_FAILED", "SANDBOX_SIMULATED_PERM_FAILED", "SANDBOX_SIMULATED_UNKNOWN", "SANDBOX_SIMULATED_BOUNCE":
+		return true
+	}
+	return false
+}
+func productionNotice(kind string) bool {
+	switch kind {
+	case "FEEDBACK_LINKED", "FEEDBACK_REVIEWED", "FEEDBACK_INVALIDATED", "MESSAGE_CANCELLED", "MESSAGE_QUEUED", "MESSAGE_SUPPRESSED", "SMTP_ACCEPTED", "ATTEMPT_FINISHED", "ATTEMPT_FAILED", "DELIVERY_DECIDED", "DELIVERY_UNKNOWN", "UNKNOWN_RESOLVED", "RETRY_EXHAUSTED", "RETRY_QUEUED", "RECIPIENT_SUPPRESSED", "SUPPRESSION_GATE_BLOCKED", "PROVIDER_FAILOVER", "LEASE_RECOVERED", "RECIPIENT_EXPIRED", "EXPIRY_GATE_BLOCKED":
 		return true
 	}
 	return false
@@ -275,8 +313,25 @@ func (s *Site) receive(ctx context.Context, r *http.Request) error {
 	var v notification
 	d := json.NewDecoder(bytes.NewReader(raw))
 	d.DisallowUnknownFields()
-	if d.Decode(&v) != nil || d.Decode(new(any)) != io.EOF || v.SchemaVersion != 2 || !canonical(v.EventID) || !canonical(v.MessageID) || !canonical(v.Business.ClientReference) || v.Sequence < 1 || !v.Simulation || v.Environment != "sandbox" || !knownNotice(v.Type) || v.AttemptID != nil || v.OccurredAt.IsZero() || v.RecipientID != nil && !canonical(*v.RecipientID) || v.FeedbackAvailability != "NOT_EXPOSED" {
+	if d.Decode(&v) != nil || d.Decode(new(any)) != io.EOF || v.SchemaVersion != 2 || !canonical(v.EventID) || !canonical(v.MessageID) || !canonical(v.Business.ClientReference) || v.Sequence < 1 || v.OccurredAt.IsZero() || v.RecipientID != nil && !canonical(*v.RecipientID) {
 		return ErrInvalid
+	}
+	isFeedback := v.Type == "FEEDBACK_LINKED" || v.Type == "FEEDBACK_REVIEWED" || v.Type == "FEEDBACK_INVALIDATED"
+	if s.config.Environment == "sandbox" {
+		if !v.Simulation || v.Environment != "sandbox" || !knownNotice(v.Type) || v.AttemptID != nil || v.FeedbackID != nil || v.FeedbackAvailability != "NOT_EXPOSED" {
+			return ErrInvalid
+		}
+	} else {
+		if v.Simulation || v.Environment != "" || !productionNotice(v.Type) || v.AttemptID != nil && !canonical(*v.AttemptID) {
+			return ErrInvalid
+		}
+		if isFeedback {
+			if v.FeedbackID == nil || !canonical(*v.FeedbackID) || v.FeedbackAvailability != "MANUAL_REVIEW" {
+				return ErrInvalid
+			}
+		} else if v.FeedbackID != nil || v.FeedbackAvailability != "NOT_EXPOSED" {
+			return ErrInvalid
+		}
 	}
 	tx, err := s.config.DB.BeginTx(ctx, nil)
 	if err != nil {
@@ -287,7 +342,7 @@ func (s *Site) receive(ctx context.Context, r *http.Request) error {
 		return err
 	}
 	var current sql.NullString
-	err = tx.QueryRowContext(ctx, `SELECT message_id FROM relaytale_demo_submissions WHERE id=$1 FOR UPDATE`, v.Business.ClientReference).Scan(&current)
+	err = tx.QueryRowContext(ctx, `SELECT message_id FROM relaytale_demo_submissions WHERE id=$1 AND environment=$2 FOR UPDATE`, v.Business.ClientReference, s.config.Environment).Scan(&current)
 	if err != nil {
 		return err
 	}

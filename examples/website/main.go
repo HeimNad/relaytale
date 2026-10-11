@@ -28,7 +28,7 @@ func main() {
 	if json.Unmarshal([]byte(os.Getenv("DEMO_WEBHOOK_KEYS")), &keys) != nil {
 		log.Fatal("demo verification keys required")
 	}
-	app, err := site.New(ctx, site.Config{DB: db, GatewayURL: os.Getenv("DEMO_GATEWAY_URL"), GatewayToken: os.Getenv("DEMO_GATEWAY_TOKEN"), DemoToken: os.Getenv("DEMO_TOKEN"), Keys: keys})
+	app, err := site.New(ctx, site.Config{DB: db, GatewayURL: os.Getenv("DEMO_GATEWAY_URL"), GatewayToken: os.Getenv("DEMO_GATEWAY_TOKEN"), DemoToken: os.Getenv("DEMO_TOKEN"), Keys: keys, Environment: os.Getenv("DEMO_ENVIRONMENT"), AcknowledgeProduction: os.Getenv("DEMO_ALLOW_PRODUCTION") == "true"})
 	if err != nil {
 		log.Fatal("demo configuration unavailable")
 	}
@@ -55,7 +55,7 @@ func main() {
 		defer cancel()
 		_ = server.Shutdown(shutdown)
 	}()
-	log.Print("sandbox reference backend listening on 127.0.0.1:8090")
+	log.Print("reference backend listening on 127.0.0.1:8090")
 	if err = server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatal("demo server unavailable")
 	}
