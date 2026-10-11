@@ -22,7 +22,7 @@ type EnqueueResult struct {
 
 // RequestFingerprint covers the exact MIME digest/size and ordered SMTP envelope.
 // Nonempty business fields opt into v2; absent fields retain the exact v1 hash.
-// An explicit stream opts into v3, a deadline into v4, a schedule into v5.
+// An explicit stream opts into v3, a deadline into v4, a schedule into v5, and a replacement target into v6.
 // Paths, server timestamps, generated IDs and parsed MIME metadata are not request identity.
 // Callers must derive Archive from durable server-side storage, never client claims.
 func RequestFingerprint(s Submission) (string, error) {
@@ -74,6 +74,13 @@ func RequestFingerprint(s Submission) (string, error) {
 			return "", ErrInvalidSchedule
 		}
 	}
+	if s.Replaces != "" {
+		id, err := uuid.Parse(s.Replaces)
+		if err != nil || id == uuid.Nil || id.String() != s.Replaces {
+			return "", ErrInvalidSubmission
+		}
+		version = 6
+	}
 	encoded, e := json.Marshal(struct {
 		Version    int       `json:"version"`
 		From       string    `json:"from"`
@@ -84,7 +91,8 @@ func RequestFingerprint(s Submission) (string, error) {
 		Stream     string    `json:"stream,omitempty"`
 		ExpiresAt  string    `json:"expires_at,omitempty"`
 		ScheduleAt string    `json:"schedule_at,omitempty"`
-	}{version, s.Envelope.From, s.Envelope.Recipients, s.Archive.SHA256, s.Archive.Size, association, stream, expiry, schedule})
+		Replaces   string    `json:"replaces,omitempty"`
+	}{version, s.Envelope.From, s.Envelope.Recipients, s.Archive.SHA256, s.Archive.Size, association, stream, expiry, schedule, s.Replaces})
 	if e != nil {
 		return "", e
 	}
@@ -151,6 +159,18 @@ func (p Postgres) enqueueIdempotent(ctx context.Context, s Submission, apiKeyID,
 		// No writes occurred; return only an already committed ledger entry.
 		return EnqueueResult{MessageID: original, Replayed: true}, nil
 	}
+	if s.Replaces != "" {
+		var enabled bool
+		if e = tx.QueryRowContext(ctx, `SELECT enabled FROM api_keys WHERE id=$1 FOR NO KEY UPDATE`, apiKeyID).Scan(&enabled); e != nil {
+			return EnqueueResult{}, e
+		}
+		if !enabled {
+			return EnqueueResult{}, ErrSubmissionDisabled
+		}
+		if _, e = cancelPendingTx(ctx, tx, apiKeyID, s.Replaces, s.ID); e != nil {
+			return EnqueueResult{}, e
+		}
+	}
 	if e = reserveSubmission(ctx, tx, apiKeyID, s.ID, len(s.Envelope.Recipients), s.Stream, s.ExpiresAt, s.ScheduleAt, s.Archive.Size); e != nil {
 		return EnqueueResult{}, e
 	}
@@ -163,6 +183,11 @@ func (p Postgres) enqueueIdempotent(ctx context.Context, s Submission, apiKeyID,
 	s.Envelope.Account.ID = ""
 	if e = enqueueTx(ctx, tx, s, "api", apiKeyID, keyHash); e != nil {
 		return EnqueueResult{}, e
+	}
+	if s.Replaces != "" {
+		if _, e = tx.ExecContext(ctx, `UPDATE messages SET replaces_message_id=$2 WHERE id=$1`, s.ID, s.Replaces); e != nil {
+			return EnqueueResult{}, e
+		}
 	}
 	if e = tx.Commit(); e != nil {
 		return EnqueueResult{}, fmt.Errorf("commit: %w", e)

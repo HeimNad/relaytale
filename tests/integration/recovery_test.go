@@ -134,6 +134,10 @@ func TestRecoveryRoundTripAndFailureGates(t *testing.T) {
 	if _, err := api.RetireTemplate(context.Background(), source, sandboxKey.ID, template.ID, template.Version, "backup_operator", "retirement backup test"); err != nil {
 		t.Fatal(err)
 	}
+	_, controlKey, controlReceiver := sendFixture(t, f)
+	controlAt := time.Now().UTC().Truncate(time.Second).Add(2 * time.Hour)
+	cancelled := controlSubmit(t, f, controlReceiver, controlKey, "restore-control-old", "", controlAt)
+	replacement := controlSubmit(t, f, controlReceiver, controlKey, "restore-control-new", cancelled.MessageID, controlAt.Add(time.Hour))
 	bundle := filepath.Join(t.TempDir(), "bundle")
 	ctx := context.Background()
 	opts := recovery.Options{DB: source, DatabaseURL: sourceURL, StorageRoot: f.root, Bundle: bundle, Offline: true}
@@ -217,8 +221,17 @@ func TestRecoveryRoundTripAndFailureGates(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Logf("restore plus verify duration: %s; report: %+v", time.Since(start), report)
-	if report.Messages != 3 || report.AvailableArchives != 2 || report.Unknown != 1 || report.IdempotencyRecords != 2 || report.Retirements != 1 || report.Providers != 1 || !report.GateRetained {
+	if report.Messages != 5 || report.AvailableArchives != 4 || report.Unknown != 1 || report.IdempotencyRecords != 4 || report.Retirements != 1 || report.Providers != 1 || !report.GateRetained {
 		t.Fatal(report)
+	}
+	var restoredCancellation bool
+	if err = target.QueryRow(`SELECT cancelled_at IS NOT NULL AND status='CANCELLED' FROM messages WHERE id=$1`, cancelled.MessageID).Scan(&restoredCancellation); err != nil || !restoredCancellation {
+		t.Fatal("cancellation lost", err)
+	}
+	controlReceiver.Repo.DB = target
+	controlReplay := controlSubmit(t, f, controlReceiver, controlKey, "restore-control-new", cancelled.MessageID, controlAt.Add(time.Hour))
+	if !controlReplay.Replayed || controlReplay.MessageID != replacement.MessageID {
+		t.Fatal("replacement replay lost", controlReplay)
 	}
 	if err = api.VerifyPublishedTemplates(ctx, target); err != nil {
 		t.Fatal("restored template catalog invalid", err)

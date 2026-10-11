@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "RelayTale website API",
-    "version": "8G.1",
+    "version": "8G",
     "description": "Server-to-server gateway API and externally configured Webhook contract. Transport JSON/body evolution is opt-in; no implicit SMTP/inbox equivalence."
   },
   "servers": [
@@ -20,7 +20,7 @@
       "post": {
         "operationId": "submitMessage",
         "summary": "Persist original MIME or build a bounded JSON message.",
-        "description": "Server-side credential only; Origin/cross-site browser requests are refused. Test/production environment is fixed on the credential, never a request header. SMTP provider acceptance is not inbox delivery. Canonical deadline, stream, business association, envelope order, and exact MIME bytes participate in idempotency. Missing fields preserve the legacy fingerprint. JSON v1 requires an explicit stable whole-second RFC3339 date; generated MIME is deterministic and then shares the existing durable queue. JSON body <=32768 bytes; text/html each <=16384 UTF-8 bytes. Optional attachments: <=4 parts and <=16384 decoded bytes in aggregate; ordered metadata and content participate in idempotency. Empty attachment arrays preserve json-v1 bytes. Optional template reference selects an exact version from this credential startup catalog. Subject/text/html cannot accompany it. Missing, extra or unsafe variables fail closed; generated output remains bounded. Template version and parameters participate in deterministic json-v3 MIME, while legacy json-v1/v2 bytes are preserved. Language-labelled templates require an exact language and version match, produce Content-Language and deterministic json-v4 MIME; unlabelled json-v3 remains unchanged. Local template-preview example emits JSON source only and does not submit mail. Optional schedule header applies equally to raw EML and JSON and does not alter MIME.",
+        "description": "Server-side credential only; Origin/cross-site browser requests are refused. Test/production environment is fixed on the credential, never a request header. SMTP provider acceptance is not inbox delivery. Canonical deadline, stream, business association, envelope order, and exact MIME bytes participate in idempotency. Missing fields preserve the legacy fingerprint. JSON v1 requires an explicit stable whole-second RFC3339 date; generated MIME is deterministic and then shares the existing durable queue. JSON body <=32768 bytes; text/html each <=16384 UTF-8 bytes. Optional attachments: <=4 parts and <=16384 decoded bytes in aggregate; ordered metadata and content participate in idempotency. Empty attachment arrays preserve json-v1 bytes. Optional template reference selects an exact version from this credential startup catalog. Subject/text/html cannot accompany it. Missing, extra or unsafe variables fail closed; generated output remains bounded. Template version and parameters participate in deterministic json-v3 MIME, while legacy json-v1/v2 bytes are preserved. Language-labelled templates require an exact language and version match, produce Content-Language and deterministic json-v4 MIME; unlabelled json-v3 remains unchanged. Local template-preview example emits JSON source only and does not submit mail. Optional schedule header applies equally to raw EML and JSON and does not alter MIME. Reschedule by replacing the pending message with a new explicit schedule. Original MIME and schedule remain immutable; cancellation never refunds admission charges. A failed new admission rolls back cancellation.",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -110,6 +110,16 @@
               "format": "date-time"
             },
             "description": "Whole-second RFC3339 with timezone, canonical UTC. New request must be future, at most 720 hours ahead, and strictly before expires_at. Per website future production queue: at most 100 messages and 128 MiB MIME. Immutable; included in v5 idempotency fingerprint. Exact committed replay succeeds after this time. Earliest attempt/DATA authorization, not a delivery deadline; sandbox remains zero-send."
+          },
+          {
+            "name": "X-RelayTale-Replaces",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Exact Gateway ID of a pending production message owned by this credential. Atomically cancels it and admits the new message. Use a new Idempotency-Key; exact retry replays the new ID. Active attempts, any previous DATA authorization, accepted/unknown and terminal messages are refused. A changed target conflicts with the same key."
           }
         ],
         "requestBody": {
@@ -160,7 +170,7 @@
             }
           },
           "404": {
-            "description": "Unknown object in this identity.",
+            "description": "Replacement target missing, outside this website or not production.",
             "content": {
               "application/json": {
                 "schema": {
@@ -180,7 +190,7 @@
             }
           },
           "409": {
-            "description": "Idempotency conflict or per-message simulation cap reached.",
+            "description": "Idempotency conflict or per-message simulation cap reached. Also message_not_cancellable for refused replacement.",
             "content": {
               "application/json": {
                 "schema": {
@@ -717,6 +727,13 @@
                   "type": "string",
                   "format": "date-time"
                 }
+              },
+              "X-RelayTale-Replaces": {
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "description": "Original cancelled message ID when this message is its replacement."
               }
             }
           }
@@ -1222,6 +1239,71 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/v1/messages/{id}/cancel": {
+      "post": {
+        "operationId": "cancelPendingMessage",
+        "summary": "Cancel a pending message before any active delivery attempt.",
+        "description": "Empty body; production and same website only. Message lock serializes cancellation with worker claim. Active or previously DATA-authorized messages return 409, including UNKNOWN; no remote recall. Repeated cancellation returns 200 with replayed=true, without adding events. Original MIME, SMTP facts, idempotency and quota reservations survive. MESSAGE_CANCELLED is available via status events and configured Webhooks.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Cancellation committed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "message_id",
+                    "status",
+                    "replayed"
+                  ],
+                  "properties": {
+                    "message_id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "status": {
+                      "const": "CANCELLED"
+                    },
+                    "replayed": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid query or nonempty body."
+          },
+          "401": {
+            "description": "Invalid, revoked or disabled credential."
+          },
+          "404": {
+            "description": "Not found or outside this website/production scope."
+          },
+          "409": {
+            "description": "message_not_cancellable; never interpret as recalled."
+          },
+          "429": {
+            "description": "Rate/concurrency bound."
+          },
+          "503": {
+            "description": "Outcome unavailable; retry the same cancellation and query status."
           }
         }
       }

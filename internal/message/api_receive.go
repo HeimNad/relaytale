@@ -42,6 +42,16 @@ func (s APIReceiver) ReceiveExpiring(ctx context.Context, e Envelope, r io.Reade
 }
 
 func (s APIReceiver) ReceiveScheduled(ctx context.Context, e Envelope, r io.Reader, identity, key, stream string, expiresAt, scheduleAt time.Time, business ...Business) (EnqueueResult, error) {
+	return s.ReceiveReplacing(ctx, e, r, identity, key, stream, expiresAt, scheduleAt, "", business...)
+}
+
+func (s APIReceiver) ReceiveReplacing(ctx context.Context, e Envelope, r io.Reader, identity, key, stream string, expiresAt, scheduleAt time.Time, replaces string, business ...Business) (EnqueueResult, error) {
+	if replaces != "" {
+		id, err := uuid.Parse(replaces)
+		if err != nil || id == uuid.Nil || id.String() != replaces {
+			return EnqueueResult{}, ErrInvalidSubmission
+		}
+	}
 	if _, err := CanonicalExpiry(scheduleAt); err != nil {
 		return EnqueueResult{}, err
 	}
@@ -147,7 +157,7 @@ func (s APIReceiver) ReceiveScheduled(ctx context.Context, e Envelope, r io.Read
 	if err != nil {
 		return EnqueueResult{}, err
 	}
-	sub := Submission{ScheduleAt: scheduleAt, ExpiresAt: expiresAt, Stream: stream, Business: correlation, Envelope: e, MessageID: mid, HeaderFrom: from, Subject: subject, Archive: storage.Archive{SHA256: hex.EncodeToString(h.Sum(nil)), Size: size}}
+	sub := Submission{Replaces: replaces, ScheduleAt: scheduleAt, ExpiresAt: expiresAt, Stream: stream, Business: correlation, Envelope: e, MessageID: mid, HeaderFrom: from, Subject: subject, Archive: storage.Archive{SHA256: hex.EncodeToString(h.Sum(nil)), Size: size}}
 	fingerprint, err := RequestFingerprint(sub)
 	if err != nil {
 		return EnqueueResult{}, err

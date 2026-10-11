@@ -131,7 +131,7 @@ Generic SMTP（STARTTLS / implicit TLS）、Provider 凭证加密、priority 与
 
 **8F：可选 JSON 构建与版本化模板（分段实现）。** 8F.1 [简单 JSON 发信](phase-8f1-json-submission.md) 增加有界纯文本/HTML、显示名/Reply-To 与确定性 MIME 构建，复用原提交入口、幂等和队列；8F.2 [JSON 附件](phase-8f2-json-attachments.md) 增加有界本地内容、严格元数据与 multipart/mixed，保留无附件 json-v1 字节兼容；8F.3 [固定版本模板](phase-8f3-versioned-templates.md) 增加逐网站配置目录、内容寻址版本、严格变量与上下文转义，复用稳定 EML；8F.4 [本地预览与语言版本](phase-8f4-template-preview.md) 增加无投递的 JSON 源码预览、明确语言选择和兼容构建；8F.5a [持久模板目录](phase-8f5a-persistent-templates.md) 提供不可改写版本、事务审计发布、逐网站显式启用与启动快照，以及备份恢复校验；8F.5b.1 [版本退役](phase-8f5b1-template-retirement.md) 增加不可逆退役、活跃/历史分离限额与恢复校验，需等待业务请求重试窗口并重启生效；8F.5b.2 [草稿与精确修订发布](phase-8f5b2-template-drafts.md) 增加有界不可改写修订、并发冲突保护、指定修订导出与原子发布；8F.5b.3 [模板管理工作台](phase-8f5b3-template-management.md) 已增加管理 API、完整页面编辑、精确修订源码审阅、显式发布与退役；8F.5b.4 [模板渲染预览](phase-8f5b4-template-preview.md) 已增加精确修订样例渲染、隔离 HTML 结构展示及并发保护；保真邮件客户端预览和历史归档仍不在已完成范围。原始 EML 入口保持透明；生成 MIME 固化后复用现有队列，模板变更不能改变重试正文。
 
-**8G：定时与受控取消（分段实现）。** 8G.1 [定时准入与发送门闩](phase-8g1-scheduled-submission.md) 已增加不可改写 UTC 排期、100 封/128 MiB 未来容量、幂等兼容与提前领取/授权保护；8G.2 下一步实现取消与 DATA 授权的竞争边界；不承诺撤回已发出或 UNKNOWN 的邮件。8E–8G 的场景与验收详见 [业务网站能力规划](business-website-capabilities.md)。
+**8G：定时、受控取消、替换与改期（类别已实现）。** [8G.1 定时准入](phase-8g1-scheduled-submission.md) 提供不可改写 UTC 排期、100 封/128 MiB 未来容量与提前领取/授权保护；[8G 收尾](phase-8g-complete.md) 补齐同网站待发任务取消、精确旧 Gateway ID 原子替换、以新任务改期、查询/签名通知与备份恢复。取消与领取/授权共用消息锁，活动尝试即拒绝；历史 DATA、SMTP 接受和 UNKNOWN 不承诺撤回。批量发送与活动连接中断仍是独立后续范围。8E–8G 的场景与验收详见 [业务网站能力规划](business-website-capabilities.md)。
 
 与管理 API 分离凭证和权限，实现 API key、请求限额、并发幂等性和持久化确认。复用 SMTP 路径的原文/存档、suppression、配额与投递决策，不另建一套发送语义。
 

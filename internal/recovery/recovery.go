@@ -464,6 +464,12 @@ func verify(ctx context.Context, q queryer, original, actual string, box *encryp
 	if bad {
 		return r, errors.New("DATA authorization violates message schedule")
 	}
+	if err = q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM messages m WHERE m.cancelled_at IS NOT NULL AND (m.status<>'CANCELLED' OR m.locked_by IS NOT NULL OR m.next_attempt_at IS NOT NULL OR EXISTS(SELECT 1 FROM recipients WHERE message_id=m.id AND status IN ('QUEUED','TEMP_FAILED','SENDING','SMTP_ACCEPTED','DELIVERY_UNKNOWN','DELIVERED','BOUNCED')) OR EXISTS(SELECT 1 FROM delivery_attempts WHERE message_id=m.id AND (result='IN_PROGRESS' OR data_armed_at IS NOT NULL OR data_started_at IS NOT NULL OR final_response_at IS NOT NULL)) OR NOT EXISTS(SELECT 1 FROM events WHERE message_id=m.id AND event_type='MESSAGE_CANCELLED'))) OR EXISTS(SELECT 1 FROM messages m LEFT JOIN messages old ON old.id=m.replaces_message_id WHERE m.replaces_message_id IS NOT NULL AND (old.cancelled_at IS NULL OR old.api_key_id IS DISTINCT FROM m.api_key_id OR m.environment<>'production'))`).Scan(&bad); err != nil {
+		return r, err
+	}
+	if bad {
+		return r, errors.New("cancellation or replacement evidence inconsistency")
+	}
 	// Budget history must survive restore with its original website and units.
 	if err = q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM api_submission_quota q JOIN messages m ON m.id=q.message_id WHERE m.source_type<>'api' OR m.api_key_id IS DISTINCT FROM q.api_key_id OR m.message_stream<>q.message_stream OR q.units<>(SELECT count(*) FROM recipients r WHERE r.message_id=m.id)) OR EXISTS(SELECT 1 FROM api_submission_ledger l LEFT JOIN api_submission_quota q ON q.message_id=l.message_id WHERE l.created_at>clock_timestamp()-interval '24 hours' AND q.message_id IS NULL)`).Scan(&bad); err != nil {
 		return r, err

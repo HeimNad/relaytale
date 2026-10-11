@@ -65,7 +65,7 @@ type StatusEvent struct {
 }
 
 var publicStatusEvents = []string{
-	"SANDBOX_SIMULATED_ACCEPTED", "SANDBOX_SIMULATED_TEMP_FAILED", "SANDBOX_SIMULATED_PERM_FAILED", "SANDBOX_SIMULATED_UNKNOWN", "SANDBOX_SIMULATED_BOUNCE", "SANDBOX_STORED", "RECIPIENT_EXPIRED", "EXPIRY_GATE_BLOCKED", "MESSAGE_RECEIVED", "MESSAGE_ARCHIVED", "MESSAGE_QUEUED", "MESSAGE_SUPPRESSED",
+	"MESSAGE_CANCELLED", "SANDBOX_SIMULATED_ACCEPTED", "SANDBOX_SIMULATED_TEMP_FAILED", "SANDBOX_SIMULATED_PERM_FAILED", "SANDBOX_SIMULATED_UNKNOWN", "SANDBOX_SIMULATED_BOUNCE", "SANDBOX_STORED", "RECIPIENT_EXPIRED", "EXPIRY_GATE_BLOCKED", "MESSAGE_RECEIVED", "MESSAGE_ARCHIVED", "MESSAGE_QUEUED", "MESSAGE_SUPPRESSED",
 	"SMTP_ACCEPTED", "ATTEMPT_STARTED", "ATTEMPT_FINISHED", "ATTEMPT_FAILED", "DELIVERY_DECIDED",
 	"DELIVERY_UNKNOWN", "UNKNOWN_RESOLVED", "RETRY_EXHAUSTED", "RETRY_QUEUED",
 	"RECIPIENT_SUPPRESSED", "SUPPRESSION_GATE_BLOCKED", "PROVIDER_FAILOVER", "LEASE_RECOVERED",
@@ -121,9 +121,10 @@ func readMessageStatus(ctx context.Context, w http.ResponseWriter, r *http.Reque
 	defer tx.Rollback()
 	out := MessageStatus{SchemaVersion: 1, FeedbackAvailability: "NOT_EXPOSED", Recipients: []RecipientStatus{}, Events: []StatusEvent{}}
 	var reference, stream string
+	var replaces sql.NullString
 	var expiresAt, scheduleAt sql.NullTime
 	var tags []byte
-	err := tx.QueryRowContext(ctx, `SELECT id::text,status,created_at,transaction_timestamp(),client_reference,to_jsonb(business_tags),message_stream,expires_at,schedule_at FROM messages WHERE id=$1 AND api_key_id=$2 AND source_type='api'`, id, who.key.ID).Scan(&out.MessageID, &out.Status, &out.CreatedAt, &out.SnapshotAt, &reference, &tags, &stream, &expiresAt, &scheduleAt)
+	err := tx.QueryRowContext(ctx, `SELECT id::text,status,created_at,transaction_timestamp(),client_reference,to_jsonb(business_tags),message_stream,expires_at,schedule_at,replaces_message_id::text FROM messages WHERE id=$1 AND api_key_id=$2 AND source_type='api'`, id, who.key.ID).Scan(&out.MessageID, &out.Status, &out.CreatedAt, &out.SnapshotAt, &reference, &tags, &stream, &expiresAt, &scheduleAt, &replaces)
 	if errors.Is(err, sql.ErrNoRows) {
 		respond(w, 404, "not_found")
 		return
@@ -143,6 +144,9 @@ func readMessageStatus(ctx context.Context, w http.ResponseWriter, r *http.Reque
 	if who.key.Environment == "sandbox" {
 		out.Simulation = true
 		out.Environment = "sandbox"
+	}
+	if replaces.Valid {
+		w.Header().Set("X-RelayTale-Replaces", replaces.String)
 	}
 	out.Description = statusDescription(out.Status)
 	if err = readStatusRecipients(ctx, tx, id, &out); err != nil {
@@ -255,7 +259,7 @@ func readStatusRecipients(ctx context.Context, tx *sql.Tx, id string, out *Messa
 
 func publicAction(s string) string {
 	switch s {
-	case "EXPIRE", "ACCEPT", "RESUME_SAME_PROVIDER", "RETRY_SAME_PROVIDER", "PERMANENT_FAILURE", "DELIVERY_UNKNOWN", "MANUAL_INTERVENTION", "MANUAL_RESOLUTION":
+	case "CANCEL", "EXPIRE", "ACCEPT", "RESUME_SAME_PROVIDER", "RETRY_SAME_PROVIDER", "PERMANENT_FAILURE", "DELIVERY_UNKNOWN", "MANUAL_INTERVENTION", "MANUAL_RESOLUTION":
 		return s
 	}
 	return ""

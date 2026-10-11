@@ -189,13 +189,20 @@ func NewSendHandler(ctx context.Context, raw string, receiver message.APIReceive
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
+		cancelID := ""
+		if strings.HasPrefix(r.URL.Path, "/v1/messages/") && strings.HasSuffix(r.URL.Path, "/cancel") {
+			cancelID = strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/v1/messages/"), "/cancel")
+			if strings.Contains(cancelID, "/") {
+				cancelID = ""
+			}
+		}
 		readID := strings.TrimPrefix(r.URL.Path, "/v1/messages/")
 		list := r.URL.Path == "/v1/messages" && r.Method == "GET"
 		statistics := r.URL.Path == "/v1/statistics"
 		sandboxID, sandboxOperation, auxiliary := sandboxRoute(r.URL.Path)
 		read := strings.HasPrefix(r.URL.Path, "/v1/messages/") && readID != "" && !strings.Contains(readID, "/")
 		read = read || list || statistics
-		if r.URL.Path != "/v1/messages" && !read && !auxiliary {
+		if r.URL.Path != "/v1/messages" && !read && !auxiliary && cancelID == "" {
 			http.NotFound(w, r)
 			return
 		}
@@ -288,6 +295,24 @@ func NewSendHandler(ctx context.Context, raw string, receiver message.APIReceive
 		if e != nil {
 			respond(w, 503, "unavailable")
 			return
+		}
+		if cancelID != "" {
+			cancelWebsiteMessage(ctx, w, r, receiver.Repo, who, cancelID)
+			return
+		}
+		replaces := ""
+		replacementHeaders := r.Header.Values("X-RelayTale-Replaces")
+		if len(replacementHeaders) > 1 {
+			respond(w, 400, "invalid_replacement")
+			return
+		}
+		if len(replacementHeaders) == 1 {
+			id, err := uuid.Parse(replacementHeaders[0])
+			if err != nil || id == uuid.Nil || id.String() != replacementHeaders[0] {
+				respond(w, 400, "invalid_replacement")
+				return
+			}
+			replaces = id.String()
 		}
 		media, params, e := mime.ParseMediaType(r.Header.Get("Content-Type"))
 		if len(r.Header.Values("Content-Type")) != 1 || e != nil || (media != "message/rfc822" && media != "application/json") || len(params) != 0 || len(r.Header.Values("Content-Encoding")) != 0 {
@@ -412,9 +437,13 @@ func NewSendHandler(ctx context.Context, raw string, receiver message.APIReceive
 			}
 			payload = &jsonMessageReader{body: r.Body, from: sender, recipients: recipients, identity: who.key.ID, key: idem[0], templates: who.key.Templates}
 		}
-		result, e := receiver.ReceiveScheduled(ctx, message.Envelope{Account: account, From: sender, Recipients: recipients}, payload, who.key.ID, idem[0], stream, expiresAt, scheduleAt, business)
+		result, e := receiver.ReceiveReplacing(ctx, message.Envelope{Account: account, From: sender, Recipients: recipients}, payload, who.key.ID, idem[0], stream, expiresAt, scheduleAt, replaces, business)
 		if e != nil {
 			switch {
+			case errors.Is(e, message.ErrControlNotFound):
+				respond(w, 404, "message_not_found")
+			case errors.Is(e, message.ErrNotCancellable):
+				respond(w, 409, "message_not_cancellable")
 			case errors.Is(e, message.ErrInvalidSchedule):
 				respond(w, 422, "schedule_out_of_range")
 			case errors.Is(e, message.ErrScheduleCapacity):

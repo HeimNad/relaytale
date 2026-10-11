@@ -1,6 +1,6 @@
 # 业务网站能力规划：小型 SMTP Provider 之上的 RelayTale
 
-调研日期：2026-09-27。本文保留需求依据与排期；截至 2026-10-08，8D 查询/回调、8E 业务关联/预算/流/期限/沙箱、9B 分段运行安全与 9C.1–5 生命周期/统计/容量基础已完成本地验收；[8F.1 简单 JSON 发信](phase-8f1-json-submission.md) 已增加有界确定性 MIME 构建入口，8F.2 附件与 [8F.3 固定版本模板](phase-8f3-versioned-templates.md) 已补齐有界构建基础；8F.4 已增加本地源码预览与精确语言选择；8F.5a 已增加持久目录和显式审计发布命令；[8F.5b.1](phase-8f5b1-template-retirement.md) 已增加不可逆版本退役与有界历史，生效需等待请求重试窗口并重启；[8F.5b.2](phase-8f5b2-template-drafts.md) 已增加有界草稿与精确修订发布基础；[8F.5b.3](phase-8f5b3-template-management.md) 已增加模板管理 API 与工作台发布；[8F.5b.4](phase-8f5b4-template-preview.md) 已增加隔离 HTML 结构预览；[8G.1](phase-8g1-scheduled-submission.md) 已增加定时准入与发送门闩；取消及可信反馈继续按路线图推进。
+调研日期：2026-09-27。本文保留需求依据与排期；截至 2026-10-08，8D 查询/回调、8E 业务关联/预算/流/期限/沙箱、9B 分段运行安全与 9C.1–5 生命周期/统计/容量基础已完成本地验收；[8F.1 简单 JSON 发信](phase-8f1-json-submission.md) 已增加有界确定性 MIME 构建入口，8F.2 附件与 [8F.3 固定版本模板](phase-8f3-versioned-templates.md) 已补齐有界构建基础；8F.4 已增加本地源码预览与精确语言选择；8F.5a 已增加持久目录和显式审计发布命令；[8F.5b.1](phase-8f5b1-template-retirement.md) 已增加不可逆版本退役与有界历史，生效需等待请求重试窗口并重启；[8F.5b.2](phase-8f5b2-template-drafts.md) 已增加有界草稿与精确修订发布基础；[8F.5b.3](phase-8f5b3-template-management.md) 已增加模板管理 API 与工作台发布；[8F.5b.4](phase-8f5b4-template-preview.md) 已增加隔离 HTML 结构预览；[8G.1](phase-8g1-scheduled-submission.md) 已增加定时准入与发送门闩；[8G 收尾](phase-8g-complete.md) 已补齐受控取消、原子替换与改期；可信反馈继续按路线图推进。
 
 ## 判断依据与定位
 
@@ -48,7 +48,7 @@ P0/P1 表示本项目的实施优先级，不表示每项都属于安全漏洞�
 
 新增 expires_at：过期前才允许提交新的 DATA 授权；每次领取和 DATA 授权都重新检查，并与取消/抑制/授权串行化。已授权 DATA 或结果 UNKNOWN 后不能直接改成“从未发送的过期邮件”，保留实际尝试和不确定状态；过期只能阻止未来尝试。网关不承诺在期限内送达，验证码是否有效仍由网站验证。
 
-业务上的“最新验证码替换旧验证码”另设受身份约束的替换键，只作用于尚未授权 DATA 的任务，不能误取消已经发送或 UNKNOWN 的任务。
+业务上的“最新验证码替换旧验证码”已使用受网站身份约束的精确旧 Gateway ID 作为替换目标，并用新的幂等键接纳新任务。只作用于没有活动尝试且从未授权 DATA 的待发任务；已发送或 UNKNOWN 的任务拒绝替换。模糊业务键批量替换仍待另行定义。
 
 参考：Postmark 把事务与广播邮件分成 Message Streams；RelayTale 可借鉴逻辑隔离，但仅划分队列不会自动拥有它们的独立 IP 基础设施。[Postmark Message Streams](https://postmarkapp.com/message-streams)。有效期和公平调度是本项目基于验证码场景提出的设计，不声称这些 Provider 都提供了相同实现。
 
