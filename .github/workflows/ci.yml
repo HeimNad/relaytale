@@ -25,9 +25,9 @@ jobs:
           --health-cmd "pg_isready -U relaytale_test -d relaytale_test"
           --health-interval 5s --health-timeout 3s --health-retries 12
     env:
-      GO111MODULE: 'on'
+      GO111MODULE: "on"
       TEST_DATABASE_URL: postgres://relaytale_test:isolated-ci-only@localhost:5432/relaytale_test?sslmode=disable
-      REQUIRE_INTEGRATION_TESTS: '1'
+      REQUIRE_INTEGRATION_TESTS: "1"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -35,11 +35,24 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+      - name: Install PostgreSQL 17 backup and restore tools
+        run: |
+          if ! grep -Rq 'apt.postgresql.org' /etc/apt/sources.list /etc/apt/sources.list.d; then
+            sudo install -d /usr/share/postgresql-common/pgdg
+            curl --fail --silent --show-error https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo tee /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc > /dev/null
+            . /etc/os-release
+            echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt ${VERSION_CODENAME}-pgdg main" | sudo tee /etc/apt/sources.list.d/relaytale-pgdg.list > /dev/null
+          fi
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends postgresql-client-17
+          echo '/usr/lib/postgresql/17/bin' >> "$GITHUB_PATH"
+          /usr/lib/postgresql/17/bin/pg_dump --version
+          /usr/lib/postgresql/17/bin/pg_restore --version
       - name: Format, vet, build and race tests with PostgreSQL
         run: make ci
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
-          node-version: '24'
+          node-version: "24"
           cache: npm
       - name: Install browser test dependencies
         run: npm ci --ignore-scripts
